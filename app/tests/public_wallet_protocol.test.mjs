@@ -19,8 +19,9 @@ test('real HTTP browser module performs Wallet Standard handshake/approval/chang
     else { response.statusCode = 404; response.end(); }
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  let browser;
   try {
+    browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -50,5 +51,5 @@ test('real HTTP browser module performs Wallet Standard handshake/approval/chang
     assert.deepEqual(result, { discoveredReads: 0, connected: '11111111111111111111111111111111', changed: 'So11111111111111111111111111111111111111112', revoked: null, calls: ['connect:0', 'change', 'off'], cookies: '', local: 0, session: 0 });
     assert.deepEqual(errors, []);
     assert.ok(requests.every(value => ['GET /', 'GET /controller.js', 'GET /favicon.ico'].includes(value)));
-  } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 });
