@@ -16,6 +16,10 @@ import solders.solders as native
 if mode == 'missing_native':
     if hasattr(native, 'LiteSVM'):
         del native.LiteSVM
+    sys.modules.pop('solders.litesvm', None)
+    import solders
+    if hasattr(solders, 'litesvm'):
+        del solders.litesvm
 elif mode in ('missing_module', 'broken_import', 'missing_dependency'):
     # These modes test the later Python import boundary even on a host whose
     # native wheel lacks the VM. The marker is never instantiated.
