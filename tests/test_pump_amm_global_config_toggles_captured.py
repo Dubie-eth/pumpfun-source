@@ -8,18 +8,21 @@ Covers `disable`, `toggle_mayhem_mode`, `toggle_cashback_enabled` and
 and writable flags and the event-authority / program addresses are worked out
 here from the metas actually passed. The error (custom code or runtime error),
 the committed config bytes, the `DisableEvent` in the log and the same bytes in
-the `emit_cpi!` self-call must agree, and nothing else may move. This is
+the `emit_cpi!` self-call must agree. Config metadata stays unchanged, and
+failed transactions roll back its bytes. This is
 matching behaviour on these inputs only, not a byte-identity claim.
 """
 from pathlib import Path
 import base64
 import hashlib
+from functools import cache
 import random
 import re
 import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from solders.account import Account
 from solders.clock import Clock
@@ -110,10 +113,23 @@ def host_line(c):
                      bytes(config.data).hex(), bytes(signer).hex(), str(NOW)])
 
 
+def read_captured_image(path):
+    image = path.read_bytes()
+    if hashlib.sha256(image).hexdigest() != AMM_SHA256:
+        raise ValueError('captured AMM hash mismatch')
+    return image
+
+
+@cache
+def captured_image():
+    """The immutable admitted image used for every case in this process."""
+    return read_captured_image(AMM_ELF)
+
+
 def run_captured(c):
     config_key, accounts, metas, data, signers = setup(c)
     vm = LiteSVM().with_transaction_history(0)
-    vm.add_program_from_file(AMM, AMM_ELF)
+    vm.add_program(AMM, captured_image())
     clock = vm.get_clock()
     vm.set_clock(Clock(clock.slot, clock.epoch_start_timestamp, clock.epoch, clock.leader_schedule_epoch, NOW))
     vm.airdrop(PAYER.pubkey(), 10**10)
@@ -135,12 +151,12 @@ def run_captured(c):
         and (not failed or bytes(after[k].data) == bytes(before[k].data))
         and len(after[k].data) == len(before[k].data)
         for k in accounts)
+    cpi = [bytes(ix.instruction().data) for group in meta.inner_instructions() for ix in group]
     if failed:
         text = str(result.err())
         custom = re.search(r'InstructionErrorCustom\((\d+)\)', text)
         error = int(custom.group(1)) if custom else re.search(r'Fieldless\((\w+)\)', text).group(1)
-        return {'error': error, 'events': events, 'unchanged': unchanged}
-    cpi = [bytes(ix.instruction().data) for group in meta.inner_instructions() for ix in group]
+        return {'error': error, 'events': events, 'cpi': cpi, 'unchanged': unchanged}
     return {'error': None, 'events': events, 'cpi': cpi, 'config': bytes(after[config_key].data),
             'unchanged': unchanged}
 
@@ -228,8 +244,7 @@ def random_cases():
 class PumpAmmGlobalConfigTogglesCapturedTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if hashlib.sha256(AMM_ELF.read_bytes()).hexdigest() != AMM_SHA256:
-            raise ValueError('captured AMM hash mismatch')
+        captured_image()
         cls.tmp = tempfile.TemporaryDirectory()
         host = Path(cls.tmp.name) / 'global-config-toggles-host'
         subprocess.run(['rustc', '--edition=2021', '-O', '-D', 'warnings', str(HOST_SOURCE), '-o', str(host)],
@@ -253,12 +268,16 @@ class PumpAmmGlobalConfigTogglesCapturedTests(unittest.TestCase):
             code = answer[6:]
             self.assertEqual(captured['error'], int(code) if code.isdigit() else code)
             self.assertEqual(captured['events'], [])
+            self.assertEqual(captured['cpi'], [])
             return
         if answer.startswith('event-then:'):
             name, event = answer[11:].split(',')
             self.assertEqual(captured['error'], name)
             self.assertEqual(captured['events'], [bytes.fromhex(event)])
+            expected_cpi = [] if name == 'MissingAccount' else [EVENT_CPI_TAG + bytes.fromhex(event)]
+            self.assertEqual(captured['cpi'], expected_cpi)
             return
+        self.assertTrue(answer.startswith('ok,'), 'unknown model outcome')
         _, config, event = answer.split(',')
         self.assertIsNone(captured['error'])
         self.assertEqual(captured['config'], bytes.fromhex(config))
@@ -270,6 +289,30 @@ class PumpAmmGlobalConfigTogglesCapturedTests(unittest.TestCase):
         for c, answer in zip(cases, self.host_answers(cases)):
             with self.subTest(case=repr(c), host=answer[:80]):
                 self.assert_matches(answer, run_captured(c))
+
+    def test_admitted_image_survives_path_replacement_and_rejects_wrong_bytes(self):
+        case = {'kind': 'boost'}
+        expected = run_captured(case)
+        with tempfile.TemporaryDirectory() as directory:
+            wrong = Path(directory) / 'wrong.so'
+            wrong.write_bytes(b'not the captured AMM')
+            with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                read_captured_image(wrong)
+            # Execution is bound to the admitted bytes even after this name moves.
+            with patch(__name__ + '.AMM_ELF', wrong):
+                self.assertEqual(run_captured(case), expected)
+
+    def test_failed_self_cpi_observations_are_checked(self):
+        cases = [{'kind': 'disable', 'program_key': STRAY},
+                 {'kind': 'disable', 'length': 940}, {'kind': 'mayhem', 'length': 100}]
+        for case, answer in zip(cases, self.host_answers(cases)):
+            captured = run_captured(case)
+            self.assert_matches(answer, captured)
+            for altered in [[], [b'altered CPI data'], captured['cpi'] + [b'extra CPI']]:
+                if altered == captured['cpi']:
+                    continue
+                with self.subTest(case=case, cpi=altered), self.assertRaises(AssertionError):
+                    self.assert_matches(answer, dict(captured, cpi=altered))
 
     def test_fixed_cases_match_captured_program(self):
         self.run_cases(fixed_cases())
