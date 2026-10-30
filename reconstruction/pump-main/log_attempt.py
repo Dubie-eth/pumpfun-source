@@ -56,9 +56,11 @@ def atomic_copy(source, destination):
         os.fchmod(fd, mode)
         os.fsync(fd)
         os.replace(temporary, destination)
+        temporary = None  # The old name can be reused by another writer now.
     finally:
         os.close(fd)
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def read_rows():
@@ -177,9 +179,16 @@ def main():
                                             and destination.samefile(LOCK)):
             raise SystemExit('sync destination must not replace the live ledger lock')
         def run(rows):
-            args.to.parent.mkdir(parents=True, exist_ok=True)
-            atomic_copy(LEDGER, args.to)
-            print(json.dumps({'synced': str(args.to), 'attempts': len(rows), 'sha256': hashlib.sha256(args.to.read_bytes()).hexdigest()}))
+            # A parent alias may change while this process waits for the lock.
+            # Keep the admitted destination and refuse a changed name before I/O.
+            if args.to.resolve() != destination:
+                raise SystemExit('sync destination changed while waiting for ledger lock')
+            if destination == LOCK.resolve() or (destination.exists() and LOCK.exists()
+                                                  and destination.samefile(LOCK)):
+                raise SystemExit('sync destination must not replace the live ledger lock')
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            atomic_copy(LEDGER, destination)
+            print(json.dumps({'synced': str(destination), 'attempts': len(rows), 'sha256': hashlib.sha256(destination.read_bytes()).hexdigest()}))
         return locked(run)
 
     try:
