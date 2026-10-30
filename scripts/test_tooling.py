@@ -938,7 +938,8 @@ class RevalidationReportTests(unittest.TestCase):
             root = Path(temporary).resolve()
             self.assertTrue(root.name.startswith('pump-revalidation-'))
             (root / 'scripts').mkdir()
-            shutil.copyfile(repo / 'scripts/revalidate_all.py', root / 'scripts/revalidate_all.py')
+            for name in ('revalidate_all.py', 'deep_disassembly.py', 'window_elf_reader.py'):
+                shutil.copyfile(repo / 'scripts' / name, root / 'scripts' / name)
             for name in ['both-pass', 'manifest-fails', 'verifier-fails',
                          'manifest-parse-error', 'manifest-only', 'verifier-only', 'neither']:
                 packet = root / 'research' / name

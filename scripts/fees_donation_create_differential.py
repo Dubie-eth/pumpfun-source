@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Recover donation-PDA creation with normally signed synthetic local transactions."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse, base64, hashlib, json, pathlib, sys
 from solders.account import Account
 from solders.instruction import AccountMeta, Instruction

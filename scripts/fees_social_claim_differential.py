@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Normally signed synthetic offline social fee claims, original/candidate comparison."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,base64,hashlib,json,pathlib,sys
 from fees_admin_differential import IDL,PROGRAM,GLOBAL,EVENT,AUTH,OTHER,PAYER,BASE
 from solders.account import Account

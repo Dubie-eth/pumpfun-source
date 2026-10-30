@@ -35,6 +35,12 @@ def stage_ignore(source):
 def digest(data): return hashlib.sha256(data).hexdigest()
 
 
+# A long-lived importer keeps executing this loaded module if its source file
+# changes on disk. Retain the import-time source fingerprint instead of
+# relabeling the import with a later source-file read.
+LOADED_RUNNER_SHA256 = digest(Path(__file__).read_bytes())
+
+
 def linked_source(path):
     metadata = path.lstat()
     return (stat.S_ISLNK(metadata.st_mode) or
@@ -78,17 +84,33 @@ def input_hashes(inputs):
     return result
 
 
-def identity(source, command, inputs, timeout):
-    if not isinstance(command, list) or not command or not all(isinstance(x, str) and x for x in command):
+def identity(source, command, inputs, timeout, *, environment=None):
+    if not isinstance(command, list):
+        raise ValueError('command must be a nonempty argv array')
+    command = list(command)
+    if not command or not all(isinstance(x, str) and x for x in command):
         raise ValueError('command must be a nonempty argv array')
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 86400:
         raise ValueError('timeout must be positive and at most one day')
-    executable = shutil.which(command[0])
-    if executable is None: raise ValueError('command executable is unavailable')
+    environment = dict(os.environ if environment is None else environment)
+    declared = shutil.which(command[0], path=environment.get('PATH', os.defpath))
+    if declared is None: raise ValueError('command executable is unavailable')
+    executable = Path(declared).resolve(strict=True)
+    inputs = list(inputs)
+    declared_paths = {os.path.abspath(value): str(Path(value).resolve(strict=True))
+                      for value in inputs}
     return {'schema': 'experiment-input-v1', 'source': manifest(source), 'command': command,
+            'executable': str(executable), 'invocation': os.path.abspath(declared),
             'inputs': input_hashes([executable, *inputs]), 'timeout': timeout,
-            'environment_sha256': digest(json.dumps(dict(os.environ), sort_keys=True).encode()),
-            'runner_sha256': digest(Path(__file__).read_bytes())}
+            'declared_input_paths': declared_paths,
+            'environment_sha256': digest(json.dumps(environment, sort_keys=True).encode()),
+            'runner_sha256': LOADED_RUNNER_SHA256}
+
+
+def admitted_inputs_match(admission):
+    return (input_hashes(admission['inputs']) == admission['inputs']
+            and all(str(Path(path).resolve(strict=True)) == target
+                    for path, target in admission['declared_input_paths'].items()))
 
 
 def atomic_json(path, value):
@@ -122,7 +144,8 @@ def separate_trees(source, destination):
 
 def run_trial(source, command, destination, inputs=(), timeout=300):
     source, destination = separate_trees(source, destination)
-    admission = identity(source, command, inputs, timeout)
+    environment = dict(os.environ)
+    admission = identity(source, command, inputs, timeout, environment=environment)
     key = digest(json.dumps(admission, sort_keys=True).encode())
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.lock').open('a') as lock:
@@ -136,7 +159,8 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
             attempt = destination / name
             if previous.get('key') == key and previous.get('status') in ('pass', 'fail'):
                 try:
-                    valid = (not attempt.is_symlink()
+                    valid = (admitted_inputs_match(admission)
+                             and not attempt.is_symlink()
                              and manifest(attempt / 'source') == admission['source']
                              and artifacts(attempt) == previous['artifacts'])
                 except (OSError, ValueError): valid = False
@@ -150,18 +174,20 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
         work.mkdir(); output.mkdir()
         replacements = {'{source}': str(copied), '{work}': str(work), '{out}': str(output)}
         argv = []
-        for arg in command:
+        for arg in admission['command']:
             for token, value in replacements.items(): arg = arg.replace(token, value)
             argv.append(arg)
-        # Start the hashed binary under its declared name: virtual environments
-        # and rustup proxies select their behaviour from argv[0].
-        declared = shutil.which(command[0])
-        argv[0] = os.path.abspath(declared)
+        # Preserve argv[0] for virtual environments/rustup, but do not resolve
+        # the alias again: it may now point somewhere other than the hashed tool.
+        argv[0] = admission['invocation']
         status, reason, code = 'error', None, None
         with (attempt / 'stdout.log').open('wb') as stdout, (attempt / 'stderr.log').open('wb') as stderr:
             try:
-                process = subprocess.Popen(argv, executable=Path(declared).resolve(), cwd=work,
-                                           stdout=stdout, stderr=stderr, start_new_session=True)
+                if not admitted_inputs_match(admission):
+                    raise OSError('declared input changed before launch')
+                process = subprocess.Popen(argv, executable=admission['executable'], cwd=work,
+                                           stdout=stdout, stderr=stderr, start_new_session=True,
+                                           env=environment)
             except OSError as error:
                 reason = 'process start failed'
                 stderr.write((str(error) + '\n').encode('utf-8', errors='replace'))
@@ -177,7 +203,7 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
                     process.wait()
         retained = {}
         try:
-            if manifest(source) != admission['source'] or manifest(copied) != admission['source'] or input_hashes(admission['inputs']) != admission['inputs']:
+            if manifest(source) != admission['source'] or manifest(copied) != admission['source'] or not admitted_inputs_match(admission):
                 status, reason = 'error', 'source or declared input changed during execution'
             retained = artifacts(attempt)
         except (OSError, ValueError) as error:

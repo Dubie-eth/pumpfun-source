@@ -5,6 +5,9 @@ substituted locally by a disposable signer. The accumulator, mint and token
 account are synthetic but canonically derived. No transaction is broadcast.
 """
 
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
+
 import argparse
 import base64
 import gzip
@@ -14,6 +17,7 @@ import re
 import struct
 from pathlib import Path
 
+from pump_amm_reusable_harness import pin_program
 from solders.account import Account
 from solders.clock import Clock
 from solders.instruction import AccountMeta, Instruction
@@ -25,6 +29,8 @@ from solders.transaction import VersionedTransaction
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEPENDENCIES = {name: ROOT / "evidence/dependencies" / name / "deployed.so"
+                for name in ("spl_token", "spl_token_2022", "associated_token")}
 TARGET = ROOT / "evidence/original/pump/deployed.so"
 CANDIDATE = ROOT / "repro/pump/admin-incentives-fortynine/candidate.so"
 BUILD = ROOT / "repro/pump/admin-incentives-fortynine/build-comparison.json"
@@ -113,7 +119,7 @@ def run(binary, item, case, global_fixture):
     vm.add_program_from_file(PUMP, str(binary))
     for program, path in ((TOKEN, "spl_token"), (TOKEN22, "spl_token_2022"),
                           (ATA, "associated_token")):
-        vm.add_program_from_file(program, str(ROOT / "evidence/dependencies" / path / "deployed.so"))
+        vm.add_program_from_file(program, str(pin_program(DEPENDENCIES[path])))
     for signer in (AUTH, OUTSIDER, FEE_PAYER):
         vm.airdrop(signer.pubkey(), 10**10)
     raw = bytearray(base64.b64decode(global_fixture["data_base64"]))
@@ -289,34 +295,47 @@ def variants():
 def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
          second_build_path=None):
     candidate, build_path, output = map(Path, (candidate, build_path, output))
-    build = json.loads(build_path.read_text())
-    assert sha(TARGET) == build["comparison"]["original_sha256"]
+    candidate = pin_program(candidate)
+    target_image = pin_program(TARGET)
+    build_bytes = build_path.read_bytes()
+    build = json.loads(build_bytes)
+    assert sha(target_image) == build["comparison"]["original_sha256"]
     assert sha(candidate) == build["comparison"]["candidate_sha256"]
     clean_rebuild = None
     if second_build_path is not None:
         second_build_path = Path(second_build_path)
-        second = json.loads(second_build_path.read_text())
+        second_bytes = second_build_path.read_bytes()
+        second = json.loads(second_bytes)
         assert second["comparison"]["candidate_sha256"] == sha(candidate)
         assert second["source_sha256"] == build["source_sha256"]
         assert second["selected_toolchain"] == build["selected_toolchain"] == "v1.44"
         clean_rebuild = {"comparison_path": receipt_path(second_build_path),
-                         "comparison_sha256": sha(second_build_path),
+                         "comparison_sha256": sha(second_bytes),
                          "candidate_sha256": second["comparison"]["candidate_sha256"],
                          "source_hashes_equal": True, "toolchain_equal": True}
-    idl = json.loads(IDL.read_text(encoding='utf-8'))
+    idl_bytes = IDL.read_bytes()
+    idl = json.loads(idl_bytes)
     item = next(item for item in idl["instructions"]
                 if item["name"] == "admin_update_token_incentives")
     assert [entry["name"] for entry in item["accounts"]] == [
         "authority", "global", "global_volume_accumulator", "mint",
         "global_incentive_token_account", "associated_token_program",
         "system_program", "token_program", "event_authority", "program"]
-    fixture = next(row for row in json.loads(SNAPSHOT.read_text())["accounts"]
+    snapshot_bytes = SNAPSHOT.read_bytes()
+    fixture = next(row for row in json.loads(snapshot_bytes)["accounts"]
                    if row["program_name"] == "pump")
     assert sha(base64.b64decode(fixture["data_base64"])) == fixture["data_sha256"]
     assert fixture["address"] == str(GLOBAL) and fixture["owner"] == str(PUMP)
+    source_hashes = {str(path.relative_to(ROOT)): sha(path) for path in (
+        ROOT / "programs/pump/src/incentives.rs",
+        ROOT / "programs/pump/src/volume_sync.rs",
+        ROOT / "programs/pump/src/lib.rs",
+        ROOT / "programs/pump/Cargo.toml",
+        ROOT / "programs/pump/Cargo.lock")}
+    dependency_hashes = {name: sha(pin_program(path)) for name, path in DEPENDENCIES.items()}
     rows = []
     for name, case in variants():
-        target = run(TARGET, item, case, fixture)
+        target = run(target_image, item, case, fixture)
         recovered = run(candidate, item, case, fixture)
         fields = ("error", "error_code", "before", "after",
                   "signed_transaction_base64", "signature", "events",
@@ -329,23 +348,17 @@ def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
     report = {
         "scope": "Pump admin_update_token_incentives only; signed isolated target/candidate VM differential",
         "baseline_commit": "4ffe8bd88761059693e481ae972443c10204f7af",
-        "target_sha256": sha(TARGET), "candidate_sha256": sha(candidate),
+        "target_sha256": sha(target_image), "candidate_sha256": sha(candidate),
         "candidate_path": receipt_path(candidate),
-        "build_comparison_sha256": sha(build_path), "idl_sha256": sha(IDL),
+        "build_comparison_sha256": sha(build_bytes), "idl_sha256": sha(idl_bytes),
         "build_comparison_path": receipt_path(build_path),
         "second_clean_build": clean_rebuild,
-        "global_snapshot_sha256": sha(SNAPSHOT),
+        "global_snapshot_sha256": sha(snapshot_bytes),
         "global_snapshot_account_data_sha256": fixture["data_sha256"],
-        "source_sha256": {str(path.relative_to(ROOT)): sha(path) for path in (
-            ROOT / "programs/pump/src/incentives.rs",
-            ROOT / "programs/pump/src/volume_sync.rs",
-            ROOT / "programs/pump/src/lib.rs",
-            ROOT / "programs/pump/Cargo.toml",
-            ROOT / "programs/pump/Cargo.lock")},
+        "source_sha256": source_hashes,
         "programs": {"pump": str(PUMP), "spl_token": str(TOKEN),
                      "spl_token_2022": str(TOKEN22), "associated_token": str(ATA)},
-        "dependency_sha256": {name: sha(ROOT / "evidence/dependencies" / name / "deployed.so")
-                              for name in ("spl_token", "spl_token_2022", "associated_token")},
+        "dependency_sha256": dependency_hashes,
         "summary": {"cases": len(rows), "matched": sum(row["match"] for row in rows),
                     "target_successes": sum(row["target"]["error"] is None for row in rows),
                     "candidate_successes": sum(row["candidate"]["error"] is None for row in rows)},

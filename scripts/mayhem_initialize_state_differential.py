@@ -184,7 +184,7 @@ def main():
                     help='source-built mayhem ELF (comparison target)')
     ap.add_argument('--output', type=pathlib.Path, required=True)
     a = ap.parse_args(); a.candidate = pin_program(a.candidate)
-    original = ROOT / 'evidence/original/mayhem/deployed.so'
+    original = pin_program(ROOT / 'evidence/original/mayhem/deployed.so')
     o = Fixture(original); b = Fixture(a.candidate)
     rows = []; mismatches = []
     for c in cases():
