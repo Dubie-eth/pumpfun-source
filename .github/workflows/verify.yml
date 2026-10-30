@@ -76,6 +76,7 @@ jobs:
               python -B reconstruction/harness/test_integrate_build_input_recheck.py
               python -B reconstruction/harness/test_composition_boundaries.py
               python -B reconstruction/harness/test_build_pair_boundaries.py
+              python -B reconstruction/harness/test_build_pair_source_overlap.py
               python -B reconstruction/harness/test_composition_deadline.py
               python -B reconstruction/harness/test_fastbuild_stack.py
               python -B reconstruction/harness/test_integrate_empty_files.py
