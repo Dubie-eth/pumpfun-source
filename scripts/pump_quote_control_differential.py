@@ -14,6 +14,7 @@ from solders.litesvm import LiteSVM
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
+from pump_amm_reusable_harness import pin_program
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IDL = json.loads((ROOT / 'evidence/upstream/pump.json').read_text(encoding='utf-8'))
@@ -151,6 +152,14 @@ def main():
     p.add_argument('--original-only', action='store_true')
     a = p.parse_args()
     original = ROOT / 'evidence/original/pump/deployed.so'
+    if a.candidate is not None and not a.original_only:
+        # Pin one candidate image for the whole run: execute() builds a
+        # fresh LiteSVM per case through add_program_from_file, which
+        # reads the file on every call, so a mid-run replacement of the
+        # live path would otherwise make later cases run a different
+        # image under one report. pin_program snapshots the bytes once
+        # and returns the same snapshot for every case and the hash.
+        a.candidate = pin_program(a.candidate)
     results, mismatches = [], 0
     for label, name, kw in cases():
         o = execute(original, name, **kw)
@@ -167,7 +176,7 @@ def main():
     if a.output:
         a.output.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(a.output, 'wt') as f:
-            json.dump({'scope': 'Offline LiteSVM differential; synthetic QuoteControl state, test-owned keys.', 'cases': len(results), 'mismatches': mismatches, 'results': results}, f)
+            json.dump({'scope': 'Offline LiteSVM differential; synthetic QuoteControl state, test-owned keys.', 'candidate_sha256': hashlib.sha256(a.candidate.read_bytes()).hexdigest() if a.candidate is not None and not a.original_only else None, 'cases': len(results), 'mismatches': mismatches, 'results': results}, f)
     print(f'{len(results)} cases, {mismatches} mismatches')
     return 1 if mismatches else 0
 
