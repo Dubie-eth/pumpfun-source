@@ -22,8 +22,7 @@ from solders.transaction import Transaction
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import pump_legacy_buy_differential as fixtures
-sys.path.insert(0, str(ROOT / 'localnet'))
-from social_transactions import RecordingVM
+from surfpool_recording_vm import RecordingVM
 PORT = 20211
 COMPUTE = Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 DEPENDENCIES = [(n,Pubkey.from_string(json.loads((ROOT/('evidence/original' if n=='pump_fees' else 'evidence/dependencies')/n/'capture.json').read_text())['program'])) for n in ['pump_fees','spl_token','spl_token_2022','associated_token']]

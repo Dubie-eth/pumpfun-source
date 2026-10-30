@@ -45,10 +45,12 @@ def run(script, *arguments, environment=None):
 class PumpSurfpoolOptimizedModeTests(unittest.TestCase):
     def test_optimized_python_is_rejected(self):
         for script in RUNNERS:
-            with self.subTest(script=script):
-                completed = run(script, "-O")
-                self.assertNotEqual(completed.returncode, 0)
-                self.assertIn(ERROR, completed.stderr)
+            for flag in ("-O", "-OO"):
+                with self.subTest(script=script, flag=flag):
+                    completed = run(script, flag)
+                    self.assertEqual(completed.returncode, 1)
+                    self.assertIn(ERROR, completed.stderr)
+                    self.assertNotIn("usage:", completed.stdout)
 
     def test_pythonoptimize_environment_is_rejected(self):
         environment = dict(os.environ, PYTHONOPTIMIZE="1")
