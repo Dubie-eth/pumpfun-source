@@ -1,5 +1,19 @@
 # w13a08-cto-sweepphi (wave 13)
 
+## Landable on main 4394685 (0.49071): curve stores in the original's order (hr2)
+
+| build | bytes | ratio | slots_diff | normalized / raw | losses |
+| --- | ---: | ---: | ---: | --- | --- |
+| main 4394685 | 27,400 | 0.49071 | 3,313 | 1034 / 1034 | - |
+| hr2 | 27,400 | **0.49131** | 3,314 | 1034 / 1034 | 0 / 0 |
+
+`let old_fee=curve.creator_fee_bps;curve.is_holder_reward=holder;` then `curve.is_cashback_coin=cashback;`:
+the original reads the old fee right after the creator store, then stores `is_holder_reward` (from the holder
+phi slot -0x950) and then `is_cashback_coin` (orig 0x4b48-0x4b78). Unstripped sha256 prefix `da4cd7d523a29a5b`;
+differential 363/0. Holder before the old-fee read (`hr_first`) gives the same ratio (other bytes); cashback last
+after the fee read (`hr3`) 0.49101. With old-before-bump on top: 27,432 B / 0.49222 (needs -32 B);
++ `if let Some(val)=sharing_update` + early `reset` 27,424 B / 0.49229.
+
 Target: `0x22a10` `admin_cto::execute` (`programs/pump/src/creator/admin_cto.rs`), pinned at 27,400 B.
 Angle: the sweep gate and the pool-CPI holder as phis (S5/S10 of w12a09-cto-cleanroom).
 Base: main 3912c47ac (0.48772, 3,273 slots, 27,400 B, 1034/1034).
