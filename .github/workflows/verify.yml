@@ -149,6 +149,7 @@ jobs:
               python -B scripts/test_build_token_dependency_optimization.py
               python -B scripts/test_revalidate_empty_manifest.py
               python -B scripts/test_revalidate_all_manifest_records.py
+              python -B scripts/test_revalidate_packet_root_link.py
               python -B scripts/test_measure_relay13_v148_optimization.py
               python -B scripts/test_fees_withdraw_runtime_optimization.py
               python -B scripts/test_measure_relay_v148_optimization.py
