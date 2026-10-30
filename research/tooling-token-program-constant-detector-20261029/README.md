@@ -1,6 +1,7 @@
 # Token-program constant detector
 
-`scripts/bytecode_signatures.py::detect_token_transfer_patterns` looks for an
+At the reviewed historical revision,
+`scripts/bytecode_signatures.py::detect_token_transfer_patterns` looked for an
 `lddw` immediate equal to 3, 7 or 12 and labels it `spl_token_instruction`.
 Those values are SPL Token instruction-data bytes, not code immediates. The
 detector returns zero rows for all four originals.
@@ -56,3 +57,10 @@ evolved after sealing, which made the packet's `inputs.json` binding fail
 against current main; the packet now verifies the archived revision it actually
 measured, and the `'script'` label in the observations keeps recording the
 historical path.
+
+The packet also retains the 40-line ELF reader used by that revision at
+`archived/window_elf_reader.py` (SHA-256 `5a57f329...`). Both source snapshots
+are checked before execution; the detector and the comparison use that same
+reader. `check(root)` loads the snapshots from the supplied root, and the
+historical source label does not mean the live script is executed. Sealed
+observations and coverage totals have not been regenerated.
