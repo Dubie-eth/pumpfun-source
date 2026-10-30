@@ -184,7 +184,7 @@ def main():
     ap.add_argument('--candidate', type=pathlib.Path, required=True,
                     help='source-built mayhem ELF (comparison target)')
     ap.add_argument('--output', type=pathlib.Path, required=True)
-    a = ap.parse_args(); publisher = PumpReport(a.output, ROOT, a.candidate, __file__)
+    a = ap.parse_args(); publisher = PumpReport(a.output, ROOT, a.candidate, __file__, extra_inputs=[ROOT/'evidence/original/mayhem/deployed.so', *(ROOT/f'evidence/dependencies/{name}/capture.json' for name in ('spl_token','spl_token_2022','associated_token'))])
     a.candidate = pin_program(a.candidate)
     original = pin_program(ROOT / 'evidence/original/mayhem/deployed.so')
     o = Fixture(original); b = Fixture(a.candidate)

@@ -23,7 +23,7 @@ if hasattr(module,'cases'):
  def cases(*args,**kwargs):
   global selected
   rows=original_cases(*args,**kwargs)
-  rows=rows if mode=='full' else rows[:2]
+  rows=rows if mode=='full' else ([rows[0],next(r for r in rows if r.get('name')==options['keep_case'])] if options.get('keep_case') else rows[:2])
   selected=len(rows);return rows
  module.cases=cases
 else:
@@ -86,7 +86,7 @@ class PublicationCase:
 
  def invoke(self,name,mode='bounded',output=None,cwd=None):
   env=dict(os.environ);env.pop('PYTHONOPTIMIZE',None)
-  options={'args':self.ARGS.get(name,[]),'late_input':(self.LATE_INPUT.get(name) if isinstance(self.LATE_INPUT,dict) else self.LATE_INPUT) or self.PROGRAM}
+  options={'keep_case':getattr(self,'KEEP_CASE',{}).get(name),'args':self.ARGS.get(name,[]),'late_input':(self.LATE_INPUT.get(name) if isinstance(self.LATE_INPUT,dict) else self.LATE_INPUT) or self.PROGRAM}
   return subprocess.run([sys.executable,'-B','-c',DRIVER,str(self.root),name,mode,str(output or self.output),json.dumps(options)],cwd=cwd or self.root,env=env,text=True,capture_output=True,timeout=300)
 
  def report(self):
