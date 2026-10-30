@@ -32,7 +32,7 @@ def cases():
  return out,cal
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);args=ap.parse_args();fixtures,cal=cases();rows=[]
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);args=ap.parse_args();args.output.parent.mkdir(parents=True,exist_ok=True);fixtures,cal=cases();rows=[]
  for case in fixtures:
   a=h.run(case);b=h.run(case,args.candidate);diff=[k for k in ('error','before','accounts','events','inner','return_data') if a[k]!=b[k]]
   if diagnostics(a)!=diagnostics(b):diff.append('diagnostics')

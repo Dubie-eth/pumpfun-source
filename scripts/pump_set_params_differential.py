@@ -76,7 +76,7 @@ def cases():
  return rows
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();paths=[pathlib.Path(__file__),ORIGINAL,a.candidate,ROOT/'evidence/upstream/pump.json',ROOT/'research/imported-lab/analysis/pump_fun/config-snapshot.json'];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();provenance={str(p):sha(p) for p in paths};rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();a.output.parent.mkdir(parents=True,exist_ok=True);paths=[pathlib.Path(__file__),ORIGINAL,a.candidate,ROOT/'evidence/upstream/pump.json',ROOT/'research/imported-lab/analysis/pump_fun/config-snapshot.json'];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();provenance={str(p):sha(p) for p in paths};rows=[]
  for c in cases():
   o=run(c);n=run(c,a.candidate);diff=[k for k in ['error','before','after','events','inner','returns'] if o[k]!=n[k]];rows.append(dict(case=c,original=o,candidate=n,different_fields=diff))
  assert provenance=={str(p):sha(p) for p in paths}

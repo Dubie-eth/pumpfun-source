@@ -25,7 +25,7 @@ def cases():
  return rows
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;a.output.parent.mkdir(parents=True,exist_ok=True);rows=[];bad=[]
  h=load()
  for c in cases():
   boot,child=prepare(c);x=h.run(child);y=h.run(child,a.candidate) if a.candidate else None;diff=[k for k in ['before','after','error','events','inner','return'] if y is not None and x[k]!=y[k]];rows.append({'case':c,'bootstrap':boot,'child_fixture':child,'original':x,'candidate':y,'diff':diff})

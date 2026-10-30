@@ -70,6 +70,7 @@ def main():
     parser.add_argument('--source-directory', type=Path, default=ROOT / 'programs/pump')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     assert not args.output.exists(), 'Retain prior attempts; output must be fresh'
     SOURCE_DIRECTORY = args.source_directory.resolve()
     candidate = args.candidate.resolve()

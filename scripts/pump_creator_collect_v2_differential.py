@@ -52,7 +52,7 @@ def cases():
  return cases
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();rows=[];paths=[Path(__file__),a.candidate,ROOT/'evidence/original/pump/deployed.so',ROOT/'evidence/upstream/pump.json']+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();provenance={str(p):sha(p) for p in paths}
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.output.parent.mkdir(parents=True,exist_ok=True);rows=[];paths=[Path(__file__),a.candidate,ROOT/'evidence/original/pump/deployed.so',ROOT/'evidence/upstream/pump.json']+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();provenance={str(p):sha(p) for p in paths}
  for c in cases():
   o=run(c);n=run(c,a.candidate);diff=[k for k in ['error','before','after','events','inner','returns'] if o[k]!=n[k]];rows.append(dict(case=c,original=o,candidate=n,different_fields=diff))
  assert provenance=={str(p):sha(p) for p in paths}

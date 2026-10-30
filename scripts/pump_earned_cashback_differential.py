@@ -38,7 +38,7 @@ def cases():
  return out,calibration
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);args=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);args=ap.parse_args();args.output.parent.mkdir(parents=True,exist_ok=True)
  fixtures,calibration=cases();rows=[]
  for module,c in fixtures:
   a=module.run(c);b=module.run(c,args.candidate);diff=[k for k in ('error','accounts','events','inner','return_data') if a[k]!=b[k]]

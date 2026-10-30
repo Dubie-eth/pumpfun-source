@@ -44,7 +44,7 @@ def cases():
  for k in ['wrong_global','wrong_system','unsigned']:r.append({'name':f'combined_{k}',k:True,'existing':{'length':1088,'program_owner':True,'disc':True,'initialized':True}})
  return r
 if __name__=='__main__':
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=Path);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args();rows=[]
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=Path);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args();a.output.parent.mkdir(parents=True,exist_ok=True);rows=[]
  for c in cases():
   o=run(c);r={'case':c,'original':o}
   if a.candidate:
