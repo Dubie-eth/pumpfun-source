@@ -283,8 +283,24 @@ def _build_locked(src: Path, work: Path, out: Path, quiet=False, recipe=None, ti
             shutil.copy2(receipt, out / 'link-receipt.json')
             shutil.copy2(receipt.with_name('link.map'), out / 'link.map')
     built = target / triple / 'release' / f'{library}.so'
-    shutil.copy2(built, out / 'unstripped.so')
-    subprocess.run([str(SDK / 'llvm/bin/llvm-objcopy'), '--strip-all', str(built), str(out / 'candidate.so')], check=True)
+    with tempfile.TemporaryDirectory(prefix='.publish-', dir=out) as temporary:
+        pending = Path(temporary)
+        shutil.copy2(built, pending / 'unstripped.so')
+        try:
+            subprocess.run([str(SDK / 'llvm/bin/llvm-objcopy'), '--strip-all', str(built),
+                            str(pending / 'candidate.so')], check=True,
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+            for name in ('unstripped.so', 'candidate.so'):
+                os.replace(pending / name, out / name)
+        except BaseException as error:
+            for name in ('unstripped.so', 'candidate.so'):
+                (out / name).unlink(missing_ok=True)
+            with (out / 'build.log').open('a', encoding='utf-8') as log:
+                log.write('\nBinary publication failed: ' + str(error) + '\n')
+                for detail in (getattr(error, 'stdout', None), getattr(error, 'stderr', None)):
+                    if detail:
+                        log.write(detail.decode('utf-8', errors='replace') if isinstance(detail, bytes) else detail)
+            raise
     return {'ok': True, 'source_sha256': source_inputs['sha256'], 'link_order': link_record, 'runtime_valid': not stack, 'stack_warnings': stack, 'recipe': recipe, 'triple': triple, 'seconds': round(dt, 1), 'unstripped': str(out / 'unstripped.so'),
             'unstripped_sha256': sha(out / 'unstripped.so'), 'candidate_sha256': sha(out / 'candidate.so')}
 
