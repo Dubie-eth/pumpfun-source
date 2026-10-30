@@ -9,7 +9,7 @@ Tooling (not in git, `~/.cache/.../lanes/w13a11-cto-stitch/tools`): w12a04-cto-k
 (queue runner, fastbuild + target_metric, two builds max) with `genes13.py` adding w12a07-cto-sweepthread's
 source genes. Every gene keeps the newline count, so every error/require site keeps its `line!()`.
 
-## Composite 1 (this PR): skip flag + vsigner + bump-first + reset early
+## Composite 1 (#2885, landed 085e5dffb): skip flag + vsigner + bump-first + reset early
 
 | metric | main 3912c47ac | this lane | original |
 | --- | ---: | ---: | ---: |
@@ -46,3 +46,30 @@ Genes (source of each):
 | + st_bo + h_reset_early | **27,400** | **0.48922** | composes: landed candidate |
 | + st_rl + st_bo | 27,392 | 0.48929 | |
 | + st_rl + st_bo + h_reset_early + h_fee_iflet | 27,400 | 0.48742 | fee_iflet conflicts with reset here |
+| h_ev_cb_global + w_cp_inline | **27,400** | **0.49041** | composes (155+3 calls), but not with the skip family (A8 27,432 / 0.48892) |
+| skip+vsig + h_ev_cb_global | 27,456 | 0.49140 | |
+| skip+vsig + h_ev_cb_global + reset | 27,448 | 0.49147 | best ratio seen, 48 B over |
+| A4 = skip+vsig+bo + evcb + reset | 27,416 | 0.49027 | |
+| A1 = A4 + st_rref (`let rent=&Rent::get()?`) | 27,400 | 0.49011 | st_rl gives the same bytes |
+| skip+vsig + st_rref | 27,424 | 0.49049 | |
+| skip+vsig+bo + reset + st_rref | 27,384 | 0.48996 | |
+| A5/A7 (skip family + w_cp_inline) | 27,416-27,440 | 0.489 | w_cp_inline conflicts with the skip family |
+
+## Composite 2 (this PR, on main 085e5dffb): + Result gate + event cashback from the curve + Rent ref, minus reset
+
+w13a10-cto-pfclimb (#2888) found the same skip/vsigner/bump-first family independently with the Result-valued
+gate `swept=if !skip{sweep(..)}else{Ok(0)}?;` (-8 B) as the size companion instead of `reset`.
+
+| variant (on main 3912c47ac; S = skip+vsig+bo) | bytes | ratio | note |
+| --- | ---: | ---: | --- |
+| S + gate_res (= #2888) | 27,400 | 0.48951 | |
+| S + gate_res + evcb + reset | 27,408 | 0.49034 | |
+| **C1 = S + gate_res + evcb + st_rref** | **27,400** | **0.49071** | this PR, 0 losses, 363/363 |
+| S + gate_res + evcb + reset + rref + fee_iflet | 27,392 | 0.48899 | |
+| S + gate_res + reset + fee_iflet | 27,408 | 0.48705 | fee_iflet hurts with the skip family |
+
+Composite 2 versus main 085e5dffb: drop `reset` (event reads `sharing_update.is_some()` again), add the Result
+gate, `is_cashback_coin:a.bonding_curve.is_cashback_coin` in the event (`h_ev_cb_global`, w12a04 H-table:
+27,384 / 0.48906 alone on H2) and `let rent=&Rent::get()?;` in the sweep native arm (`rent_ref`,
+w12a14-cto-hillclimb). 27,400 B / **0.49071** / slots 3,313, 1034/1034, zero losses, unstripped sha256
+`48d5a9c99d2fd34f...`, differential 363/363.
