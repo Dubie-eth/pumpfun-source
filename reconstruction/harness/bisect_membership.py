@@ -67,7 +67,9 @@ def main():
     args = parser.parse_args()
     subdir = Path(args.source_subdir)
     if subdir.is_absolute() or '..' in subdir.parts: parser.error('source subdirectory must stay inside repository')
+    if args.max_trials < 2: parser.error('--max-trials must be at least 2')
     revisions = revision_chain(args.repo, args.good, args.bad)
+    if len(revisions) < 2: parser.error('good and bad must be different revisions')
     config = load_oracle(args.oracle)
     args.out.mkdir(parents=True, exist_ok=True)
     archive_errors = []

@@ -56,11 +56,15 @@ def main():
     parser.add_argument('--want', choices=['pass', 'fail'], default='pass')
     parser.add_argument('--max-trials', type=int, default=30)
     args = parser.parse_args()
+    if args.max_trials < 1:
+        parser.error('--max-trials must be positive')
     args.source = args.source.resolve(); args.out = args.out.resolve()
     if args.source == args.out or args.source in args.out.parents or args.out in args.source.parents:
         parser.error('source and output must be separate trees')
     source_identity = manifest(args.source)
     paths = [Path(p).resolve() for p in json.loads(args.patches.read_text(encoding='utf-8'))]
+    if not paths:
+        parser.error('patch list must name at least one patch')
     patches = [p.read_bytes() for p in paths]
     config = load_oracle(args.oracle)
     args.out.mkdir(parents=True, exist_ok=True)
