@@ -289,6 +289,7 @@ jobs:
               python -B scripts/test_pump_validate_all_retention.py
               python -B scripts/test_pump_validate_all_windows_publish.py
               python -B scripts/test_prepare_pump_nested_runtime_publication.py
+              python -B scripts/test_prepare_pump_nested_runtime_optimization.py
               python -B scripts/test_prepare_fees_withdraw_runtime_publication.py
               python -B scripts/test_current673_macos_archive_publication.py
               python -B scripts/test_current673_candidate_download_publication.py
