@@ -309,7 +309,7 @@ fn validate(st:&CtoState,hopt:Option<bool>,fee:Option<u64>,new:Option<Pubkey>,ho
 
 
 
-  if t==*holder_key||t==*sharing{return Err(error!(PumpError::InvalidCreator));}t};
+  if t==*sharing||t==*holder_key{return Err(error!(PumpError::InvalidCreator));}t};
 // layout-pad(13): aligns the next Source site with the original line
  let cashback=if holder{false}else{st.cashback};
 
