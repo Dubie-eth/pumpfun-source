@@ -380,7 +380,8 @@ def main():
                 break
         validate_inputs()
         if not a.no_build and not exit_code:
-            res = build_source(src, out / 'work', out / 'build', quiet=True)
+            build_options = {'timeout': a.timeout} if a.timeout is not None else {}
+            res = build_source(src, out / 'work', out / 'build', quiet=True, **build_options)
             report['build'] = res
             if res['ok']:
                 s = subprocess.run([sys.executable, str(H / 'score.py'), str(out / 'build/unstripped.so'),
