@@ -77,6 +77,7 @@ class PinnedOriginalTests(unittest.TestCase):
         blob[0x880b0:0x880b0 + 14] = b"fragment-bytes"
         root = fixture_root(bytes(blob))
         completed = run_builder(root)
+        self.assertNotEqual(completed.returncode, 0, 'the failing fixture compiler must fail the build')
         # Pinning passed: the run reaches the compiler launcher instead of
         # refusing the capture. The launcher records its invocation and fails, so
         # no comparison is published.
