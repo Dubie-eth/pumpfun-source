@@ -278,18 +278,25 @@ class DirectoryCompositionTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, True)
         base = root / 'base'
         crate_tree(base, base_files, base_dirs)
+        inputs = [base]
         name = 'test-no-build-' + uuid.uuid4().hex
         arguments = ['--name', name, '--base-src', str(base), '--no-build']
         for label, files, dirs in parts:
             part = root / label
             crate_tree(part, files, dirs)
+            inputs.append(part)
             arguments += ['--part', label + '=' + str(part)]
+        def snapshot(path):
+            return ({p.relative_to(path).as_posix(): (p.read_bytes(), bool(p.stat().st_mode & 0o111))
+                     for p in path.rglob('*') if p.is_file()}, directory_contents(path))
+        before = [snapshot(path) for path in inputs]
         integ = TOOL.parent.parent / 'integ'
         self.addCleanup(shutil.rmtree, integ / name, True)
         self.addCleanup(shutil.rmtree, integ / '.tmp' / name, True)
         result = subprocess.run([sys.executable, '-B', str(TOOL), *arguments],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([snapshot(path) for path in inputs], before)
         src = integ / name / 'src'
         files = {p.relative_to(src).as_posix(): p.read_bytes() for p in src.rglob('*') if p.is_file()}
         report = json.loads((integ / name / 'report.json').read_text())
@@ -341,6 +348,25 @@ class DirectoryCompositionTests(unittest.TestCase):
         _, dirs, report = self.compose(base, (), [('same', dict(base), ())])
         self.assertEqual(dirs, {'src'})
         self.assertEqual(report['parts'], [{'label': 'same', 'status': 'empty'}])
+
+    def test_directory_conflict_preserves_earlier_parts_and_skips_all_new_changes(self):
+        base = {'src/lib.rs': b'pub fn before() {}\n'}
+        first = {**base, 'occupied': b'earlier file'}
+        second = {'src/lib.rs': b'pub fn should_not_apply() {}\n'}
+        files, dirs, report = self.compose(
+            base, (), [('first', first, ()), ('second', second, ('occupied',))])
+        self.assertEqual(self.source_files(files), first)
+        self.assertNotIn('occupied', dirs)
+        self.assertEqual(report['parts'][1]['status'], 'conflict')
+        self.assertIn('directory composition conflict', report['parts'][1]['detail'])
+
+    def test_file_replacing_directory_is_not_reported_as_retained_directory(self):
+        base = {'src/lib.rs': b'pub fn fixture() {}\n', 'src/node/child.rs': b'old'}
+        part = {'src/lib.rs': base['src/lib.rs'], 'src/node': b'replacement file'}
+        files, dirs, report = self.compose(base, (), [('replace', part, ())])
+        self.assertEqual(self.source_files(files), part)
+        self.assertNotIn('src/node', dirs)
+        self.assertEqual(report['parts'][0]['directories'], {'removed': ['src/node']})
 
 
 if __name__ == '__main__':

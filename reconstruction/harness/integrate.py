@@ -6,8 +6,9 @@
 
 Each part is turned into a patch against the crate it was derived from (default: --base-src),
 then applied in order. Empty-file transitions use Git patch metadata; ordinary text
-changes retain `patch -p2 --forward`. Directory additions and removals are applied
-after each file patch; a removal that still holds composed files is reported as retained.
+changes retain `patch -p2 --forward`. File and directory changes are checked
+together before changing the composed tree. Directory changes are applied after
+each file patch; a removal that still holds composed files is reported as retained.
 Rejects are reported and the part is skipped
 (the composition continues). The composed crate is built with fastbuild.py and scored.
 Output: SC/integ/<NAME>/{src, parts/<label>.patch, rejects/, report.json}
@@ -17,7 +18,7 @@ distinct on case-insensitive filesystems. Labels and composition names exclude
 trailing dots and reserved Windows device names. --base-of labels match the
 declared --part spelling exactly.
 """
-import argparse, ast, json, os, shutil, subprocess, sys, re
+import argparse, ast, errno, json, os, shutil, subprocess, sys, re
 from pathlib import Path
 
 H = Path(__file__).resolve().parent
@@ -53,7 +54,9 @@ def composition_directories(root: Path):
     root = Path(root)
     ignore = crate_ignore(root, '*.rej', '.DS_Store')
     result = set()
-    for directory, dirs, files in os.walk(root):
+    def traversal_error(error):
+        raise error
+    for directory, dirs, files in os.walk(root, onerror=traversal_error):
         skipped = set(ignore(directory, dirs + files))
         dirs[:] = sorted(d for d in dirs if d not in skipped)
         if Path(directory) != root:
@@ -74,9 +77,12 @@ def apply_directory_delta(src: Path, added, removed):
     for name in sorted(removed, key=lambda value: value.count('/'), reverse=True):
         try:
             (src / name).rmdir()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
+            # A file patch may already have replaced this directory with a file.
             pass
-        except OSError:
+        except OSError as error:
+            if error.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                raise
             retained.append(name)
     return retained
 
@@ -176,6 +182,17 @@ def patched_files(text: str):
         if name.startswith('b/pump/'):
             files.add(name[len('b/pump/'):])
     return sorted(files)
+
+
+def apply_file_patch(source, patch, text, patch_command):
+    if text.startswith('diff --git '):
+        command, root, directory = git_patch_command(source)
+        subprocess.run(command + [str(patch)], cwd=root, check=True,
+                       capture_output=True)
+        return git_patched_files(command, root, directory, patch)
+    subprocess.run(patch_command + ['-s', '-p2', '--forward', '-E', '-d', str(source),
+                                   '-i', str(patch)], check=True, capture_output=True)
+    return patched_files(text)
 
 
 def reject_source_tree_links(root: Path):
@@ -288,12 +305,23 @@ def main():
                 (out / 'rejects' / f'{label}.txt').write_text(dry.stdout + dry.stderr)
                 report['parts'].append({'label': label, 'status': 'conflict', 'detail': (dry.stdout + dry.stderr)[-1500:]})
                 continue
-            if git_format:
-                subprocess.run(command + [str(pf)], cwd=patch_root, check=True)
-                files = git_patched_files(command, patch_root, directory, pf)
-            else:
-                subprocess.run(patch_command + ['-s', '-p2', '--forward', '-E', '-d', str(src), '-i', str(pf)], check=True)
-                files = patched_files(text)
+        if added or removed:
+            # Check the complete file-and-directory result before changing the
+            # composed source. An added directory can conflict with a file
+            # retained from an earlier part even when this file patch applies.
+            prospective = SC / 'integ' / '.tmp' / a.name / label / 'prospective'
+            shutil.copytree(src, prospective)
+            try:
+                if text.strip():
+                    apply_file_patch(prospective, pf, text, patch_command)
+                apply_directory_delta(prospective, added, removed)
+            except (FileExistsError, NotADirectoryError) as error:
+                detail = 'directory composition conflict: ' + str(error)
+                (out / 'rejects' / f'{label}.txt').write_text(detail)
+                report['parts'].append({'label': label, 'status': 'conflict', 'detail': detail})
+                continue
+        if text.strip():
+            files = apply_file_patch(src, pf, text, patch_command)
         entry = {'label': label, 'status': 'applied', 'files': files}
         if added or removed:
             retained = apply_directory_delta(src, added, removed)
