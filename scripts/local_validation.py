@@ -18,6 +18,15 @@ def program_addresses(root=None):
         selected=json.loads(archived.read_text())
         if not isinstance(selected,dict):
             raise ValueError('repro/programs.json must map program names to addresses')
+        # An empty or malformed selector would publish a receipt that validates
+        # nothing, so refuse it here rather than in the report writer.
+        if not selected:
+            raise ValueError('repro/programs.json selects no programs')
+        for name,address in selected.items():
+            if not isinstance(name,str) or not name:
+                raise ValueError('repro/programs.json has a non-string program name')
+            if not isinstance(address,str) or not address:
+                raise ValueError(f'repro/programs.json has no address for {name!r}')
         return selected
     selected={}
     for name in _CAPTURE_ORDER:
