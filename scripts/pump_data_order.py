@@ -663,19 +663,22 @@ def verify_transform(cert, output):
 
 
 def publish_file(staged, path):
-    """Publish without replacement; rename on Windows, link elsewhere.
+    """Publish without replacement; return whether staging was consumed.
+
+    Rename on Windows, link elsewhere.
 
     Windows sandboxes refuse hard links (WinError 5); a same-directory
     rename refuses an existing destination, preserving no-replace.
     """
     if os.name == "nt":
         os.rename(staged, path)
-    else:
-        os.link(staged, path)
+        return True
+    os.link(staged, path)
+    return False
 
 
 def publish_certificate(path, cert):
-    """Link a complete certificate into a new path; never replace an output."""
+    """Publish a complete certificate into a new path; never replace an output."""
     staged = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -685,7 +688,8 @@ def publish_certificate(path, cert):
             stream.write(json.dumps(cert, indent=2) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
-        publish_file(staged, path)
+        if publish_file(staged, path):
+            staged = None  # Rename consumed this name; a new owner may recreate it.
     finally:
         if staged is not None:
             staged.unlink(missing_ok=True)
