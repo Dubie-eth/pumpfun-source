@@ -49,6 +49,20 @@ class FrameClassificationTests(unittest.TestCase):
         after = body(*[(0xb7, 6, 0, 0, 200 + i) for i in range(5)])
         self.assertEqual(classify(before, after), 'equal-len')
 
+    def test_non_frame_changes_at_stack_instructions_are_not_frame(self):
+        original = body(*[(0x7b, 10, 1, -8 - 8 * i) for i in range(5)])
+        candidates = {
+            'source register': [(0x7b, 10, 2, -8 - 8 * i) for i in range(5)],
+            'opcode': [(0x63, 10, 1, -8 - 8 * i) for i in range(5)],
+            'base register': [(0x7b, 6, 1, -8 - 8 * i) for i in range(5)],
+        }
+        for label, instructions in candidates.items():
+            with self.subTest(change=label):
+                self.assertEqual(classify(original, body(*instructions)), 'equal-len')
+        original = body(*[(0x7a, 10, 0, -8 - 8 * i, 1) for i in range(5)])
+        changed = body(*[(0x7a, 10, 0, -8 - 8 * i, 2) for i in range(5)])
+        self.assertEqual(classify(original, changed), 'equal-len')
+
     def test_stack_slot_is_frame(self):
         before = body(*[(0x7b, 10, 1, -8 - 8 * i) for i in range(5)])
         after = body(*[(0x7b, 10, 1, -16 - 8 * i) for i in range(5)])
