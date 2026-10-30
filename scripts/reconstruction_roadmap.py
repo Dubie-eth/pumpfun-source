@@ -411,6 +411,7 @@ def generate_roadmap(output_dir):
                 for w in unnamed_windows[:100]
             ],
             "reconstruction_clusters": serializable_clusters,
+            "reconstruction_clusters_total": len(clusters),
             "rodata_strings_count": len(rodata_strings),
         }
         all_program_data[prog_name] = prog_data
@@ -445,7 +446,8 @@ def generate_roadmap(output_dir):
             "unnamed_windows_total": data["unnamed_windows_total"],
             "unnamed_bytes_total": data["unnamed_bytes_total"],
             "largest_unnamed": data["unnamed_windows_by_size"][:5],
-            "reconstruction_clusters": len(data["reconstruction_clusters"]),
+            "reconstruction_clusters": data["reconstruction_clusters_total"],
+            "displayed_reconstruction_clusters": len(data["reconstruction_clusters"]),
         }
         summary["total_unmatched_estimate"] += unmatched
         summary["total_unmatched_bytes_estimate"] += unmatched_bytes
@@ -464,7 +466,8 @@ def generate_roadmap(output_dir):
     # 3. Reconstruction plan
     plan = {
         "phases": [],
-        "total_estimated_windows_to_close": summary["total_unmatched_estimate"],
+        "historical_unmatched_estimate": summary["total_unmatched_estimate"],
+        "candidate_basis": "Unnamed captured windows selected by size and call context; not unmatched membership.",
     }
 
     # Phase 1: Low-hanging fruit (small unnamed windows with known callers)
@@ -485,6 +488,8 @@ def generate_roadmap(output_dir):
                        "whose behavior can be inferred from calling context.",
         "window_count": len(phase1_windows),
         "total_bytes": sum(w["size"] for w in phase1_windows),
+        "display_limit": 50,
+        "displayed_window_count": min(50, len(phase1_windows)),
         "windows": phase1_windows[:50],
     })
 
@@ -508,6 +513,8 @@ def generate_roadmap(output_dir):
                        "or major helper functions.",
         "window_count": len(phase2_windows),
         "total_bytes": sum(w["size"] for w in phase2_windows),
+        "display_limit": 50,
+        "displayed_window_count": min(50, len(phase2_windows)),
         "windows": phase2_windows[:50],
     })
 
@@ -535,8 +542,13 @@ def generate_roadmap(output_dir):
                        "careful IR-level matching.",
         "window_count": len(phase3_windows),
         "total_bytes": sum(w["size"] for w in phase3_windows),
+        "display_limit": 30,
+        "displayed_window_count": min(30, len(phase3_windows)),
         "windows": phase3_windows[:30],
     })
+
+    plan["total_planning_candidates"] = sum(p["window_count"] for p in plan["phases"])
+    plan["total_planning_bytes"] = sum(p["total_bytes"] for p in plan["phases"])
 
     plan_path = output_dir / "reconstruction-plan.json"
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -575,8 +587,9 @@ only the official candidate scorer establishes matching membership.
 
 **Full unnamed inventory:** {summary["total_unnamed_windows"]} windows,
 {summary["total_unnamed_bytes"]:,} bytes. This is a separate naming diagnostic,
-not a completion deficit. Phase lists below use the largest-100 display subset
-per program and are not exhaustive.
+not a completion deficit. Phase totals below use every eligible unnamed window,
+including windows that may already match. The JSON phase lists display at most
+50, 50 and 30 entries respectively; those displayed lists are not exhaustive.
 
 ## Reconstruction Phases
 
