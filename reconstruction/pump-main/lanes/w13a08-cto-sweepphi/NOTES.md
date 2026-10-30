@@ -1,98 +1,38 @@
-# w13a08-cto-sweepphi (wave 13)
+# admin_cto: curve field access order
 
-## Landable: curve stores in the original's order (hr2)
+This candidate changes two lines in `programs/pump/src/creator/admin_cto.rs`.
+After assigning the creator, it reads the old creator fee, stores the holder flag,
+and then stores the cashback flag. These are ordinary accesses to distinct fields;
+there is no intervening fallible operation, CPI, serialization or account reload.
+The final values and the saved old fee are unchanged. All 24 macro call sites
+remain on their original lines.
 
-On main cb298d5c (#2907, 0.49101 / 3,280): hr2 = 27,400 B, **0.49131**, 3,280 slots, 0 / 0 losses, sha `3b87f921556f0d99`, differential 363/0.
-First measured on main 4394685:
+## Verified measurements
 
-| build | bytes | ratio | slots_diff | normalized / raw | losses |
-| --- | ---: | ---: | ---: | --- | --- |
-| main 4394685 | 27,400 | 0.49071 | 3,313 | 1034 / 1034 | - |
-| hr2 | 27,400 | **0.49131** | 3,314 | 1034 / 1034 | 0 / 0 |
+The baseline source inventory is
+`5571f6efadb7003d11becbf574ca1c21c369423f91883c1d4b3e60959d709832`,
+verified against main `f4d156d70dec49c67a6e5bffef68379e695f5517`.
+A fresh identity build of this candidate produced:
 
-`let old_fee=curve.creator_fee_bps;curve.is_holder_reward=holder;` then `curve.is_cashback_coin=cashback;`:
-the original reads the old fee right after the creator store, then stores `is_holder_reward` (from the holder
-phi slot -0x950) and then `is_cashback_coin` (orig 0x4b48-0x4b78). Unstripped sha256 prefix `da4cd7d523a29a5b`;
-differential 363/0. Holder before the old-fee read (`hr_first`) gives the same ratio (other bytes); cashback last
-after the fee read (`hr3`) 0.49101. With old-before-bump on top: 27,432 B / 0.49222 (needs -32 B);
-+ `if let Some(val)=sharing_update` + early `reset` 27,424 B / 0.49229.
-
-Target: `0x22a10` `admin_cto::execute` (`programs/pump/src/creator/admin_cto.rs`), pinned at 27,400 B.
-Angle: the sweep gate and the pool-CPI holder as phis (S5/S10 of w12a09-cto-cleanroom).
-Base: main 3912c47ac (0.48772, 3,273 slots, 27,400 B, 1034/1034).
-
-## Result on 3912c47ac: skip flag + vsigner + bump before old (skp3_vsig_bo)
-
-Superseded on main by #2885 (w13a11-cto-stitch, 085e5dffb): the same skip tree + vsigner + bump-first composite with
-`reset` bound early as the size companion, also 0.48922 at 27,400 B. This branch now carries notes only.
-
-| build | bytes | ratio | slots_diff | normalized / raw | losses |
-| --- | ---: | ---: | ---: | --- | --- |
-| main 3912c47ac | 27,400 | 0.48772 | 3,273 | 1034 / 1034 | - |
-| skp3_vsig_bo | 27,400 | **0.48922** | 3,302 | 1034 / 1034 | 0 / 0 |
-
-Unstripped sha256 prefix `dd82adee23d07217`. Runtime differential: 363 cases, 0 mismatches.
-
-Three source changes, each keeps every line:
-1. The sharing tree also yields the sweep **skip flag** as a phi of constants, in the original's
-   order (skip, collect_old, sharing_update): `(false,false,Some(None))` shared+holder,
-   `(true,false,Some(new))` shared+!holder, `(true,collect_old,None)` !shared. The sweep is gated with
-   `(!skip).then(||sweep(..)).transpose()?.unwrap_or(0)`. The original's gate is one test of a spilled
-   phi-of-constants flag (orig 0x1d38 `ldxdw r1,[r10-0x8e0]; jne r1,0`); main tested `shared&&holder` with two compares.
-2. **vsigner hoist**: `let vsigner:&[&[&[u8]];1]=&[vaultseeds];` bound once and passed to both sweep transfers
-   (the original stores the `{ptr,3}` signer element at seeds time).
-3. `let bump=[..];let old=..;` (bump before old) in the sweep seeds: the size companion that brings 1+2
-   (+32 B) back to 27,400 B.
-
-The skip tree alone collapses the layout (post-sweep chain moves to the end, w12a07); with vsigner it holds.
-
-## Trials on main 3912c47ac (measure.sh)
-
-| variant | bytes | ratio | note |
-| --- | ---: | ---: | --- |
-| skip_vsig (tuple order sharing,collect,skip) | 27,440 | 0.49065 | best ratio, +40 B |
-| skip_vsig_rl (+ Rent local) | 27,424 | 0.49049 | |
-| skp3_vsig (order skip,collect,sharing) | 27,432 | 0.49042 | |
-| skp3_vsig_rl | 27,416 | 0.49027 | |
-| skip_vsig_bo | 27,408 | 0.48944 | |
-| **skp3_vsig_bo** | **27,400** | **0.48922** | landable |
-| skip_vsig_rl_bo | 27,392 | 0.48929 | |
-| skip_vsig_mv / skp3_vsig_mv (Rent local inside saturating_sub) | 27,424 / 27,416 | 0.48780 / 0.48757 | |
-| skiph_vsig (tree also rebinds holder; !shared arm passes holder) | 27,440 | 0.49065 | byte-identical to skip_vsig |
-| dotree_vsig (positive sweep_on flag) | 27,440 | 0.49065 | byte-identical to skip_vsig |
-| svb_ik (+ split 312 check) | 27,400 | 0.47438 | 157 calls |
-| svb_shn / svb_stql | 27,408 | 0.48944 | byte-neutral knobs |
-| svrb_vnm / svrb_fu | 27,392 | 0.48869 / 0.48809 | |
-| sv_ff (frozen first) | 27,488 | 0.40556 | layout collapse |
-
-Ledger approach `sweepphi`, keys `0x22a10-w13-3912c47-*`. Tools: w12a07-cto-sweepthread's capir/extract/orc oracle,
-re-pathed to this lane's out dir (scratch only).
-
-## Trials on main 085e5dffb (#2885, 0.48922)
-
-| variant | bytes | ratio |
+| Measure | Baseline | Candidate |
 | --- | ---: | ---: |
-| old before bump (ob) | 27,432 | 0.49102 |
-| ob + Rent local | 27,416 | 0.49087 |
-| ob + p3 order + Rent local | 27,408 | 0.49064 |
-| ob + p3 | 27,424 | 0.49079 |
-| Rent local | 27,384 | 0.48996 |
-| p3 order | 27,392 | 0.48899 |
-| ob + reset late | 27,440 | 0.49065 |
-| `holder=match holder{Some(true)=>true,_=>false}` / `if let Some(true)` | 27,096 | 0.42212 |
+| admin_cto bytes | 27,400 | 27,400 |
+| Sequence diagnostic ratio | 0.49101 | 0.49131 |
+| Differing normalized instruction slots | 3,280 | 3,280 |
+| Raw / normalized matched windows | 1,034 / 1,034 | 1,034 / 1,034 |
 
-## Trials on main 4394685 (#2892, 0.49071)
+The official inventory contains 1,035 windows. There are no missing or resized
+windows and no lost raw or normalized matches. This is a partial-window sequence
+improvement; the matched-window completion percentage does not change.
 
-| variant | bytes | ratio | note |
-| --- | ---: | ---: | --- |
-| **ob: `let old=..;let bump=..;` (old before bump)** | 27,432 | **0.49162** | +0.0009 for +32 B: needs a -32 B companion |
-| ob + `Rent::get()?.minimum_balance(0)` inline | 27,448 | 0.49147 | |
-| ob + p3 tuple order | 27,432 | 0.49102 | |
-| p3 tuple order | 27,400 | 0.49011 | worse |
-| Rent inline | 27,416 | 0.49027 | |
-| ob + shared-key borrow / dest-key borrow | 27,352 | 0.48936 / 0.48996 | -80 B knobs overshoot |
-| gate `if skip{Ok(0)}else{..}?`, `match skip{..}?`, `let rent=Rent::get()?` | 27,400 | 0.49071 | byte-identical to main |
+All 363 signed admin_cto differential cases matched the captured program using
+genuine dependency CPIs. This is bounded runtime evidence, not whole-program
+semantic equivalence or whole-ELF identity.
 
-The holder-phi forms (S10) fold back: rebinding holder in the sharing tree is byte-identical, a 4-arm tree
-that splits the !shared arm on holder costs +200 B and one call, and `match`/`if let` holder forms shrink the
-function by 304 B.
+Candidate source inventory:
+`d44d67269eb5ab2aaa962a2497a6552bb53254a6bb33bd0015f5d8103b62a4c0`.
+Unstripped ELF: `3b87f921556f0d99afd6143641b42866489ed3e6a3006b5856b0506421053ce1`.
+Runtime ELF: `f60dc66a2ee354d6a1ff98175ff74660ab80ce25573184a5dd8e60f555137286`.
+
+Validation used `reconstruction/harness/fastbuild.py` (identity recipe), `score.py`,
+`compare_scores.py`, `target_metric.py` and `scripts/pump_admin_cto_differential.py`.
