@@ -98,6 +98,7 @@ jobs:
               python -B tests/test_aggregate_pinned_image.py
               python -B tests/test_pump_validators_pinned_image.py
               python -B tests/test_pump_exact_quote_pinned_image.py
+              python -B tests/test_pump_v3_configured_fee_pinned_image.py
               python -B tests/test_create_mayhem_candidate_pair.py
               python -B tests/test_mayhem_trade_normal_python.py
               python -B tests/test_fees_donation_create_pinned_image.py
