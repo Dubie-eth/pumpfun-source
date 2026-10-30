@@ -121,6 +121,7 @@ jobs:
               python -B tests/test_pump_set_mayhem_params_synthetic_cpi_pinned_image.py
               python -B tests/test_fees_donation_create_pinned_image.py
               python -B tests/test_fees_social_claim_pinned_image.py
+              python -B tests/test_fees_withdraw_output_inputs.py
               python -B tests/test_fees_donation_crank_pinned_image.py
               python -B tests/test_fees_differentials_normal_python.py
               python -B tests/test_amm_differentials_normal_python.py
@@ -133,6 +134,7 @@ jobs:
               python -B tests/test_checkpoint_verifiers_normal_python.py
               python -B tests/test_pump_output_parents.py
               python -B tests/test_remaining_output_parents.py
+              python -B tests/test_pump_admin_token_incentives_report_publication.py
               python -B tests/test_pump_admin_cto_report_publication.py
               python -B scripts/test_validation_report_boundaries.py
               python -B tests/test_create_mayhem_normal_python.py
