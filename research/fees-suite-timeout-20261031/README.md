@@ -29,3 +29,16 @@ Required checks on the proposed tree: `python3 -E -X utf8 scripts/test_tooling.p
 (217 pass) and `python3 -E -X utf8 scripts/verify_evidence.py` (nine captures
 verified). macOS arm64, Python 3.14.3. Suites, fixtures, corpora and captured
 ELFs are unchanged; no full 18-suite run is claimed in this packet.
+
+## Review qualification
+
+The shared serial-suite adapter uses the existing process-group runner on
+POSIX. Windows keeps inherited child streams and uses `subprocess.run` with a
+timeout; it does not gain a process-tree termination guarantee. Both adapter
+and process-runner source files are protected inputs and their hashes are
+retained in the aggregate report. Captured child diagnostics remain visible.
+
+Real subprocess controls cover a child that spawns a descendant, timeout
+termination without a delayed marker, prior-report preservation, invalid finite
+timeouts, and protected helper output aliases. Small child receipts in the
+publication tests exercise aggregate plumbing only and are not VM evidence.
