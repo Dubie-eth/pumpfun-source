@@ -80,7 +80,9 @@ class AdmittedDisassemblyInputs(unittest.TestCase):
 
     def test_unsafe_and_conflicting_names_fail_before_workers(self):
         for names in [['pump', 'pump'], ['pump', 'PUMP'], ['../escape'], ['/absolute'],
-                       ['C:\\escape'], ['report.json'], ['.'], [''], ['x/y']]:
+                       ['C:\\escape'], ['report.json'], ['.'], [''], ['x/y'],
+                       ['NUL'], ['con'], ['Lpt9.txt'], ['bad?name'], ['bad*name'],
+                       ['bad|name'], ['bad<name'], ['bad\"name'], ['bad\x7fname']]:
             with self.subTest(names=names):
                 shutil.rmtree(self.root / 'roundtrip', ignore_errors=True)
                 self.manifest['programs'] = [{'name': name} for name in names]
@@ -135,6 +137,15 @@ class AdmittedDisassemblyInputs(unittest.TestCase):
         self.assertEqual(observed, [admitted])
         self.assertEqual(json.loads((output / 'report.json').read_text())['tool_sha256'], inventory.sha(admitted))
 
+    def test_report_hash_binds_the_manifest_admitted_before_workers(self):
+        admitted = json.dumps(self.manifest).encode()
+        def worker(tool, inputs, entry, output):
+            (inputs / 'manifest.json').write_text('{"changed": true}')
+            return {'name': entry['name'], 'full_text_equality': True}
+        output = self.run_roundtrip(worker)
+        report = json.loads((output / 'report.json').read_text())
+        self.assertEqual(report['inventory_manifest_sha256'], inventory.sha(admitted))
+
     def test_inventory_workers_and_version_use_the_same_admitted_tool(self):
         admitted = self.tool.read_bytes()
         observed = []
@@ -169,6 +180,7 @@ class AdmittedDisassemblyInputs(unittest.TestCase):
             self.run_roundtrip(worker)
         self.assertFalse((self.root / 'roundtrip').exists())
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX executable fixture")
     def test_private_tool_copy_is_executable_and_ignores_rebuilt_source_path(self):
         self.tool.write_text(f'#!{sys.executable}\nprint("admitted-version")\n')
         self.tool.chmod(0o700)

@@ -109,7 +109,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     inventory = args.inventory.resolve()
-    manifest = json.loads((inventory / 'manifest.json').read_text())
+    manifest_bytes = (inventory / 'manifest.json').read_bytes()
+    manifest = json.loads(manifest_bytes)
     if not manifest.get('programs'):
         parser.error('inventory must contain at least one program to validate')
     validate_program_names(manifest['programs'])
@@ -129,7 +130,7 @@ def main():
                 results = [future.result() for future in futures]
         report = dict(scope='Reference-derived assembly tooling validation; not independent contract reconstruction',
                       tool_sha256=manifest['tool_sha256'], tool_revision=manifest['tool_revision'],
-                      inventory_manifest_sha256=sha((inventory / 'manifest.json').read_bytes()),
+                      inventory_manifest_sha256=sha(manifest_bytes),
                       generator_sha256=sha(Path(__file__).read_bytes()),
                       programs=results, all_text_roundtrips_exact=all(r['full_text_equality'] for r in results),
                       counts_toward_source_reconstruction_acceptance=False)

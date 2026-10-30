@@ -10,6 +10,7 @@ import concurrent.futures
 import gzip
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -31,9 +32,13 @@ def validate_program_names(entries):
     seen = set()
     for entry in entries:
         name = entry.get('name') if isinstance(entry, dict) else None
-        if (not isinstance(name, str) or not name or name in ('.', '..')
-                or name[-1] in '. ' or any(c in name for c in '/\\:')
-                or any(ord(c) < 32 for c in name) or name.casefold() == 'report.json'):
+        reserved = {'CON', 'PRN', 'AUX', 'NUL'} | {
+            f'{prefix}{number}' for prefix in ('COM', 'LPT') for number in range(1, 10)
+        }
+        if (not isinstance(name, str)
+                or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', name)
+                or name.endswith('.') or name.split('.', 1)[0].upper() in reserved
+                or name.casefold() == 'report.json'):
             raise ValueError(f'unsafe program output name: {name!r}')
         if name.casefold() in seen:
             raise ValueError(f'duplicate program output name: {name!r}')
