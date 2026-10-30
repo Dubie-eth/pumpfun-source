@@ -74,7 +74,7 @@ def validate_build_sources(record, source_directory, candidate):
         primary = {'programs/pump/' + path: digest for path, digest in saved['primary_source_sha256'].items()}
         assert crate == (ROOT / 'programs/pump').resolve() and sources == expected == primary, 'portable source scope differs'
         inputs.extend([Path(checkpoint.__file__).resolve(), seal, origin_path, checkpoint_path])
-    return sources, inputs
+    return sources, inputs, (crate, workspace, expected)
 
 
 def report_destinations(output, suites, captured_loader, execute):
@@ -192,7 +192,7 @@ def main():
     record = json.loads(args.build_comparison.read_text())
     assert type(record['returncode']) is int and record['returncode'] == 0 and record['source_unchanged'] is True
     assert record['comparison']['candidate_sha256'] == sha(candidate)
-    sources, source_binding_inputs = validate_build_sources(record, args.source_directory, candidate)
+    sources, source_binding_inputs, admitted_source = validate_build_sources(record, args.source_directory, candidate)
     assert all(sha(ROOT / k) == v for k, v in sources.items())
     bound_files = {str(p): sha(p) for p in [candidate, original, Path(__file__), Path(base.__file__), PROCESS_RUNNER, ROOT / 'scripts/pump_diagnostic_audit.py', args.build_comparison]}
     loader_wrapper = ROOT / 'scripts/pump_with_captured_loader.py'
@@ -217,11 +217,16 @@ def main():
         protected.append(args.validate_existing)
         if args.captured_loader:
             protected.extend(ROOT / row['path'] for row in previous['loader_receipts'].values())
-    protect_inputs(report_destinations(args.output, scripts, args.captured_loader,
-                                      not args.validate_existing), protected)
+    destinations = report_destinations(args.output, scripts, args.captured_loader,
+                                       not args.validate_existing)
+    if any(path.resolve().is_relative_to(args.source_directory) for path in destinations):
+        raise ValueError('validation output is inside the source directory')
+    protect_inputs(destinations, protected)
     retained.mkdir(parents=True, exist_ok=True)
 
     def check_bound_files():
+        crate, workspace, expected = admitted_source
+        assert strict_manifest(crate, workspace, ROOT, cwd=workspace) == expected, 'compiler source inventory changed during execution'
         assert all(sha(Path(p)) == digest for p, digest in bound_files.items())
         assert all(sha(ROOT / k) == v for k, v in sources.items())
         assert all(sha(scripts[name]) == digest for name, digest in script_hashes.items())
