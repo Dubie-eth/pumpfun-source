@@ -59,6 +59,28 @@ else:
                 self.fail("read_regular blocked on a FIFO")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_candidate_key_uses_the_tracked_spelling(self):
+        # The candidate map key used str(relative_to(ROOT)), which is
+        # backslash-spelled on Windows and never matched the forward-slash
+        # set built from `git ls-files`, so every Windows run raised
+        # ('Unpublished input', 'candidate', ...) for a tracked file.
+        package = verify_current_bindings.ROOT / "repro/pump/tokenkeg-two-curve-fortyeight"
+        key = verify_current_bindings.tracked_key(package / "candidate.so")
+        self.assertEqual(key, "repro/pump/tokenkeg-two-curve-fortyeight/candidate.so")
+        self.assertNotIn("\\", key)
+        # The admission accepts exactly this spelling against a tracked set.
+        digest = "0" * 64
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = root / key
+            payload.parent.mkdir(parents=True)
+            payload.write_bytes(b"payload")
+            import hashlib as _hashlib
+            real_digest = _hashlib.sha256(b"payload").hexdigest()
+            checked, _ = verify_current_bindings.verify_maps(
+                root, {"candidate": {key: real_digest}}, {key})
+            self.assertEqual(checked, 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
