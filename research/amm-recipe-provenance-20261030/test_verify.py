@@ -101,5 +101,18 @@ class HistoricalRecipeTests(unittest.TestCase):
                 with self.assertRaises(ValueError): self.run_record(changed)
 
 
+class AuditIntegrationTests(unittest.TestCase):
+    def test_recipe_record_is_not_a_manifest_but_verifier_still_runs(self):
+        spec = importlib.util.spec_from_file_location('recipe_revalidator', verifier.ROOT/'scripts/revalidate_all.py')
+        revalidator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(revalidator)
+        self.assertEqual(revalidator.check_manifest(verifier.PACKET), {'status': 'no_manifest', 'errors': []})
+        result = revalidator.run_verify(verifier.PACKET)
+        self.assertEqual(result['status'], 'pass', result)
+        self.assertEqual(result['returncode'], 0)
+        self.assertIn('"bytecode_identity_verified": false', result['output'])
+        self.assertIn('"source_inputs": 68', result['output'])
+
+
 if __name__ == '__main__':
     unittest.main()
