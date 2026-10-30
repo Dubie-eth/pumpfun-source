@@ -54,5 +54,44 @@ class VerdictStagingTests(unittest.TestCase):
                              'no staging files may be left behind')
 
 
+    def test_failed_flush_preserves_existing_verdict(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); verdict = root / 'verdict.json'
+            verdict.write_bytes(b'previous verdict')
+            with patch.object(oracle.os, 'fsync', side_effect=OSError('fsync failure')):
+                with self.assertRaisesRegex(OSError, 'fsync failure'):
+                    oracle.publish_verdict(verdict, 'new verdict\n')
+            self.assertEqual(verdict.read_bytes(), b'previous verdict')
+            self.assertEqual(list(root.glob('.verdict-*')), [])
+
+    def test_consumed_stage_is_not_deleted_if_another_writer_recreates_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); verdict = root / 'verdict.json'
+            original = Path.replace; recreated = []
+            def replace(source, destination):
+                result = original(source, destination)
+                source.write_bytes(b'other writer'); recreated.append(source)
+                return result
+            with patch.object(Path, 'replace', replace):
+                oracle.publish_verdict(verdict, 'new verdict\n')
+            self.assertEqual(verdict.read_bytes(), b'new verdict\n')
+            self.assertEqual(recreated[0].read_bytes(), b'other writer')
+
+    def test_failed_replace_does_not_delete_another_writers_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); verdict = root / 'verdict.json'
+            verdict.write_bytes(b'previous verdict'); recreated = []
+            def replace(source, destination):
+                source.rename(root / 'moved-stage')
+                source.write_bytes(b'other writer'); recreated.append(source)
+                raise OSError('replacement failed')
+            with patch.object(Path, 'replace', replace):
+                with self.assertRaisesRegex(OSError, 'replacement failed'):
+                    oracle.publish_verdict(verdict, 'new verdict\n')
+            self.assertEqual(verdict.read_bytes(), b'previous verdict')
+            self.assertEqual(recreated[0].read_bytes(), b'other writer')
+
+
+
 if __name__ == '__main__':
     unittest.main()
