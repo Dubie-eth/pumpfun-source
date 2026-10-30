@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from solders.compute_budget import set_compute_unit_limit
 f=SimpleNamespace(Pubkey=fixture.f.Pubkey,PAYER=fixture.user,AUTH=fixture.user,OTHER=fixture.user,set_compute_unit_limit=set_compute_unit_limit)
 for attr,name,folder in [('PUMP','pump','original'),('PROGRAM','pump_fees','original'),('AMM','pump_amm','original'),('TOKEN','spl_token','dependencies'),('TOKEN22','spl_token_2022','dependencies'),('ATA','associated_token','dependencies')]:setattr(f,attr,f.Pubkey.from_string(json.loads((ROOT/f'evidence/{folder}/{name}/capture.json').read_text())['program']))
+COMPUTE=f.Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 PORT=20201
 sha=lambda data:hashlib.sha256(data).hexdigest()
 class RecordingVM:
@@ -70,6 +71,10 @@ def run(binary,cases,surfpool,output):
     def writable(i):return i<h.num_required_signatures-h.num_readonly_signed_accounts if i<h.num_required_signatures else i<len(keys)-h.num_readonly_unsigned_accounts
     instructions=[Instruction(keys[ix.program_id_index],bytes(ix.data),[AccountMeta(keys[n],n<h.num_required_signatures,writable(n)) for n in ix.accounts]) for ix in msg.instructions]
     # Distinct compute budgets avoid transaction deduplication for repeated payloads.
+    # The recorded fixture leads with a compute-budget instruction; replacing a
+    # different first instruction would silently drop a real program call.
+    if not instructions or instructions[0].program_id!=COMPUTE:
+     raise ValueError(('first recorded instruction is not compute-budget',row['name']))
     instructions[0]=f.set_compute_unit_limit(1400000-len(rows))
     signers=[f.PAYER];assert keys[:h.num_required_signatures]==[f.PAYER.pubkey()]
     tx=Transaction.new_signed_with_payer(instructions,f.PAYER.pubkey(),signers,Hash.from_string(rpc('getLatestBlockhash')['value']['blockhash']));assert all(tx.verify_with_results());encoded=base64.b64encode(bytes(tx)).decode()

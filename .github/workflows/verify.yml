@@ -134,6 +134,7 @@ jobs:
               python -B scripts/test_mayhem_initialize_state_exit.py
               python -B scripts/test_fees_crank_probe_optimization.py
               python -B scripts/test_surfpool_truncated_events.py
+              python -B scripts/test_surfpool_first_instruction_guard.py
               python -B scripts/test_constant_product_range_pinning.py
               python -B scripts/test_pump_build_constant_product_binding.py
               python -B scripts/test_fees_validate_all_optimization.py
