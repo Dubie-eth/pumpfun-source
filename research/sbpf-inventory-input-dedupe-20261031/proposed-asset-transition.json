@@ -1,0 +1,24 @@
+{
+  "scope": "Proposed maintained-script transition: admit each captured program exactly once, and rebind the review packet that pins this script's bytes. Captures, historical packets and their results are unchanged.",
+  "base": "9b9440fe5",
+  "files": {
+    "scripts/sbpf_disassembly_inventory.py": {
+      "before_sha256": "f23410401c8622f2b6c0bb4d84a362ddd506144ba3f7e1061d94d52199053e09",
+      "proposed_sha256": "783c9cbd69f6f6778573983ff483786f1110d3042ffc40a6d58f1461b8c74f8f"
+    },
+    "research/sbpf-section-name-admission/inventory.py": {
+      "before_sha256": "76759093022a1a81b3fb24764de1bcb4770f0a3dd505c421f179fafa2eac5d00",
+      "proposed_sha256": "4eb9af82fe0eb3942555cfd8300d0b9719283564030d5507e778bf2e937e5b22"
+    },
+    "research/sbpf-section-name-admission/README.md": {
+      "before_sha256": "136bbc961d6f6d0405772398c358b8d79bce5077abc14c694dd03f3011fac6b5",
+      "proposed_sha256": "63e7f479c3fcdbde36037085caa36a7127c5d273d171afa421f1816fd90c5eb4"
+    }
+  },
+  "script_set_changed": false,
+  "program_source_changed": false,
+  "capture_bytes_changed": false,
+  "new_test": "tests/test_sbpf_inventory_input_dedupe.py",
+  "existing_ci_discovery": "contract-tests: python -B -m unittest discover -s tests -v",
+  "rebind_note": "research/sbpf-section-name-admission pins the exact bytes of scripts/sbpf_disassembly_inventory.py. The dedupe changes only captured-input enumeration; sections() and every admission rule it guards are byte-identical, so the successor keeps its rule and advances its pin (the same rebind pattern as lalalune/pumpfun-source#2992 and lalalune/pumpfun-source#2510)."
+}
