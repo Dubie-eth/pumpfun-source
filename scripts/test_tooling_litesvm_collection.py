@@ -14,8 +14,13 @@ scripts, mode = Path(sys.argv[1]), sys.argv[2]
 sys.path.insert(0, str(scripts))
 import solders.solders as native
 if mode == 'missing_native':
-    del native.LiteSVM
+    if hasattr(native, 'LiteSVM'):
+        del native.LiteSVM
 elif mode in ('missing_module', 'broken_import', 'missing_dependency'):
+    # These modes test the later Python import boundary even on a host whose
+    # native wheel lacks the VM. The marker is never instantiated.
+    if not hasattr(native, 'LiteSVM'):
+        native.LiteSVM = object
     # solders.__init__ may already have imported the Python VM wrapper.
     # Force this probe through the fresh import boundary under test.
     sys.modules.pop('solders.litesvm', None)
@@ -48,6 +53,9 @@ class ToolingLiteSVMCollectionTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
 
     def test_available_vm_keeps_all_runtime_cases_enabled(self):
+        import solders.solders as native
+        if not hasattr(native, 'LiteSVM'):
+            self.skipTest('host solders native wheel does not provide LiteSVM')
         result = self.probe('available')
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
