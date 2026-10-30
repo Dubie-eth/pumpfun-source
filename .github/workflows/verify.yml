@@ -189,6 +189,7 @@ jobs:
               python -B reconstruction/mayhem/native-linux-qualification/test_vendor_membership.py
               python -B scripts/test_analyze_program_publication.py
               python -B scripts/test_reconstruction_roadmap_publication.py
+              python -B tests/test_pump_planning_regressions.py
               python -B reconstruction/diagnostics/roadmap-reviewed-regeneration/test_generate.py
               python -B reconstruction/diagnostics/roadmap-stable-attribution/test_generate.py
               python -B reconstruction/diagnostics/defined-dynamic-calls/test_generate.py
@@ -196,6 +197,7 @@ jobs:
               python -B scripts/test_bytecode_signatures_atomic_publication.py
               python -B scripts/test_revalidate_all_publication.py
               python -B scripts/test_revalidate_all_atomic_publication.py
+              python -B reconstruction/diagnostics/manifest-admission/test_run.py
               python -B scripts/test_donation_relay_oracle_optimization.py
               python -B tests/test_claim_token_incentives_pinned_image.py
               python -B tests/test_pump_admin_token_incentives_pinned_image.py
@@ -233,7 +235,9 @@ jobs:
               python -B scripts/test_prepare_fees_withdraw_runtime_publication.py
               python -B scripts/test_current673_macos_archive_publication.py
               python -B scripts/test_current673_candidate_download_publication.py
+              python -B scripts/test_pump_strict_ordered_logs.py
               python -B scripts/test_pump_strict_ordered_logs_output.py
+              python -B scripts/test_pump_strict_ordered_logs_windows_publish.py
               python -B reconstruction/harness/test_experiment_post_run_errors.py
               python -B reconstruction/harness/test_experiment_root_target.py
               python -B reconstruction/harness/test_coords_cli_admission.py
