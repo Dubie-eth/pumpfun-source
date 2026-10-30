@@ -197,6 +197,7 @@ jobs:
               python -B scripts/test_disassemble_output_mode.py
               python -B scripts/test_disassemble_tool_binding.py
               python -B scripts/test_disassemble_publication.py
+              python -B research/dispatch-evidence-root/test_verify.py
               python -B scripts/test_analyze_publication.py
               python -B scripts/test_verify_imported_lab_publication.py
               python -B scripts/test_verify_recovered_builds_receipts.py
@@ -213,7 +214,9 @@ jobs:
               python -B tests/test_pump_planning_regressions.py
               python -B tests/test_analyze_donation_relay_regression.py
               python -B reconstruction/diagnostics/roadmap-reviewed-regeneration/test_generate.py
+              python -B tests/test_roadmap_reviewed_regeneration_publication.py
               python -B reconstruction/diagnostics/roadmap-stable-attribution/test_generate.py
+              python -B tests/test_roadmap_stable_attribution_publication.py
               python -B reconstruction/diagnostics/defined-dynamic-calls/test_generate.py
               python -B reconstruction/diagnostics/amm-ledger-best/test_read.py
               python -B scripts/test_bytecode_signatures_publication.py
