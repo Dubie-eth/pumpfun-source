@@ -14,6 +14,7 @@ import re
 import struct
 from pathlib import Path
 
+from pump_amm_reusable_harness import pin_program
 from solders.account import Account
 from solders.clock import Clock
 from solders.instruction import AccountMeta, Instruction
@@ -289,6 +290,7 @@ def variants():
 def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
          second_build_path=None):
     candidate, build_path, output = map(Path, (candidate, build_path, output))
+    candidate = pin_program(candidate)
     build = json.loads(build_path.read_text())
     assert sha(TARGET) == build["comparison"]["original_sha256"]
     assert sha(candidate) == build["comparison"]["candidate_sha256"]
