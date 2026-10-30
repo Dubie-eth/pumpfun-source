@@ -20,7 +20,7 @@ def extend(kind='Pool',size=8,lamports=1,candidate=None,overrides=None,unsigned=
  return {'states':states,'error':str(r.err()) if fail else None,'logs':meta.logs(),'inner':json.loads(meta.to_json())['inner_instructions'],'size':len(a.data) if a else None,'data':bytes(a.data).hex() if a else None,'lamports':a.lamports if a else 0}
 
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--candidate',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);candidate=args.candidate;rows=[]
+ parser=argparse.ArgumentParser();parser.add_argument('--candidate',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[TRADE_FIXTURE_PATH]);candidate=args.candidate;rows=[]
  def test(label,**kw):
   x=extend(**kw);y=extend(candidate=candidate,**kw)
   for r in [x,y]:r['events']=[v for v in r.pop('logs') if v.startswith('Program data: ')]
