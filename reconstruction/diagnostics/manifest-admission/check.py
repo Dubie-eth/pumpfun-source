@@ -6,6 +6,15 @@ import re
 import stat
 
 
+def unique_paths(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError('duplicate manifest path: ' + name)
+        result[name] = value
+    return result
+
+
 def check_manifest(packet_dir):
     packet = Path(packet_dir)
     manifest_path = packet / 'manifest.json'
@@ -32,7 +41,9 @@ def check_manifest(packet_dir):
         if not stat.S_ISREG(manifest_path.lstat().st_mode) or manifest_path.is_symlink():
             raise ValueError('manifest must be a regular non-symlink file')
         raw = manifest_path.read_text(encoding='utf-8')
-        manifest = json.loads(raw)
+        # json.loads keeps only the last occurrence of a key, which would leave
+        # the earlier declaration unchecked.
+        manifest = json.loads(raw, object_pairs_hook=unique_paths)
         if not isinstance(manifest, dict) or not manifest:
             raise ValueError('manifest must be a nonempty path-to-SHA256 object')
         expected_count = len(manifest)
