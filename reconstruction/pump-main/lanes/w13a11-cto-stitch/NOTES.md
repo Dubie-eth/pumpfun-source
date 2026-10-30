@@ -55,7 +55,7 @@ Genes (source of each):
 | skip+vsig+bo + reset + st_rref | 27,384 | 0.48996 | |
 | A5/A7 (skip family + w_cp_inline) | 27,416-27,440 | 0.489 | w_cp_inline conflicts with the skip family |
 
-## Composite 2 (this PR, on main 085e5dffb): + Result gate + event cashback from the curve + Rent ref, minus reset
+## Composite 2 (#2892, merged 4394685): + Result gate + event cashback from the curve + Rent ref, minus reset
 
 w13a10-cto-pfclimb (#2888) found the same skip/vsigner/bump-first family independently with the Result-valued
 gate `swept=if !skip{sweep(..)}else{Ok(0)}?;` (-8 B) as the size companion instead of `reset`.
@@ -73,3 +73,28 @@ gate, `is_cashback_coin:a.bonding_curve.is_cashback_coin` in the event (`h_ev_cb
 27,384 / 0.48906 alone on H2) and `let rent=&Rent::get()?;` in the sweep native arm (`rent_ref`,
 w12a14-cto-hillclimb). 27,400 B / **0.49071** / slots 3,313, 1034/1034, zero losses, unstripped sha256
 `48d5a9c99d2fd34f...`, differential 363/363.
+
+## Composite 3 (this PR, on main cb298d5c8 = #2907): entry copy of `new` + event flags from the curve + reset
+
+Main moved to cb298d5c8 (#2907 w13a10-cto-pfclimb-2: event `is_holder_reward` from the curve, `st.cashback&&!holder`;
+0.49101). The new gene is w13a03-cto-entrycopy's `g8`: `let args=&(new,);` bound after the `CtoState` literal
+and `Some(args.0)` in the shared non-holder arm. The borrowed tuple keeps an entry copy of `new` in the frame
+(the original copies all of `new`'s SROA pieces at entry, orig 0x4d8-0x538). Alone it is +16 B
+(C1 + g8 27,416 / 0.49296; 085e5df + g8 27,432 / 0.50569); the size companions are the two event/reset genes:
+
+| variant (bytes / ratio) | bytes | ratio |
+| --- | ---: | ---: |
+| C1 (main 4394685) + g8 | 27,416 | 0.49296 |
+| + `is_holder_reward` from the curve (#2907's gene) | 27,408 | 0.49334 |
+| **+ that + `reset` before the pool seeds (P1, this PR)** | **27,400** | **0.49431** |
+| C1 + g8 + `reset` + `if let` sharing CPI | 27,408 | 0.49334 |
+| C1 + g8 + event cashback local | 27,432 | 0.50150 |
+| 085e5df + g8 | 27,432 | 0.50569 |
+| 085e5df + g8 + `is_holder_reward` from the curve | 27,432 | 0.50599 |
+| 085e5df + g8 + Result gate | 27,440 | 0.50262 |
+
+P1: 27,400 B / **0.49431** / slots 3,306, 1034/1034 normalized and raw, zero losses against cb298d5c8, differential
+363/363, unstripped sha256 `46ba0c60c7b4dd11...`. P1 keeps `!holder&&st.cashback` (main's `st.cashback&&!holder` is
+measured separately as P1c).
+
+The 085e5df + g8 family (0.505-0.506 at 27,432 B) is the next target: it needs -32 B.
