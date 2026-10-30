@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Normally signed offline Surfpool original/candidate Pump buy_v2 / buy_exact_quote_in_v2 checks."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import base64
 import hashlib

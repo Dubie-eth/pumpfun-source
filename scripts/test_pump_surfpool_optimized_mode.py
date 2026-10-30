@@ -10,9 +10,22 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 RUNNERS = (
+    "pump_buy_v2_surfpool.py",
+    "pump_cashback_surfpool.py",
+    "pump_create_control_surfpool.py",
+    "pump_create_nested_surfpool.py",
+    "pump_create_quote_surfpool.py",
+    "pump_create_surfpool.py",
+    "pump_create_v2_surfpool.py",
+    "pump_exact_quote_surfpool.py",
+    "pump_global_init_surfpool.py",
     "pump_holder_distribution_surfpool.py",
+    "pump_idl_authority_surfpool.py",
+    "pump_legacy_buy_surfpool.py",
     "pump_migrate_surfpool.py",
     "pump_migrate_v2_surfpool.py",
+    "pump_v3_configured_fee_surfpool.py",
+    "pump_v3_token_extensions_surfpool.py",
 )
 ERROR = "Normal Python is required"
 

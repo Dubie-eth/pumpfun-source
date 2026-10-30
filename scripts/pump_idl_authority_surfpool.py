@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Normally signed offline Surfpool original/candidate Pump IDL authority checks."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import base64
 import hashlib
