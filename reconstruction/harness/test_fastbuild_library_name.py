@@ -22,7 +22,7 @@ class LibraryArtifactTests(unittest.TestCase):
             ('pump-identity', '', 'pump_identity'),
         ]:
             with self.subTest(package=package, library=lib_table), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
+                root = Path(temporary).resolve()
                 source, work, out = (root / name for name in ('source', 'work', 'out'))
                 (source / 'src').mkdir(parents=True)
                 (source / 'Cargo.toml').write_text(
@@ -45,7 +45,10 @@ class LibraryArtifactTests(unittest.TestCase):
                     if command[0] == 'rsync':
                         return real_run(command, **kwargs)
                     self.assertEqual(command[1], '--strip-all')
-                    self.assertEqual(Path(command[2]), built)
+                    stripped_input = Path(command[2])
+                    self.assertEqual(stripped_input.name, 'unstripped.so')
+                    self.assertEqual(stripped_input.parent.parent, out)
+                    self.assertEqual(stripped_input.read_bytes(), built.read_bytes())
                     Path(command[3]).write_bytes(b'current stripped output')
                     return subprocess.CompletedProcess(command, 0)
 

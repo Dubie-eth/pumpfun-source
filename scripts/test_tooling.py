@@ -138,8 +138,32 @@ import sys
 import unittest
 from test_analysis_interface_inventory import InterfaceInventoryEncodingTests
 from test_capture_verification_modes import CaptureVerificationModeTests
-from test_mayhem_receipt_admission import MayhemReceiptAdmissionTests
+# Some solders wheels (Windows) ship without LiteSVM. Report the VM-backed
+# suites as skipped instead of failing to load every other tooling test.
+def litesvm_unavailable_reason():
+    from solders import solders as native
+    if not hasattr(native, 'LiteSVM'):
+        return 'LiteSVM unavailable in this solders build: native extension has no LiteSVM'
+    try:
+        from solders.litesvm import LiteSVM as _LiteSVM  # noqa: F401
+    except ModuleNotFoundError as error:
+        if error.name != 'solders.litesvm':
+            raise
+        return 'LiteSVM unavailable in this solders build: no solders.litesvm module'
+    return None
+
+
+LITESVM_MISSING = litesvm_unavailable_reason()
+requires_litesvm = unittest.skipIf(LITESVM_MISSING is not None, LITESVM_MISSING)
+if LITESVM_MISSING is None:
+    from test_mayhem_receipt_admission import MayhemReceiptAdmissionTests
+else:
+    @requires_litesvm
+    class MayhemReceiptAdmissionTests(unittest.TestCase):
+        def test_requires_litesvm(self):
+            pass
 from test_fees_runtime_image_binding import FeesRuntimeImageBindingTests
+FeesRuntimeImageBindingTests = requires_litesvm(FeesRuntimeImageBindingTests)
 from test_fees_external_codec_cases import ExternalCodecBooleanCases
 from types import SimpleNamespace
 import deep_disassembly
@@ -899,7 +923,11 @@ class ParallelCaseCountTests(unittest.TestCase):
         artifact = self.artifact
         reports = {
             'quote_control': {'bound_inputs_sha256': {artifact.relative_to(analyze.ROOT).as_posix(): self.digest},
-                              'cases': 507, 'results': [{'matches': True, 'different_fields': []} for _ in range(507)]},
+                              'cases': 507, 'compare_keys': list(corpus.QUOTE_CONTROL_COMPARE_KEYS),
+                              'results': [{'case': f'fixture/{index}', 'matches': True, 'different_fields': [],
+                                           'original': dict.fromkeys(corpus.QUOTE_CONTROL_COMPARE_KEYS),
+                                           'candidate': dict.fromkeys(corpus.QUOTE_CONTROL_COMPARE_KEYS)}
+                                          for index in range(507)]},
             'multi_hop_curve_partial': {'candidate_sha256': self.digest, 'original_pump_sha256': self.digest,
                                         'passed': 56, 'case_count': 56, 'cases': [{'mismatches': []} for _ in range(56)]},
             'tokenkeg_two_curve': {'candidate_sha256': self.digest,
@@ -1350,7 +1378,7 @@ class CompareRelayCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'scripts').mkdir()
-            for script in ('compare.py', 'analyze.py'):
+            for script in ('compare.py', 'analyze.py', 'deep_disassembly.py', 'window_elf_reader.py'):
                 shutil.copyfile(source_root / 'scripts' / script, root / 'scripts' / script)
             captures = {
                 'donation_relay': 'dependencies',
@@ -1645,11 +1673,11 @@ class InstructionLogNameTests(unittest.TestCase):
     def test_program_names_fall_back_to_captures(self):
         self.assertEqual(
             analyze.program_names(),
-            ['pump', 'pump_amm', 'pump_fees', 'mayhem'],
+            ['pump', 'pump_amm', 'pump_fees', 'mayhem', 'donation_relay'],
         )
 
     def test_program_addresses_fall_back_to_captures(self):
-        # Matches the archived repro/programs.json removed in fce9f28.
+        # The four original programs plus the retained Donation Relay dependency.
         self.assertEqual(
             analyze.program_addresses(),
             {
@@ -1657,6 +1685,7 @@ class InstructionLogNameTests(unittest.TestCase):
                 'pump_amm': 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
                 'pump_fees': 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ',
                 'mayhem': 'MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e',
+                'donation_relay': 'RLAYHr9TRFcKB2ubYQhspcnXiaGpaVzNQvHytt47RZu',
             },
         )
 
@@ -2016,14 +2045,16 @@ class DispatchRecoveryTests(unittest.TestCase):
         import recover_dispatch
         report = recover_dispatch.dispatch()
         self.assertEqual(
-            list(report), ['pump', 'pump_amm', 'pump_fees', 'mayhem'])
+            list(report), ['pump', 'pump_amm', 'pump_fees', 'mayhem', 'donation_relay'])
         self.assertEqual(
             [sum(bool(row['matches']) for row in rowset['instructions'].values())
-             for rowset in report.values()],
+             for name, rowset in report.items() if name != 'donation_relay'],
             [56, 38, 31, 25])
         self.assertEqual(
-            report,
+            {name: row for name, row in report.items() if name != 'donation_relay'},
             json.loads((analyze.ROOT / 'evidence/dispatch-map.json').read_text()))
+        self.assertEqual(report['donation_relay']['binary_sha256'],
+                         '367f07a62e3f74d358187d175cf3228848e81a56c781a9a75b9df7fed1268563')
 
 
 class SbpfInventoryInputTests(unittest.TestCase):
@@ -2332,7 +2363,8 @@ class LddwImmediateDecodeTests(unittest.TestCase):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tests.test_current_bindings_paths import CurrentBindingsPathTests
-from test_fees_error_messages_exit import FeesErrorMessageExitTests
+from test_fees_error_messages_exit import FeesErrorMessageExitTests, FeesErrorMessageOptimizationTests
+FeesErrorMessageExitTests = requires_litesvm(FeesErrorMessageExitTests)
 from test_pump_window_inventory import WindowInventoryTests
 
 

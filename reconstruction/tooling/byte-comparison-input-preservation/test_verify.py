@@ -15,6 +15,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ('pump_compare_function_bytes.py', 'pump_exact_body_inventory.py',
            'pump_quote_control_function_match.py')
+# Imported by pump_compare_function_bytes.py for its atomic report publication.
+DEPENDENCIES = ('probe_report.py',)
 LANE = 'reconstruction/pump-main/lanes/v3-sell-payment-layout'
 EXPECTED_CANDIDATE = '969811b0e0f673b693695ea651008cacd93eafa5a663dd8bec0e61d3b22d09a9'
 OBJDUMP = shutil.which('llvm-objdump')
@@ -34,7 +36,7 @@ class ByteComparisonInputTests(unittest.TestCase):
             raise RuntimeError('a real llvm-objdump is required; pass --objdump')
         cls.tool = Path(OBJDUMP).resolve()
         cls.sources = {}
-        for name in SCRIPTS:
+        for name in SCRIPTS + DEPENDENCIES:
             if SCRIPT_DIRECTORY:
                 content = (SCRIPT_DIRECTORY / name).read_bytes()
             elif SOURCE_REVISION:
@@ -109,7 +111,14 @@ class ByteComparisonInputTests(unittest.TestCase):
                 else:
                     self.assertEqual(len(report['functions']), 1)
                 second = self.invoke(script, output, 'regular-repeat')
-                self.assertEqual(second.returncode, 0, second.stderr)
+                # pump_exact_body_inventory.py publishes with exclusive create so
+                # a prior report is never replaced; the other two rewrite the
+                # same bytes. Either way the published report cannot change.
+                if script == 'pump_exact_body_inventory.py':
+                    self.assertNotEqual(second.returncode, 0, second.stdout)
+                    self.assertIn('File exists', second.stderr)
+                else:
+                    self.assertEqual(second.returncode, 0, second.stderr)
                 self.assertEqual(output.read_bytes(), before)
 
     def reject_alias(self, script, target, output, case):
@@ -148,9 +157,12 @@ class ByteComparisonInputTests(unittest.TestCase):
         try:
             os.environ['PATH'] = str(absolute.parent) + os.pathsep + (previous or '')
             self.objdump = Path(absolute.name)
-            result = self.invoke(SCRIPTS[1], output, 'bare-path-tool')
+            # A second run needs a fresh report path: this script refuses to
+            # replace an existing one (exclusive create).
+            bare = self.root / 'path-tool-bare.json'
+            result = self.invoke(SCRIPTS[1], bare, 'bare-path-tool')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(output.read_bytes()), before)
+            self.assertEqual(json.loads(bare.read_bytes()), before)
             self.assertEqual(before['objdump_sha256'], sha(absolute.read_bytes()))
         finally:
             self.objdump = absolute

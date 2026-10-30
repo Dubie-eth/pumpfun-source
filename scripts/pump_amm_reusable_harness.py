@@ -13,7 +13,6 @@ import shutil
 import tempfile
 from solders.account import Account
 from solders.pubkey import Pubkey
-from pump_amm_admin_differential import Harness
 
 class _ResettableVM:
     def __init__(self, vm):
@@ -74,6 +73,10 @@ def pin_program(path):
 
 _cached = {}
 def acquire_harness(program):
+    # Import the LiteSVM harness only when a VM is needed: pin_program is also
+    # imported by metadata-only consumers (test_tooling.py on solders wheels
+    # without LiteSVM, such as Windows).
+    from pump_amm_admin_differential import Harness
     if os.environ.get('PUMP_AMM_FRESH_VM') == '1':
         return Harness(program)
     key = str(Path(program).resolve())

@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -64,6 +65,10 @@ def manifest(source):
                 raise ValueError('source symlinks are unsupported')
         if Path(directory) == source:
             dirs[:] = [d for d in dirs if d != 'target']
+        # Nonempty directory membership follows from its files/descendants.
+        # Empty leaves are also observable by build scripts and experiment commands.
+        if Path(directory) != source and not dirs and not any(name not in ALWAYS_IGNORED for name in files):
+            result[Path(directory).relative_to(source).as_posix() + '/'] = {'directory': True}
         # A linked worktree or submodule stores .git as a file; staging omits it too.
         for name in dirs + sorted(name for name in files if name not in ALWAYS_IGNORED):
             path = Path(directory) / name
@@ -130,7 +135,10 @@ def artifacts(attempt):
     result = {}
     for path in [attempt / 'stdout.log', attempt / 'stderr.log', *sorted((attempt / 'output').rglob('*'))]:
         if path.is_symlink(): raise ValueError('output symlinks are unsupported')
-        if path.is_file(): result[path.relative_to(attempt).as_posix()] = digest(path.read_bytes())
+        if path.is_file():
+            result[path.relative_to(attempt).as_posix()] = {
+                'sha256': digest(path.read_bytes()),
+                'executable': bool(path.stat().st_mode & 0o111)}
         elif not path.is_dir(): raise ValueError('special output files are unsupported')
     return result
 
@@ -150,6 +158,14 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        # Refresh source and declared file contents after waiting. Keep the admitted
+        # executable and alias targets: re-resolving them could silently run a
+        # different command. Their original bindings are rechecked before launch.
+        admission = dict(admission, source=manifest(source), inputs={
+            **admission['inputs'],
+            **input_hashes(path for path in admission['inputs']
+                           if path != admission['executable'])})
+        key = digest(json.dumps(admission, sort_keys=True).encode())
         receipt_path = destination / 'latest.json'
         if receipt_path.exists():
             previous = json.loads(receipt_path.read_text())
@@ -175,8 +191,8 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
         replacements = {'{source}': str(copied), '{work}': str(work), '{out}': str(output)}
         argv = []
         for arg in admission['command']:
-            for token, value in replacements.items(): arg = arg.replace(token, value)
-            argv.append(arg)
+            argv.append(re.sub(r'\{(?:source|work|out)\}',
+                               lambda match: replacements[match.group()], arg))
         # Preserve argv[0] for virtual environments/rustup, but do not resolve
         # the alias again: it may now point somewhere other than the hashed tool.
         argv[0] = admission['invocation']
@@ -237,7 +253,10 @@ def main():
                 raise ValueError('trial inputs must be an array of file paths')
             names.add(name)
             identity(row['source'], row['command'], row.get('inputs', []), row.get('timeout', 300))
-            separate_trees(row['source'], args.out / name)
+        # Admit the entire matrix before the first command, including cross-row inputs.
+        for row in rows:
+            for other in rows:
+                separate_trees(other['source'], args.out / row['name'])
     except (OSError, ValueError, TypeError, KeyError) as error:
         parser.error(f'invalid experiment matrix: {error}')
     results = {row['name']: run_trial(row['source'], row['command'], args.out / row['name'], row.get('inputs', []), row.get('timeout', 300)) for row in rows}
