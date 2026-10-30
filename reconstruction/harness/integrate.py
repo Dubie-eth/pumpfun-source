@@ -64,12 +64,12 @@ def bound_scoring_inputs(src, baseline):
 
 
 def crate_ignore(root: Path, *patterns):
-    """Skip the crate-root build directory, as fastbuild staging does, plus `patterns` anywhere.
+    """Skip Git metadata, the crate-root build directory, and `patterns` anywhere.
 
     Nested target directories and a regular file named target are source inputs.
     """
     root = Path(root)
-    by_name = shutil.ignore_patterns(*patterns)
+    by_name = shutil.ignore_patterns('.git', *patterns)
 
     def ignore(directory, names):
         ignored = set(by_name(directory, names))
