@@ -69,6 +69,9 @@ jobs:
             commands: |
               python -B reconstruction/harness/test_integrate_failures.py
               python -B reconstruction/harness/test_integrate_no_build_cli.py
+              python -B reconstruction/harness/test_build_pair_boundaries.py
+              python -B reconstruction/harness/test_composition_deadline.py
+              python -B reconstruction/harness/test_fastbuild_stack.py
               python -B reconstruction/harness/test_integrate_empty_files.py
               python -B reconstruction/harness/test_integrate_binary_files.py
               python -B reconstruction/harness/test_integrate_file_directory.py
@@ -175,6 +178,7 @@ jobs:
               python -B scripts/test_imported_lab_optimization.py
               python -B scripts/test_deep_section_analysis_publication.py
               python -B scripts/test_pump_data_order_publication.py
+              python -B scripts/test_pump_data_order_windows_publish.py
               python -B scripts/test_deep_disassembly_syscall_usage.py
               python -B scripts/test_disassemble_output_mode.py
               python -B scripts/test_disassemble_tool_binding.py
@@ -215,6 +219,7 @@ jobs:
               python -B reconstruction/harness/test_score_empty_baseline.py
               python -B reconstruction/harness/test_score_baseline_option_conflict.py
               python -B reconstruction/harness/test_score_symbol_admission.py
+              python -B reconstruction/harness/test_batch_target_metric.py
               python -B reconstruction/pump-main/test_ledger_negative_limit.py
               python -B reconstruction/diagnostics/census-portability/test_output_guard.py
               python -B reconstruction/harness/test_census_argument_constants.py
@@ -288,10 +293,7 @@ jobs:
               python -B research/tooling-arithmetic-shift-counts-20261030/test_verify.py
               python -B research/tooling-revalidation-manifests-20261030/test_verify.py
               python -B research/tooling-revalidation-invocation-20261030/test_verify.py
-              python -B reconstruction/tooling/revalidation-qualification/test_audit.py
-              python -B reconstruction/tooling/revalidation-qualification/test_capture_memory.py
-              python -B -m unittest discover -s reconstruction/tooling/revalidation-qualification -p 'test_packet_root_links.py'
-              python -B -m unittest discover -s reconstruction/tooling/revalidation-qualification -p 'test_packet_identity_stability.py'
+              python -B -m unittest discover -s reconstruction/tooling/revalidation-qualification -p 'test_*.py'
               python -B reconstruction/relocation-text-addresses/test_analyze.py
               python -B reconstruction/math-register-comparisons/test_analyze.py
               python research/tooling-terminal-error-patterns-20261030/test_verify.py
