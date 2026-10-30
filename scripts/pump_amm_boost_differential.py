@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Local boost initialization and authentic signed migration differential."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys
 sys.path.insert(0,'scripts')
 from pump_amm_create_differential import *
