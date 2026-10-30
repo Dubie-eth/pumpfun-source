@@ -187,7 +187,10 @@ jobs:
               python -B tests/test_recovered_builds_optimization.py
               python -B scripts/test_mayhem_burn_sequence_optimization.py
               python -B scripts/test_pump_amm_report_encoding.py
+              python -B scripts/test_fixture_reads_encoding.py
               python -B scripts/test_build_evidence_encoding.py
+              python -B scripts/test_pump_receipt_encoding.py
+              python -B scripts/test_tooling_writers_encoding.py
               python -B scripts/test_fees_report_encoding.py
               python -B scripts/test_surfpool_report_encoding.py
               python -B scripts/test_mayhem_report_encoding.py
