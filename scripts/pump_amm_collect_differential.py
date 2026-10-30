@@ -18,7 +18,7 @@ def collect(amount=1000,candidate=None,overrides=None,payload_length=None):
  return {'error':str(r.err()) if failed else None,'states':states,'logs':meta.logs(),'inner':json.loads(meta.to_json())['inner_instructions']}
 
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--candidate',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args();candidate=args.candidate;output=PumpReport(args.output,ROOT,candidate,__file__);rows=[]
+ parser=argparse.ArgumentParser();parser.add_argument('--candidate',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args();candidate=args.candidate;output=PumpReport(args.output,ROOT,candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);rows=[]
  def test(label,**kw):
   x=collect(**kw);y=collect(candidate=candidate,**kw)
   for r in [x,y]:r['events']=[v for v in r.pop('logs') if v.startswith('Program data: ')]
