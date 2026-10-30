@@ -17,9 +17,14 @@ def check(ok, message="captured-loader check failed"):
     # which let tampered captured evidence load into LiteSVM unchecked.
     if not ok:
         raise AssertionError(message)
-CAPTURE=json.loads((ROOT/'evidence/original/pump/capture.json').read_text())
+CAPTURE_BYTES=(ROOT/'evidence/original/pump/capture.json').read_bytes()
+CAPTURE=json.loads(CAPTURE_BYTES)
 PROGRAM=Pubkey.from_string(CAPTURE['program']);PROGRAMDATA=Pubkey.from_string(CAPTURE['programdata']);OWNER=Pubkey.from_string(CAPTURE['owner'])
 PROGRAM_BYTES=(ROOT/'evidence/original/pump/program-account.bin').read_bytes();PD_CAPTURE=(ROOT/'evidence/original/pump/programdata-account.bin').read_bytes();HEADER=PD_CAPTURE[:45];SLOT=struct.unpack_from('<Q',HEADER,4)[0]
+INPUT_SHA256={str(ROOT/'evidence/original/pump'/name):hashlib.sha256(raw).hexdigest()
+                 for name,raw in (('capture.json',CAPTURE_BYTES),
+                                  ('program-account.bin',PROGRAM_BYTES),
+                                  ('programdata-account.bin',PD_CAPTURE))}
 check(len(PROGRAM_BYTES)==36 and PROGRAM_BYTES[4:]==bytes(PROGRAMDATA))
 check(hashlib.sha256(PD_CAPTURE).hexdigest()==CAPTURE['programdata_sha256'])
 check(hashlib.sha256(PD_CAPTURE[45:]).hexdigest()==CAPTURE['payload_sha256'])

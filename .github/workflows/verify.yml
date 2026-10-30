@@ -151,6 +151,7 @@ jobs:
               python -B scripts/test_pump_differential_optimized_mode.py
               python -B scripts/test_pump_validate_constant_product_optimization.py
               python -B scripts/test_pump_with_captured_loader_paths.py
+              python -B scripts/test_pump_with_captured_loader_input_hashes.py
               python -B tests/test_fees_external_codec_pinned_image.py
               python -B tests/test_fees_error_messages_pinned_image.py
               python -B scripts/test_pump_validate_parallel.py
