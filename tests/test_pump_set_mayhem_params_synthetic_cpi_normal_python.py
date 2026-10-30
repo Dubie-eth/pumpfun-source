@@ -1,15 +1,20 @@
 """Synthetic Mayhem CPI assertions must not disappear under optimized Python."""
 
 import ast
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
+import types
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/pump_set_mayhem_params_synthetic_cpi.py"
+HARNESS = ROOT / "scripts/pump_amm_reusable_harness.py"
 MESSAGE = "Normal Python is required; do not use -O or PYTHONOPTIMIZE."
 
 
@@ -110,6 +115,29 @@ class SyntheticMayhemParamsNormalPythonTests(unittest.TestCase):
             for node in ast.walk(candidate_branch)
         )
         self.assertTrue(hashes_pinned_path)
+
+    def test_pin_program_returns_one_byte_snapshot(self):
+        solders = types.ModuleType("solders")
+        solders.__path__ = []
+        modules = {
+            "solders": solders,
+            "solders.account": types.SimpleNamespace(Account=object),
+            "solders.pubkey": types.SimpleNamespace(Pubkey=object),
+            "pump_amm_admin_differential": types.SimpleNamespace(Harness=object),
+        }
+        with mock.patch.dict(sys.modules, modules, clear=False):
+            spec = importlib.util.spec_from_file_location(
+                "pump_amm_reusable_harness_under_test", HARNESS)
+            harness = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(harness)
+
+        with tempfile.TemporaryDirectory(prefix="pin-program-") as directory:
+            source = Path(directory) / "candidate.so"
+            source.write_bytes(b"first image")
+            pinned = harness.pin_program(source)
+            source.write_bytes(b"replacement image")
+            self.assertEqual(pinned.read_bytes(), b"first image")
+            self.assertEqual(harness.pin_program(source), pinned)
 
 
 if __name__ == "__main__":
