@@ -30,9 +30,11 @@ under an old cache key. Environment values remain unrecorded; only their hash
 appears in the receipt.
 Declared input paths retain their resolved targets as well as content hashes;
 retargeting an input alias or changing its bytes before launch is rejected, and
-post-run checks prevent changed inputs from yielding reusable pass/fail results.
-The runner fingerprint describes the loaded module bytes, so later edits to the
-driver on disk cannot relabel an already imported implementation.
+post-run checks reject changes still present at the end of execution. These
+checks do not protect against inputs changed and restored between checks.
+The runner fingerprint is captured at import time; later edits to the driver
+on disk cannot relabel that import-time fingerprint. It is not an immutable
+snapshot of every executable or script byte read during the child process.
 
 ## Locate a first-parent regression
 

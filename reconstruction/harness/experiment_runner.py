@@ -36,7 +36,8 @@ def digest(data): return hashlib.sha256(data).hexdigest()
 
 
 # A long-lived importer keeps executing this loaded module if its source file
-# changes on disk. Bind receipts to those loaded bytes, not a later disk edit.
+# changes on disk. Retain the import-time source fingerprint instead of
+# relabeling the import with a later source-file read.
 LOADED_RUNNER_SHA256 = digest(Path(__file__).read_bytes())
 
 
