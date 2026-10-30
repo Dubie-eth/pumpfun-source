@@ -6,7 +6,9 @@
 
 Each part is turned into a patch against the crate it was derived from (default: --base-src),
 then applied in order. Empty-file transitions use Git patch metadata; ordinary text
-changes retain `patch -p2 --forward`. Rejects are reported and the part is skipped
+changes retain `patch -p2 --forward`. Directory additions and removals are applied
+after each file patch; a removal that still holds composed files is reported as retained.
+Rejects are reported and the part is skipped
 (the composition continues). The composed crate is built with fastbuild.py and scored.
 Output: SC/integ/<NAME>/{src, parts/<label>.patch, rejects/, report.json}
 Names must be fresh; an earlier result is never overwritten.
@@ -44,6 +46,39 @@ def crate_ignore(root: Path, *patterns):
             ignored.add('target')
         return ignored
     return ignore
+
+
+def composition_directories(root: Path):
+    """Directories a composition copy of `root` contains, after crate_ignore."""
+    root = Path(root)
+    ignore = crate_ignore(root, '*.rej', '.DS_Store')
+    result = set()
+    for directory, dirs, files in os.walk(root):
+        skipped = set(ignore(directory, dirs + files))
+        dirs[:] = sorted(d for d in dirs if d not in skipped)
+        if Path(directory) != root:
+            result.add(Path(directory).relative_to(root).as_posix())
+    return result
+
+
+def directory_delta(derived_from: Path, part: Path):
+    before, after = composition_directories(derived_from), composition_directories(part)
+    return sorted(after - before), sorted(before - after)
+
+
+def apply_directory_delta(src: Path, added, removed):
+    """Apply a part's directory delta; keep a removal that still holds composed files."""
+    for name in added:
+        (src / name).mkdir(parents=True, exist_ok=True)
+    retained = []
+    for name in sorted(removed, key=lambda value: value.count('/'), reverse=True):
+        try:
+            (src / name).rmdir()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            retained.append(name)
+    return retained
 
 
 def make_patch(base: Path, part: Path, out: Path, tmp: Path):
@@ -237,26 +272,34 @@ def main():
     for label, path, derived_from in parts:
         pf = out / 'parts' / f'{label}.patch'
         text = make_patch(derived_from, Path(path), pf, SC / 'integ' / '.tmp' / a.name / label)
-        if not text.strip():
+        added, removed = directory_delta(derived_from, Path(path))
+        if not text.strip() and not added and not removed:
             report['parts'].append({'label': label, 'status': 'empty'}); continue
-        git_format = text.startswith('diff --git ')
-        if git_format:
-            command, patch_root, directory = git_patch_command(src)
-            dry = subprocess.run(command + ['--check', str(pf)], cwd=patch_root,
-                                 capture_output=True, text=True)
-        else:
-            dry = subprocess.run(patch_command + ['-p2', '--forward', '--dry-run', '-E', '-d', str(src), '-i', str(pf)], capture_output=True, text=True)
-        if dry.returncode == 0:
+        files = []
+        if text.strip():
+            git_format = text.startswith('diff --git ')
+            if git_format:
+                command, patch_root, directory = git_patch_command(src)
+                dry = subprocess.run(command + ['--check', str(pf)], cwd=patch_root,
+                                     capture_output=True, text=True)
+            else:
+                dry = subprocess.run(patch_command + ['-p2', '--forward', '--dry-run', '-E', '-d', str(src), '-i', str(pf)], capture_output=True, text=True)
+            if dry.returncode:
+                (out / 'rejects' / f'{label}.txt').write_text(dry.stdout + dry.stderr)
+                report['parts'].append({'label': label, 'status': 'conflict', 'detail': (dry.stdout + dry.stderr)[-1500:]})
+                continue
             if git_format:
                 subprocess.run(command + [str(pf)], cwd=patch_root, check=True)
                 files = git_patched_files(command, patch_root, directory, pf)
             else:
                 subprocess.run(patch_command + ['-s', '-p2', '--forward', '-E', '-d', str(src), '-i', str(pf)], check=True)
                 files = patched_files(text)
-            report['parts'].append({'label': label, 'status': 'applied', 'files': files})
-        else:
-            (out / 'rejects' / f'{label}.txt').write_text(dry.stdout + dry.stderr)
-            report['parts'].append({'label': label, 'status': 'conflict', 'detail': (dry.stdout + dry.stderr)[-1500:]})
+        entry = {'label': label, 'status': 'applied', 'files': files}
+        if added or removed:
+            retained = apply_directory_delta(src, added, removed)
+            entry['directories'] = {key: value for key, value in
+                                    (('added', added), ('removed', removed), ('retained', retained)) if value}
+        report['parts'].append(entry)
     if not a.no_build:
         res = build_source(src, out / 'work', out / 'build', quiet=True)
         report['build'] = res
