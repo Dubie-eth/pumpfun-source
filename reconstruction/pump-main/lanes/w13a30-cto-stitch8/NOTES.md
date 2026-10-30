@@ -42,3 +42,11 @@ program let) 27,368 / 0.56445; `ok_hold` (w13a16 holder-in-Ok) 27,368 / 0.54976;
 
 On main d81d0f588 (0.57100): `t_cus` 27,384 / 0.57117; `e_reset` 27,392 / 0.57079; `e_hr_curve` 27,392 / 0.57049;
 `u_sof3` 27,408 / 0.55474.
+
+## Review against the later transfer-clone source
+
+The cashback tuple and scalar bump changes were rebuilt together with the revised
+#3051 transfer-CPI clone source. This composition measures 0.59197 at 27,400 bytes,
+with 3,312 positional differing 8-byte slots. The revised #3051 alone measures
+0.59137 and 3,311 slots. Both retain 1,034/1,035 raw and normalized exact windows;
+no new exact window is claimed. The increase is in partial sequence alignment.
