@@ -20,6 +20,7 @@ non-cashback v3 trades are unchanged. It builds on the v3 token-extensions fixtu
 if not __debug__:
     raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
 import argparse,gzip,hashlib,json
+from pump_amm_reusable_harness import pin_program
 import pump_v3_token_extensions_differential as v3
 import pump_trade_fixture as f
 
@@ -54,6 +55,7 @@ def main():
     p.add_argument('--candidate', type=f.pathlib.Path)
     p.add_argument('--output', type=f.pathlib.Path, required=True)
     a = p.parse_args()
+    a.candidate = pin_program(a.candidate) if a.candidate else None
     original = f.R / 'evidence/original/pump/deployed.so'
     rows, bad = [], []
     for i, c in enumerate(cases()):
