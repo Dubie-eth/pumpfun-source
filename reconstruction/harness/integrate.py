@@ -11,7 +11,9 @@ changes retain `patch -p2 --forward`. Rejects are reported and the part is skipp
 Output: SC/integ/<NAME>/{src, parts/<label>.patch, rejects/, report.json}
 Names must be fresh; an earlier result is never overwritten.
 Part labels must be unique ignoring case so their retained patch names remain
-distinct on case-insensitive filesystems.
+distinct on case-insensitive filesystems. Labels and composition names exclude
+trailing dots and reserved Windows device names. --base-of labels match the
+declared --part spelling exactly.
 """
 import argparse, ast, json, os, shutil, subprocess, sys, re
 from pathlib import Path
@@ -154,6 +156,11 @@ def preflight(name, base, parts, overrides):
     def label(value):
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', value) or value in ('.', '..'):
             raise ValueError(f'invalid composition name or label: {value!r}')
+        reserved = {'CON', 'PRN', 'AUX', 'NUL'} | {
+            f'{prefix}{number}' for prefix in ('COM', 'LPT') for number in range(1, 10)
+        }
+        if value.endswith('.') or value.split('.', 1)[0].upper() in reserved:
+            raise ValueError(f'nonportable composition name or label: {value!r}')
         return value
 
     def selections(values, kind):
