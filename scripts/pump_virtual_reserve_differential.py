@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pump_set_mayhem_virtual_params_differential as f
 from build_source_manifest import source_manifest
+from pump_amm_reusable_harness import pin_program
 
 FIELDS = ('error', 'before', 'after', 'events', 'inner', 'return_data')
 U64 = 2**64 - 1
@@ -127,6 +128,7 @@ def main():
     p.add_argument('--build-comparison', type=Path)
     p.add_argument('--output', type=Path, required=True)
     args = p.parse_args()
+    args.candidate = pin_program(args.candidate)
     if args.output.exists() or args.output.is_symlink():
         raise FileExistsError('Refusing to overwrite existing output; choose a fresh path')
     sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
