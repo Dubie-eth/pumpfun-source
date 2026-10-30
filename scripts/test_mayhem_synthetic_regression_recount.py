@@ -6,17 +6,15 @@ its summary row by file hash and length, then trusted the receipt's own
 header: it compared the claimed ``case_count`` with the row and required
 ``mismatches`` to claim empty, but never opened the receipt's case list. A
 receipt claiming 7957 cases and zero mismatches while shipping a 3-entry
-list passed as a full regression run. Producers in this repo write receipts
-as ``case_count == len(cases)`` with the full list attached, so the verifier
-now recounts the list through ``assert_regression_receipt``; these checks
-pin that behaviour.
+list passed as a full regression run. The holder-distribution and nested-create
+receipts attach their case lists; their header must match the list length.
+Historical aggregate and integer-count shapes retain their previous checks.
 """
 
 import ast
 import importlib.util
 from pathlib import Path
 import sys
-import types
 import unittest
 
 
@@ -27,15 +25,6 @@ if str(SCRIPTS) not in sys.path:
 
 
 def load_verifier():
-    try:
-        import solders  # noqa: F401
-    except ImportError:
-        # The recount never touches solders; stub the imports so the module
-        # loads on hosts without it, like the verifier's other checks need.
-        for name in ("solders", "solders.pubkey", "solders.transaction"):
-            sys.modules.setdefault(name, types.ModuleType(name))
-        sys.modules["solders.pubkey"].Pubkey = object
-        sys.modules["solders.transaction"].VersionedTransaction = object
     spec = importlib.util.spec_from_file_location("mayhem_synthetic_verifier", VERIFIER)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

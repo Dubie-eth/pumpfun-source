@@ -55,9 +55,9 @@ def assert_account_event(case):
 def assert_regression_receipt(receipt, expected_cases):
     """Recount a regression receipt's case list instead of trusting its header.
 
-    Producers in this repo write receipts as case_count == len(cases) with the
-    full case list attached, so a header that disagrees with the list it ships
-    is a forged or truncated receipt, not a passing one.
+    When a receipt includes a case list, its header must agree with that list.
+    Historical aggregate receipts and count-only shapes keep their existing
+    claimed-count check; this does not validate their nested case contents.
     """
     cases = receipt.get("cases")
     if isinstance(cases, list):
