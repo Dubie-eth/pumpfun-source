@@ -1,75 +1,118 @@
-"""The v3 configured-fee differential binds every case and its receipt to one candidate image.
+"""Exercise the real configured-fee CLI with replaced and counterfactual images.
 
-scripts/pump_v3_configured_fee_differential.py loads the candidate program
-from a path on every case (run() calls LiteSVM.add_program_from_file with
-the binary it is handed) but reads candidate_sha256 from that same live
-path only after the loop. A build that replaces the candidate file mid-run
-therefore mixes two images under a receipt that names only the final one.
-main() must pin the candidate once, before the first case, so every case
-load and the report hash read the same snapshot.
+Captured Pump bytes are a diagnostic candidate here, not a reconstructed build.
+Every generated case and the normal signed VM transaction path remain enabled.
 """
-
-import ast
+import gzip
+import hashlib
+import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "pump_v3_configured_fee_differential.py"
+ORIGINAL = ROOT / 'evidence/original/pump/deployed.so'
+OTHER = ROOT / 'evidence/original/pump_fees/deployed.so'
+DRIVER = r'''
+import sys, shutil
+from pathlib import Path
+scripts, fixture_root, candidate, replacement, output, mode = sys.argv[1:]
+sys.path.insert(0, scripts)
+import pump_v3_configured_fee_differential as module
+module.f.R = Path(fixture_root)
+original = module.f.R / 'evidence/original/pump/deployed.so'
+returned = []
+def hook(frame, event, arg):
+    if event == 'return' and frame.f_code.co_name == 'run' and frame.f_code.co_filename == module.__file__:
+        returned.append(1)
+        if len(returned) == 2:
+            sys.setprofile(None)
+            shutil.copyfile(replacement, original)
+            shutil.copyfile(replacement, candidate)
+if mode == 'mutate':
+    sys.setprofile(hook)
+sys.argv = [module.__file__, '--output', output]
+if mode != 'original-only':
+    sys.argv += ['--candidate', candidate]
+try:
+    module.main()
+finally:
+    sys.setprofile(None)
+    if mode == 'mutate' and len(returned) < 2:
+        raise RuntimeError('the first original/candidate pair did not complete')
+'''
 
 
-def main_function(tree):
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return node
-    raise AssertionError("main() not found in pump_v3_configured_fee_differential.py")
-
-
-def is_pin_of_candidate(node):
-    """True for `a.candidate = pin_program(a.candidate)` (or a pinned alias)."""
-    if not isinstance(node, ast.Assign):
-        return False
-    value = node.value
-    if isinstance(value, ast.IfExp):
-        value = value.body
-    if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)):
-        return False
-    if value.func.id != "pin_program":
-        return False
-    return any(
-        isinstance(arg, ast.Attribute)
-        and isinstance(arg.value, ast.Name)
-        and arg.value.id == "a"
-        and arg.attr == "candidate"
-        for arg in value.args
-    )
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 class V3ConfiguredFeePinnedImageTests(unittest.TestCase):
-    def test_main_pins_candidate_before_the_case_loop(self):
-        tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-        imports_pin = any(
-            isinstance(node, ast.ImportFrom)
-            and node.module == "pump_amm_reusable_harness"
-            and any(alias.name == "pin_program" for alias in node.names)
-            for node in ast.walk(tree)
+    def staged_run(self, mode):
+        temporary = tempfile.TemporaryDirectory(prefix='configured-fee-binding-')
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name)
+        original = directory / 'evidence/original/pump/deployed.so'
+        original.parent.mkdir(parents=True)
+        shutil.copyfile(ORIGINAL, original)
+        (directory / 'evidence/original/pump_fees').symlink_to(OTHER.parent, target_is_directory=True)
+        (directory / 'evidence/dependencies').symlink_to(ROOT / 'evidence/dependencies', target_is_directory=True)
+        candidate = directory / 'candidate.so'
+        shutil.copyfile(OTHER if mode == 'wrong' else ORIGINAL, candidate)
+        output = directory / 'receipt.json.gz'
+        environment = dict(os.environ)
+        environment.pop('PYTHONOPTIMIZE', None)
+        result = subprocess.run(
+            [sys.executable, '-B', '-c', DRIVER, str(ROOT / 'scripts'), str(directory),
+             str(candidate), str(OTHER), str(output), mode],
+            cwd=ROOT, env=environment, capture_output=True, text=True, timeout=180,
         )
-        self.assertTrue(imports_pin, "script must import pin_program")
-        main = main_function(tree)
-        pin_index = None
-        loop_index = None
-        for index, node in enumerate(main.body):
-            if pin_index is None and is_pin_of_candidate(node):
-                pin_index = index
-            if loop_index is None and isinstance(node, ast.For):
-                loop_index = index
-        self.assertIsNotNone(pin_index, "main() must pin a.candidate via pin_program")
-        self.assertIsNotNone(loop_index, "main() must loop over cases")
-        self.assertLess(
-            pin_index,
-            loop_index,
-            "the candidate must be pinned before the first case runs",
-        )
+        return result, output, original, candidate
+
+    def check_signed_cases(self, report, candidate):
+        self.assertGreater(report['case_count'], 1)
+        self.assertEqual(report['case_count'], len(report['cases']))
+        for row in report['cases']:
+            self.assertTrue(row['original']['signature_verified'])
+            if candidate:
+                self.assertTrue(row['candidate']['signature_verified'])
+
+    def test_original_and_candidate_keep_first_image_after_pair(self):
+        result, output, original, candidate = self.staged_run('mutate')
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertEqual(sha(original), sha(OTHER))
+        self.assertEqual(sha(candidate), sha(OTHER))
+        report = json.loads(gzip.decompress(output.read_bytes()))
+        self.assertEqual(report['original_sha256'], sha(ORIGINAL))
+        self.assertEqual(report['candidate_sha256'], sha(ORIGINAL))
+        self.assertEqual(report['mismatches'], [])
+        self.assertTrue(all(row['match'] is True for row in report['cases']))
+        self.check_signed_cases(report, candidate=True)
+
+    def test_stable_wrong_candidate_produces_real_mismatches(self):
+        result, output, _, _ = self.staged_run('wrong')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(output.is_file(), result.stderr[-2000:])
+        report = json.loads(gzip.decompress(output.read_bytes()))
+        self.assertEqual(report['original_sha256'], sha(ORIGINAL))
+        self.assertEqual(report['candidate_sha256'], sha(OTHER))
+        self.assertTrue(report['mismatches'])
+        self.check_signed_cases(report, candidate=True)
+
+    def test_original_only_still_reports_no_comparison(self):
+        result, output, _, _ = self.staged_run('original-only')
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        report = json.loads(gzip.decompress(output.read_bytes()))
+        self.assertEqual(report['original_sha256'], sha(ORIGINAL))
+        self.assertIsNone(report['candidate_sha256'])
+        self.assertEqual(report['mismatches'], [])
+        self.assertTrue(all(row['candidate'] is None and row['match'] is None for row in report['cases']))
+        self.check_signed_cases(report, candidate=False)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

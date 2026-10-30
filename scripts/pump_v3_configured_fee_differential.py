@@ -106,7 +106,7 @@ def cases():
    rows.append({'operation':'buy_exact_quote_in_v3','creator_override':bps,'amount':10**11,'max_cost':1,'real_base':1000000,'base_vault_amount':balance,'token_quote':True,'replace':13,'user_lamports':10**16})
  return [{'reserve_in':base_in,'reserve_out':base_out,**c} for c in rows]
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path);p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[];original=f.R/'evidence/original/pump/deployed.so'
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path);p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[];original=pin_program(f.R/'evidence/original/pump/deployed.so')
  for i,c in enumerate(cases()):
   x=run(original,c);y=run(a.candidate,c) if a.candidate else None;match=all(x[k]==y[k] for k in ['error','accounts','inner_instructions','event_payloads','return_data']) if y else None;rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(i)
