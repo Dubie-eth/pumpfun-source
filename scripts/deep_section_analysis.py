@@ -776,6 +776,7 @@ def build_packet(program, output_dir, output_label):
             "windows_with_rodata_refs": cross_section["windows_with_rodata_refs"],
             "windows_with_data_refs": cross_section["windows_with_data_refs"],
             "total_rodata_refs": cross_section["total_rodata_refs"],
+            "total_data_rel_ro_refs": cross_section["total_data_refs"],
         },
         "layer4_anchor_idl": {
             "discriminators": idl_recovery["discriminator_count"],
@@ -824,7 +825,7 @@ and mathematical pattern extraction.
 ### Layer 3: Cross-Section Correlation
 - Windows referencing .rodata: {l3["windows_with_rodata_refs"]}
 - Windows referencing .data.rel.ro: {l3["windows_with_data_refs"]}
-- Total data references: {l3["total_rodata_refs"]}
+- Total data references: {l3["total_rodata_refs"] + l3["total_data_rel_ro_refs"]}
 
 ### Layer 4: Anchor IDL Recovery
 - Instruction discriminators: {l4["discriminators"]}
