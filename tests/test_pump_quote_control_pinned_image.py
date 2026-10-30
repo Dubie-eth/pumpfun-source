@@ -1,110 +1,199 @@
-"""`scripts/pump_quote_control_differential.py` must execute one candidate image per run.
+"""Real quote-control CLI image binding, input preservation and atomic publication.
 
-Sibling of merged #2722 (pump create-control and IDL-authority
-differentials) and the pinned-image family that followed it: this
-script's `main()` passed the live `--candidate` path to `execute()`
-once per case, and `execute()` hands the path straight to
-`add_program_from_file`, which reads the file on every call — so
-replacing the candidate file mid-run made later cases execute a
-different image. Worse than its siblings, the report carried no
-candidate hash at all, so the receipt did not even name the image
-that ran.
-
-The script module itself is not imported here (it needs solders and
-the LiteSVM fixture); only the pinning wiring is checked by AST, so
-the test fails on base (no `pin_program` use, no `candidate_sha256`
-in the report) and passes with the fix. The runtime swap test of
-#2722 is not runnable here (solders is absent).
+Captured Pump is a diagnostic candidate, not a reconstructed build. All 491
+cases retain the captured Global fixture and signed VM transactions.
 """
-
-import ast
+import gzip
+import hashlib
+import json
+import os
 from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
 import unittest
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-SCRIPT = ROOT / "scripts" / "pump_quote_control_differential.py"
+ROOT = Path(__file__).resolve().parents[1]
+ORIGINAL = ROOT / 'evidence/original/pump/deployed.so'
+OTHER = ROOT / 'evidence/original/pump_fees/deployed.so'
+SCRIPT = ROOT / 'scripts/pump_quote_control_differential.py'
+DRIVER = r'''
+import json, os, shutil, sys
+from pathlib import Path
+scripts, fixture_root, candidate, replacement, output, audit, mode = sys.argv[1:]
+sys.path.insert(0, scripts)
+import pump_quote_control_differential as module
+module.ROOT = Path(fixture_root)
+original = module.ROOT / 'evidence/original/pump/deployed.so'
+returned = []
+def hook(frame, event, arg):
+    if event == 'return' and frame.f_code.co_name == 'execute' and frame.f_code.co_filename == module.__file__:
+        if isinstance(arg, dict):
+            frame.f_locals['tx'].verify()
+            returned.append({'signature_verified': True, 'error': arg.get('error')})
+        if len(returned) == 2:
+            if mode == 'mutate':
+                shutil.copyfile(replacement, candidate)
+                shutil.copyfile(replacement, original)
+            elif mode == 'late-alias':
+                Path(output).unlink(missing_ok=True)
+                Path(output).symlink_to(candidate)
+if mode == 'stage-failure':
+    import pump_differential_output as publication
+    def fail_replace(*args):
+        raise OSError('controlled publication failure')
+    publication.os.replace = fail_replace
+sys.setprofile(hook)
+sys.argv = [module.__file__, '--output', output]
+if mode == 'original-only':
+    sys.argv += ['--original-only', '--candidate', candidate]
+else:
+    sys.argv += ['--candidate', candidate]
+old_umask = os.umask(0o022)
+try:
+    raise SystemExit(module.main())
+finally:
+    sys.setprofile(None)
+    os.umask(old_umask)
+    Path(audit).write_text(json.dumps(returned))
+'''
 
 
-def load_tree():
-    return ast.parse(SCRIPT.read_text(encoding="utf-8"))
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def main_function(tree):
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return node
-    return None
+def receipt(path):
+    raw = Path(path).read_bytes()
+    return json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw)
 
 
-class PumpQuoteControlPinnedImageTests(unittest.TestCase):
-    def test_candidate_image_is_pinned_before_the_case_loop(self):
-        tree = load_tree()
-        imported = any(
-            isinstance(node, ast.ImportFrom)
-            and node.module == "pump_amm_reusable_harness"
-            and any(alias.name == "pin_program" for alias in node.names)
-            for node in ast.walk(tree)
-        )
-        self.assertTrue(imported, "pin_program is not imported")
+class QuoteControlPinnedImageTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='quote-control-binding-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        original = self.root / 'evidence/original/pump/deployed.so'
+        original.parent.mkdir(parents=True)
+        shutil.copyfile(ORIGINAL, original)
+        self.original = original
+        (self.root / 'evidence/original/pump_fees').symlink_to(OTHER.parent, target_is_directory=True)
+        (self.root / 'evidence/dependencies').symlink_to(ROOT / 'evidence/dependencies', target_is_directory=True)
+        self.candidate = self.root / 'candidate.so'
+        shutil.copyfile(ORIGINAL, self.candidate)
+        self.output = self.root / 'new/nested/receipt.json.gz'
+        self.audit = self.root / 'audit.json'
 
-        main = main_function(tree)
-        self.assertIsNotNone(main, "main() not found")
-        pin_assign = None
-        case_loop = None
-        for node in ast.walk(main):
-            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-                func = node.value.func
-                if isinstance(func, ast.Name) and func.id == "pin_program":
-                    for target in node.targets:
-                        if (
-                            isinstance(target, ast.Attribute)
-                            and target.attr == "candidate"
-                        ):
-                            pin_assign = node
-            if isinstance(node, ast.For):
-                # The case loop iterates cases().
-                if isinstance(node.iter, ast.Call) and isinstance(
-                    node.iter.func, ast.Name
-                ) and node.iter.func.id == "cases":
-                    case_loop = node
-        self.assertIsNotNone(pin_assign, "main() does not pin a.candidate")
-        self.assertIsNotNone(case_loop, "main() case loop not found")
-        self.assertLess(
-            pin_assign.lineno,
-            case_loop.lineno,
-            "candidate is pinned after the case loop starts",
-        )
+    def run_cli(self, mode='normal', output=None):
+        environment = dict(os.environ)
+        environment.pop('PYTHONOPTIMIZE', None)
+        result = subprocess.run(
+            [sys.executable, '-B', '-c', DRIVER, str(ROOT / 'scripts'), str(self.root),
+             str(self.candidate), str(OTHER), str(output or self.output), str(self.audit), mode],
+            cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120)
+        return result
 
-    def test_report_names_the_pinned_candidate(self):
-        tree = load_tree()
-        main = main_function(tree)
-        self.assertIsNotNone(main, "main() not found")
-        named = False
-        for node in ast.walk(main):
-            if isinstance(node, ast.Constant) and node.value == "candidate_sha256":
-                named = True
-        self.assertTrue(named, "report does not carry candidate_sha256")
+    def assert_full_signed_run(self, candidate=True):
+        rows = json.loads(self.audit.read_text())
+        self.assertEqual(len(rows), 982 if candidate else 491)
+        self.assertTrue(all(row['signature_verified'] is True for row in rows))
 
-    def test_cases_still_run_against_the_candidate(self):
-        # Documents the base shape the pinning closes: main() passes
-        # a.candidate to execute() for every case. After the fix that
-        # value is the pinned snapshot, not the live path.
-        tree = load_tree()
-        main = main_function(tree)
-        self.assertIsNotNone(main, "main() not found")
-        per_case = False
-        for node in ast.walk(main):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "execute"
-            ):
-                if len(node.args) >= 1 and isinstance(node.args[0], ast.Attribute):
-                    if node.args[0].attr == "candidate":
-                        per_case = True
-        self.assertTrue(per_case, "main() does not pass a.candidate to execute()")
+    def test_both_images_stay_bound_after_first_pair(self):
+        result = self.run_cli('mutate')
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertEqual(digest(self.candidate), digest(OTHER))
+        self.assertEqual(digest(self.original), digest(OTHER))
+        report = receipt(self.output)
+        self.assertEqual(report['original_sha256'], digest(ORIGINAL))
+        self.assertEqual(report['candidate_sha256'], digest(ORIGINAL))
+        self.assertEqual(report['cases'], 491)
+        self.assertEqual(report['mismatches'], 0)
+        self.assertTrue(all(row['matches'] is True for row in report['results']))
+        self.assert_full_signed_run()
+
+    def test_stable_wrong_candidate_reports_actual_mismatches(self):
+        shutil.copyfile(OTHER, self.candidate)
+        result = self.run_cli()
+        self.assertNotEqual(result.returncode, 0)
+        report = receipt(self.output)
+        self.assertEqual(report['candidate_sha256'], digest(OTHER))
+        self.assertTrue(report['mismatches'])
+        self.assertEqual(report['cases'], 491)
+        self.assert_full_signed_run()
+
+    def test_original_only_keeps_no_comparison_and_normal_file_mode(self):
+        self.candidate.write_bytes(b'ignored candidate')
+        result = self.run_cli('original-only')
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        report = receipt(self.output)
+        self.assertIsNone(report['candidate_sha256'])
+        self.assertTrue(all('candidate' not in row and 'matches' not in row for row in report['results']))
+        self.assert_full_signed_run(candidate=False)
+        if os.name != 'nt':
+            self.assertEqual(stat.S_IMODE(self.output.stat().st_mode), 0o644)
+            self.assertEqual(stat.S_IMODE(self.output.parent.stat().st_mode), 0o755)
+        self.assertEqual(list(self.output.parent.glob('.receipt.json.gz.*')), [])
+
+    def test_public_candidate_and_original_aliases_are_rejected(self):
+        symlink, hardlink = self.root / 'alias.so', self.root / 'hard.so'
+        symlink.symlink_to(self.candidate)
+        os.link(self.candidate, hardlink)
+        for output in (self.candidate, symlink, hardlink, self.original):
+            with self.subTest(output=output):
+                shutil.copyfile(ORIGINAL, self.candidate)
+                shutil.copyfile(ORIGINAL, self.original)
+                result = self.run_cli(output=output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('report output aliases an input', result.stderr)
+                self.assertEqual(digest(self.candidate), digest(ORIGINAL))
+                self.assertEqual(digest(self.original), digest(ORIGINAL))
+                self.assertEqual(json.loads(self.audit.read_text()), [])
+
+    def test_late_alias_does_not_overwrite_candidate(self):
+        self.output.parent.mkdir(parents=True)
+        result = self.run_cli('late-alias')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('report output aliases an input', result.stderr)
+        self.assertTrue(self.output.is_symlink())
+        self.assertEqual(digest(self.candidate), digest(ORIGINAL))
+        self.assert_full_signed_run()
+        self.assertEqual(list(self.output.parent.glob('.receipt.json.gz.*')), [])
+
+    def test_vm_and_publication_failures_preserve_existing_receipt(self):
+        self.output.parent.mkdir(parents=True)
+        self.output.write_bytes(b'prior complete receipt')
+        self.candidate.write_bytes(b'not an ELF')
+        result = self.run_cli()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.output.read_bytes(), b'prior complete receipt')
+        shutil.copyfile(ORIGINAL, self.candidate)
+        result = self.run_cli('stage-failure')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('controlled publication failure', result.stderr)
+        self.assertEqual(self.output.read_bytes(), b'prior complete receipt')
+        self.assertEqual(list(self.output.parent.glob('.receipt.json.gz.*')), [])
+        self.assert_full_signed_run()
+
+    def test_direct_cli_full_suite_and_original_only_without_output(self):
+        environment = dict(os.environ)
+        environment.pop('PYTHONOPTIMIZE', None)
+        result = subprocess.run([sys.executable, '-B', str(SCRIPT), '--candidate',
+                                 str(self.candidate), '--output', str(self.output)],
+                                env=environment, capture_output=True, text=True, timeout=180)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertEqual(receipt(self.output)['cases'], 491)
+        self.assertEqual(receipt(self.output)['mismatches'], 0)
+        self.candidate.write_bytes(b'ignored candidate')
+        before = self.output.read_bytes()
+        result = subprocess.run([sys.executable, '-O', '-B', str(SCRIPT), '--original-only',
+                                 '--candidate', str(self.candidate)], env=environment,
+                                capture_output=True, text=True, timeout=180)
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-2000:])
+        self.assertIn('491 cases, 0 mismatches', result.stdout)
+        self.assertEqual(self.output.read_bytes(), before)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
