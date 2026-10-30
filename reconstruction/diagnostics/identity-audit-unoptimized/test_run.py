@@ -41,22 +41,28 @@ class UnoptimizedIdentityTests(unittest.TestCase):
             initial = invoke(legacy, 'index-a.json', output)
             self.assertEqual(initial.returncode, 0, initial.stdout + initial.stderr)
             prior = output.read_bytes()
-            overwrite = invoke(legacy, 'index-b.json', output, optimized=True)
-            self.assertEqual(overwrite.returncode, 0, overwrite.stdout + overwrite.stderr)
-            self.assertNotEqual(output.read_bytes(), prior)
-            output.write_bytes(prior)
-            guarded = invoke(PACKAGE / 'run.py', 'index-b.json', output, optimized=True)
-            self.assertNotEqual(guarded.returncode, 0)
-            self.assertEqual(output.read_bytes(), prior)
+            # The retained audit now refuses to replace a published report, so an
+            # optimized rerun preserves the earlier bytes instead of erasing them.
+            # Previously this case asserted the opposite: that optimized Python let
+            # the legacy run overwrite its own report.
+            for name, script in [('legacy', legacy), ('entrypoint', PACKAGE / 'run.py')]:
+                with self.subTest(runner=name):
+                    repeat = invoke(script, 'index-b.json', output, optimized=True)
+                    self.assertNotEqual(repeat.returncode, 0)
+                    self.assertEqual(output.read_bytes(), prior)
             for field in ['original_sha256', 'candidate_sha256']:
                 wrong = {**row, field: '0' * 64}
                 (root / 'wrong.json').write_text(json.dumps({'programs': {'wrong-control': wrong}}), encoding='utf-8')
-                accepted = invoke(legacy, 'wrong.json', root / f'old-{field}.json', optimized=True)
-                self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
-                denied = invoke(PACKAGE / 'run.py', 'wrong.json', root / f'fixed-{field}.json', optimized=True,
-                                env=dict(os.environ, PYTHONOPTIMIZE='2'))
-                self.assertNotEqual(denied.returncode, 0)
-                self.assertFalse((root / f'fixed-{field}.json').exists())
+                # The legacy run rejects a wrong digest under -O as well; both
+                # runners must fail without publishing a report.
+                for name, script in [('legacy', legacy), ('entrypoint', PACKAGE / 'run.py')]:
+                    with self.subTest(field=field, runner=name):
+                        target = root / f'rejected-{name}-{field}.json'
+                        denied = invoke(script, 'wrong.json', target, optimized=True,
+                                        env=dict(os.environ, PYTHONOPTIMIZE='2'))
+                        self.assertNotEqual(denied.returncode, 0)
+                        self.assertIn(f"{field.split('_')[0]} SHA-256 mismatch", denied.stderr)
+                        self.assertFalse(target.exists())
             fresh = root / 'fresh.json'
             valid = invoke(PACKAGE / 'run.py', 'index-a.json', fresh, optimized=True,
                            env=dict(os.environ, PYTHONOPTIMIZE='2'))
