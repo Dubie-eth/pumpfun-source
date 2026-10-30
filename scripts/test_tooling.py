@@ -138,8 +138,24 @@ import sys
 import unittest
 from test_analysis_interface_inventory import InterfaceInventoryEncodingTests
 from test_capture_verification_modes import CaptureVerificationModeTests
-from test_mayhem_receipt_admission import MayhemReceiptAdmissionTests
+# Some solders wheels (Windows) ship without LiteSVM. Report the VM-backed
+# suites as skipped instead of failing to load every other tooling test.
+try:
+    from solders.litesvm import LiteSVM as _LiteSVM  # noqa: F401
+except ImportError as _litesvm_error:
+    LITESVM_MISSING = f'LiteSVM unavailable in this solders build: {_litesvm_error}'
+else:
+    LITESVM_MISSING = None
+requires_litesvm = unittest.skipIf(LITESVM_MISSING is not None, LITESVM_MISSING)
+if LITESVM_MISSING is None:
+    from test_mayhem_receipt_admission import MayhemReceiptAdmissionTests
+else:
+    @requires_litesvm
+    class MayhemReceiptAdmissionTests(unittest.TestCase):
+        def test_requires_litesvm(self):
+            pass
 from test_fees_runtime_image_binding import FeesRuntimeImageBindingTests
+FeesRuntimeImageBindingTests = requires_litesvm(FeesRuntimeImageBindingTests)
 from test_fees_external_codec_cases import ExternalCodecBooleanCases
 from types import SimpleNamespace
 import deep_disassembly
@@ -2333,6 +2349,7 @@ class LddwImmediateDecodeTests(unittest.TestCase):
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tests.test_current_bindings_paths import CurrentBindingsPathTests
 from test_fees_error_messages_exit import FeesErrorMessageExitTests
+FeesErrorMessageExitTests = requires_litesvm(FeesErrorMessageExitTests)
 from test_pump_window_inventory import WindowInventoryTests
 
 
