@@ -17,7 +17,7 @@ The frozen root script and all historical packets remain unchanged.
 
 Reviewed base: 8da57e405.
 Archived script SHA-256:
-783c9cbd69f6f6778573983ff483786f1110d3042ffc40a6d58f1461b8c74f8f.
+08070b3ea6c8e5627a85c8d53bd63fc6fc25b2534f1da9fd82e0adce6a59013f.
 This binding includes #1277 (captured-program enumeration when
 `repro/programs.json` is absent) and #2303 (staged publication of the
 inventory directory). Neither changes `sections()`, which still keys rows by
@@ -53,3 +53,12 @@ evidence/original when repro/programs.json is absent (#1277). The guard also app
 explicit-input inventory() function returned by load_inventory(); the tests
 exercise that actual path. CLI --help succeeds, but a complete multi-program
 CLI run is not claimed.
+
+The current adapter also admits the reviewed UTF-8/LF-only writer update.
+Its source binding is `5d00aedbccf78c2a00780ada287d4ae2c2cb649d88da7dfc796c843803c9d3b2`;
+RPC, parsing and admission behavior are unchanged. The earlier binding above
+identifies the historical baseline.
+
+The current binding retains the UTF-8/LF manifest writer from #3104 and the
+selected-contract-preserving dependency dedupe from #3126. Different-file
+name collisions remain errors; explicitly selected aliases are not dropped.

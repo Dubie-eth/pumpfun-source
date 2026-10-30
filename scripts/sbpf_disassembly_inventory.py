@@ -68,12 +68,12 @@ def program_inputs(root):
 
 
 def capture_inputs(root):
-    """Every distinct captured program: selector order first, unselected dependencies after.
+    """Keep every selected contract, then dependencies not already selected.
 
     ``capture_directory`` already routes ``donation_relay`` to
-    ``evidence/dependencies``, so the dependency sweep below re-finds it. Inputs
-    are deduplicated by resolved path (not by name) so a program is inventoried
-    once under its selector name and a genuine name collision still reaches
+    ``evidence/dependencies``, so the dependency sweep below re-finds it. The dependency sweep is
+    deduplicated by resolved path (not by name); selector entries are preserved
+    even when they alias one file. A genuine name collision still reaches
     ``validate_program_names``.
     """
     inputs = program_inputs(root)
@@ -204,7 +204,7 @@ def main():
                         tool_lockfile_sha256=sha((source / 'Cargo.lock').read_bytes()),
                         generator_sha256=sha(Path(__file__).read_bytes()), programs=results,
                         proves_byte_identical_reconstruction=False)
-        (staging / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        (staging / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n',encoding='utf-8',newline='\n')
         staging.rename(output)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
