@@ -23,3 +23,17 @@ Base revision `8cf3c5f8a7912b36ced352e49ac8538ff864a4c2` rejects the option
 Limits: the 0.001s run proves the bound and the kill path, not SBF execution of
 the corpus. No full 44-suite run is repeated here; the retained-suite tests
 cover publication. macOS arm64, Python 3.14.3.
+
+## Review qualification
+
+The aggregate shares `serial_suite_process.py` with the Fees driver. POSIX uses
+process-group termination; Windows retains inherited streams and a
+`subprocess.run` timeout, with no Windows process-tree guarantee. Both adapter
+and process-runner source paths are protected and hashed in the report, and a
+changed helper aborts before a child receipt is consumed. Existing source-input
+admission and atomic report/staging behavior are preserved.
+
+The focused subprocess controls execute a real descendant timeout and verify
+that neither a report nor a delayed marker is published. Existing retention and
+Windows-publication branch tests still cover completed aggregate publication.
+Their small child receipts test orchestration only, not contract equivalence.

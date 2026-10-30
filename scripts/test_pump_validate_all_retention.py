@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -54,10 +55,11 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
             '--candidate', str(candidate),
             '--output', str(output),
         ]
+        def compiler(command, **kwargs):
+            result = run_suite(command, **kwargs)
+            return subprocess.CompletedProcess(command, result.returncode, ''), False
         with mock.patch.object(sys, 'argv', argv), \
-                mock.patch.object(runner, 'run_compiler') as compiler:
-            compiler.side_effect = (
-                lambda command, **kwargs: (run_suite(command, **kwargs), False))
+                mock.patch.object(runner, 'run_suite_process', side_effect=compiler):
             return runner.main()
 
     def result(self, candidate, original, name):
@@ -162,6 +164,7 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
             self.assertIn('second.json.gz', retained_names)
             report = json.loads(output.read_bytes())
             self.assertEqual(report['case_count'], 10468)
+            self.assertEqual(report['process_runner_sha256'], {runner.bound_input_key(path, runner.ROOT): sha(path) for path in runner.PROCESS_INPUTS})
             self.assertEqual(set(report['suites']), set(self.expected))
             self.assertEqual(
                 list(retained.parent.glob('.' + retained.name + '.staging-*')),
