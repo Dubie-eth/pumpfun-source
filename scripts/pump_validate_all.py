@@ -170,6 +170,11 @@ def main():
                         help='Seconds each serial suite may run before its process group is killed')
     args = parser.parse_args()
     validate_timeout(args.suite_timeout)
+    source_paths = [path for path in args.source_directory.rglob('*')
+                    if path.is_file() and 'target' not in path.relative_to(args.source_directory).parts
+                    and (path.suffix == '.rs' or path.name in ('Cargo.toml', 'Cargo.lock'))]
+    if not source_paths:
+        raise SystemExit(f'no Rust/Cargo inputs under {args.source_directory}')
     candidate_input = args.candidate.resolve()
     build_report = (args.build_report or candidate_input.parent / 'build-comparison.json').resolve()
     build_attempt = build_report.with_name('build-attempt.json')
@@ -184,9 +189,6 @@ def main():
     retained = args.output.parent / (args.output.name + '.suites')
     suite_paths = [ROOT / filename if filename.startswith(('repro/', 'research/'))
                    else ROOT / 'scripts' / filename for _, filename in SUITES]
-    source_paths = [path for path in args.source_directory.rglob('*')
-                    if path.is_file() and 'target' not in path.relative_to(args.source_directory).parts
-                    and (path.suffix == '.rs' or path.name in ('Cargo.toml', 'Cargo.lock'))]
     protect_inputs([args.output, *(retained / (name + '.json.gz') for name, _ in SUITES)],
                    [candidate_input, candidate, original, runner, *build_inputs,
                     ROOT / 'scripts/pump_diagnostic_audit.py',
