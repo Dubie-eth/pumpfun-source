@@ -391,6 +391,10 @@ def generate_roadmap(output_dir):
             "total_windows": len(entries),
             "frontier_normalized": prog_info["frontier_normalized"],
             "unmatched_estimate": len(entries) - prog_info["frontier_normalized"],
+            # The by-size list below is capped for the report; the byte total
+            # covers every unnamed window so the estimate never shrinks to
+            # the displayed subset.
+            "unmatched_bytes_total": sum(w["size"] for w in unnamed_windows),
             "window_details": window_details,
             "unnamed_windows_by_size": [
                 {"address": w["address"], "size": w["size"],
@@ -423,7 +427,7 @@ def generate_roadmap(output_dir):
     }
     for prog_name, data in all_program_data.items():
         unmatched = data["unmatched_estimate"]
-        unmatched_bytes = sum(w["size"] for w in data["unnamed_windows_by_size"][:unmatched])
+        unmatched_bytes = data["unmatched_bytes_total"]
         summary["programs"][prog_name] = {
             "total_windows": data["total_windows"],
             "frontier_normalized": data["frontier_normalized"],

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Roadmap packets must not adopt files left in an existing output directory."""
 import contextlib
+import json
 import io
 import subprocess
 import sys
@@ -64,6 +65,29 @@ class ReconstructionRoadmapPublicationTests(unittest.TestCase):
             results.append(completed.stdout.strip())
         self.assertEqual(results[0], results[1])
         self.assertEqual(results[1], results[2])
+
+    def test_unmatched_byte_estimate_covers_every_unnamed_window(self):
+        # The by-size list is capped at 100 entries for the report; the byte
+        # estimate used to be summed over that capped list, so a program with
+        # more unmatched windows silently undercounted next to its full
+        # unmatched_estimate.
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "packet"
+            with contextlib.redirect_stdout(io.StringIO()):
+                generate_roadmap(output)
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            checked = 0
+            for program_file in sorted(output.glob("*-details.json")):
+                details = json.loads(program_file.read_text(encoding="utf-8"))
+                name = program_file.name.replace("-details.json", "")
+                entry = summary["programs"][name]
+                if entry.get("unmatched_estimate", 0) <= 100:
+                    continue  # the capped list already covers every window
+                full = sum(w["size"] for w in details["window_details"] if not w["name"])
+                self.assertEqual(entry["unmatched_bytes_estimate"], full, name)
+                checked += 1
+            self.assertGreater(checked, 0)
+            self.assertGreater(summary["total_unmatched_bytes_estimate"], 0)
 
     def test_packet_bytes_do_not_follow_the_host_line_ending(self):
         # Sibling of merged #2486/#2487 (analyze_program, deep_section_analysis):
