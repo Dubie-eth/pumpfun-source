@@ -146,6 +146,7 @@ jobs:
               python -B tests/test_pump_claim_incentives_report_publication.py
               python -B tests/test_pump_creator_reports_publication.py
               python -B tests/test_migration_quote_reports_publication.py
+              python -B tests/test_pump_trade_reports_publication.py
               python -B tests/test_pump_exact_quote_report_publication.py
               python -B scripts/test_validation_report_boundaries.py
               python -B tests/test_create_mayhem_normal_python.py
