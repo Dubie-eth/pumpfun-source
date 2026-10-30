@@ -392,6 +392,12 @@ def audit_packet(frozen, repo, packet, timeout_seconds, cleanup_seconds):
             for name in non_file_manifests]}
         if non_file_manifests else None
     )
+    covered = {row["path"] for row in before["manifest_files"]}
+    if before["verifier"]:
+        covered.add(before["verifier"]["path"])
+    non_file_members = [row["path"] for row in before["entries"]
+                        if row["kind"] not in {"file", "directory"}
+                        and row["path"] not in covered]
     manifest_before = manifest_blocked or (
         safe_manifest_check(frozen, packet) if has_manifest else {"status": "skipped"}
     )
@@ -417,6 +423,15 @@ def audit_packet(frozen, repo, packet, timeout_seconds, cleanup_seconds):
             "before_sha256": before["identity_sha256"],
             "after_sha256": None,
             "error": f"{type(error).__name__}: {error}",
+        }
+    if non_file_members:
+        mutation = {
+            **mutation,
+            "status": "fail",
+            "errors": [
+                "packet member is not a regular file: " + name
+                for name in non_file_members
+            ],
         }
     manifest_after = manifest_blocked or (
         safe_manifest_check(frozen, packet) if has_manifest else {"status": "skipped"}
