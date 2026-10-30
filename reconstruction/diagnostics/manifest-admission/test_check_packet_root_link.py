@@ -10,6 +10,8 @@ this checker for the frozen one, so the gap reached it too.
 
 import hashlib
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -47,6 +49,25 @@ class ManifestAdmissionPacketRootLinkTests(unittest.TestCase):
         self.assertTrue(
             any(error.startswith('linked_path') for error in result['errors']),
             result)
+
+    def test_actual_batch_records_linked_root_failure_without_mutating_it(self):
+        repository = self.root / 'repo'; (repository / 'scripts').mkdir(parents=True)
+        source_root = Path(__file__).resolve().parents[3]
+        shutil.copyfile(source_root / 'scripts/revalidate_all.py', repository / 'scripts/revalidate_all.py')
+        research = repository / 'research'; research.mkdir()
+        linked = research / 'linked'; linked.symlink_to(self.external, target_is_directory=True)
+        shutil.copytree(self.external, research / 'regular')
+        before = {p.name: p.read_bytes() for p in self.external.iterdir()}
+        output = repository / 'audit'
+        run = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('run.py')),
+            '--repo', str(repository), '--output', str(output)], capture_output=True, text=True, timeout=20)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        results = {row['packet']: row for row in json.loads((output / 'results.json').read_bytes())}
+        self.assertEqual(results['linked']['manifest_check']['status'], 'fail')
+        self.assertEqual(results['linked']['overall'], 'fail')
+        self.assertEqual(results['regular']['overall'], 'pass')
+        self.assertTrue(linked.is_symlink())
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.external.iterdir()})
 
     def test_symlinked_payload_still_rejected(self):
         packet = self.root / 'packet'

@@ -22,7 +22,7 @@ def check_manifest(packet_dir):
     except OSError:
         root_metadata = None
     if root_metadata is not None and (
-            packet.is_symlink()
+            stat.S_ISLNK(root_metadata.st_mode)
             or getattr(root_metadata, 'st_file_attributes', 0)
             & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0)):
         return {'status': 'fail', 'files_checked': 0, 'files_expected': 0,
