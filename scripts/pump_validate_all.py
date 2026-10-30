@@ -107,18 +107,20 @@ def validate_case_results(result):
 
 
 def publish_file(staged, output):
-    """Publish without replacement; rename on Windows, link elsewhere.
+    """Publish without replacement; return whether staging was consumed.
 
-    Windows sandboxes refuse hard links (WinError 5). The staging
-    directory is a sibling of the output, so a same-directory rename
-    refuses an existing destination, preserving no-replace, and leaves
-    the same end state as the link once main()'s cleanup removes the
-    staging directory.
+    Rename on Windows, link elsewhere.
+
+    Windows sandboxes refuse hard links (WinError 5). The sibling staging
+    directory is on the same filesystem. Windows rename refuses an existing
+    destination; reporting whether it consumed the file preserves ownership
+    when cleaning up the staging directory.
     """
     if os.name == "nt":
         os.rename(staged, output)
-    else:
-        os.link(staged, output)
+        return True
+    os.link(staged, output)
+    return False
 
 
 def main():
@@ -149,7 +151,8 @@ def main():
             raise FileExistsError(destination)
     from deep_disassembly import rename_directory, temporary_sibling
     retained_staging = report_directory = None
-    published_retained = preserve_recovery = False
+    published_retained = preserve_recovery = report_consumed = report_published = False
+    report_identity = None
     try:
         retained_staging = temporary_sibling(retained, 'staging')
         report_directory = temporary_sibling(args.output, 'staging')
@@ -208,10 +211,13 @@ def main():
         raw = (json.dumps(report, separators=(',', ':')) + '\n').encode()
         report_staging.write_bytes(
             gzip.compress(raw, mtime=0) if args.output.suffix == '.gz' else raw)
+        report_stat = report_staging.stat()
+        report_identity = (report_stat.st_dev, report_stat.st_ino)
         rename_directory(retained_staging, retained)
         published_retained = True
         try:
-            publish_file(report_staging, args.output)
+            report_consumed = publish_file(report_staging, args.output)
+            report_published = True
         except BaseException as error:
             # The complete suite directory is already public. A late writer
             # may have added files: retain it and the complete report for
@@ -223,7 +229,21 @@ def main():
         if retained_staging is not None and not published_retained:
             shutil.rmtree(retained_staging, ignore_errors=True)
         if report_directory is not None and not preserve_recovery:
-            shutil.rmtree(report_directory, ignore_errors=True)
+            if report_published:
+                if not report_consumed:
+                    try:
+                        current = report_staging.stat()
+                        if (current.st_dev, current.st_ino) == report_identity:
+                            report_staging.unlink()
+                    except FileNotFoundError:
+                        pass
+                # Do not recursively remove paths a later writer now owns.
+                try:
+                    report_directory.rmdir()
+                except OSError:
+                    pass
+            else:
+                shutil.rmtree(report_directory, ignore_errors=True)
     print(json.dumps({'cases': report['case_count'], 'diagnostic_log_cases': diagnostics['log_bearing_cases'], 'mismatches': len(report['mismatches'])}))
     return bool(report['mismatches'])
 

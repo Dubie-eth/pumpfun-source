@@ -1,98 +1,99 @@
-#!/usr/bin/env python3
-"""The aggregate Pump corpus must publish its report on Windows.
+"""Aggregate publication controls using synthetic suite reports, not VM evidence.
 
-Sibling of merged #2908 (diagnostic auditor), open #2937
-(strict-ordered-log receipts) and #2949 (data-order certificates):
-those scripts staged a complete receipt and then unconditionally
-hard-linked it to the output, and in a Windows sandbox os.link fails
-with WinError 5, so no receipt was retained. This script published its
-44-suite report the same way — an unconditional os.link in main() —
-so on Windows every run failed at the final step even when all 10,468
-cases passed, leaving only the retained staging copy for manual
-recovery instead of the requested output.
-
-Windows itself is not available here, so the Windows host is simulated
-for the publish helper by patching os.name to 'nt' and making os.link
-raise the sandbox error; the POSIX path is exercised for real.
-
-The module cannot be imported on this host (it pulls in the solders
-dependency through pump_amm_reusable_harness, which is not installed
-here), so the helper is exercised by extracting its real definition
-from the module source and the main() wiring is checked by AST — the
-same approach the strict-ordered-logs Windows test uses for its
-main() wiring. The helper tests fail on base (no publish_file
-definition) and pass with the fix; the wiring test fails on base
-(main() calls os.link directly).
+The real main path is exercised with the existing bounded worker-fixture seam.
+Windows no-replace rename is injected on this POSIX host; no native Windows or
+full 44-suite execution is claimed by these publication tests.
 """
-import ast
+import json
 import os
+from pathlib import Path
 import sys
 import tempfile
+import types
 import unittest
-from pathlib import Path
 from unittest import mock
 
-SCRIPTS = Path(__file__).resolve().parent
-SOURCE = (SCRIPTS / "pump_validate_all.py").read_text(encoding="utf-8")
-
-
-def load_publish_file():
-    """Exec the module's real publish_file definition in isolation."""
-    tree = ast.parse(SOURCE)
-    function = next(
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "publish_file")
-    namespace = {"os": os}
-    exec(compile(ast.Module(body=[function], type_ignores=[]),
-                 str(SCRIPTS / "pump_validate_all.py"), "exec"),
-         namespace)
-    return namespace["publish_file"]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pump_validate_all as runner
+import test_pump_validate_all_retention as retention
 
 
 class ValidateAllWindowsPublishTests(unittest.TestCase):
-    def test_publish_file_uses_rename_on_windows(self):
-        publish_file = load_publish_file()
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            staged = root / ".report.json.staged"
-            staged.write_text('{"cases": 0}\n', encoding="utf-8")
-            output = root / "report.json"
-            with mock.patch.object(os, "name", "nt"), \
-                    mock.patch.object(os, "link",
-                                      side_effect=OSError("WinError 5")) as link:
-                publish_file(staged, output)
-            link.assert_not_called()
-            self.assertEqual(output.read_text(encoding="utf-8"),
-                             '{"cases": 0}\n')
-            self.assertFalse(staged.exists())
+    def setUp(self):
+        self.fixture = retention.PumpValidateAllRetentionTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.candidate = self.root/'candidate.so'
+        self.candidate.write_bytes(b'publication fixture candidate')
+        self.original = runner.ROOT/'evidence/original/pump/deployed.so'
+        self.output = self.root/'aggregate/report.json'
+        self.retained = self.output.parent/(self.output.name+'.suites')
 
-    def test_publish_file_uses_link_on_posix(self):
-        publish_file = load_publish_file()
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            staged = root / ".report.json.staged"
-            staged.write_text('{"cases": 0}\n', encoding="utf-8")
-            output = root / "report.json"
-            publish_file(staged, output)
-            self.assertEqual(output.read_text(encoding="utf-8"),
-                             '{"cases": 0}\n')
-            self.assertTrue(staged.exists())
+    def invoke_windows(self, rename):
+        windows = types.SimpleNamespace(name='nt', rename=rename,
+                     link=mock.Mock(side_effect=AssertionError('Windows hardlink used')))
+        with mock.patch.object(runner, 'os', windows):
+            result = self.fixture.invoke(self.output, self.candidate, self.original,
+                                         self.fixture.complete_suites(self.candidate, self.original))
+        windows.link.assert_not_called()
+        return result
 
-    def test_main_publishes_through_publish_file(self):
-        tree = ast.parse(SOURCE)
-        function = next(
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "main")
-        calls = []
-        for node in ast.walk(function):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    calls.append(node.func.attr)
-                elif isinstance(node.func, ast.Name):
-                    calls.append(node.func.id)
-        self.assertIn("publish_file", calls)
-        self.assertNotIn("link", calls)
+    def test_main_publishes_complete_report_and_suite_set_on_windows(self):
+        self.assertFalse(self.invoke_windows(os.rename))
+        report=json.loads(self.output.read_bytes())
+        self.assertEqual(set(report['suites']),set(self.fixture.expected))
+        self.assertEqual(len(list(self.retained.glob('*.json.gz'))),44)
+        self.assertEqual(list(self.output.parent.glob('.report.json.staging-*')),[])
+
+    def test_consumed_report_path_can_belong_to_another_writer(self):
+        recreated=[]
+        def rename(source,destination):
+            os.rename(source,destination)
+            source.write_bytes(b'new staging owner')
+            recreated.append(source)
+        self.assertFalse(self.invoke_windows(rename))
+        self.assertEqual(recreated[0].read_bytes(),b'new staging owner')
+        self.assertEqual(json.loads(self.output.read_bytes())['case_count'],10468)
+
+    def test_late_output_preserves_complete_recovery_and_late_suite_file(self):
+        def rename(source,destination):
+            self.output.write_bytes(b'later writer receipt')
+            (self.retained/'late-file').write_bytes(b'later suite evidence')
+            raise FileExistsError(destination)
+        with self.assertRaises(FileExistsError) as error:
+            self.invoke_windows(rename)
+        self.assertEqual(self.output.read_bytes(),b'later writer receipt')
+        self.assertEqual((self.retained/'late-file').read_bytes(),b'later suite evidence')
+        self.assertEqual(len(list(self.retained.glob('*.json.gz'))),44)
+        recovery=list(self.output.parent.glob('.report.json.staging-*/report.json'))
+        self.assertEqual(len(recovery),1)
+        self.assertEqual(set(json.loads(recovery[0].read_bytes())['suites']),set(self.fixture.expected))
+        self.assertTrue(any('Complete suites retained' in note for note in error.exception.__notes__))
+
+    @unittest.skipIf(os.name == 'nt', 'native POSIX hard-link path')
+    def test_posix_success_preserves_new_staging_owner_and_extra_files(self):
+        link=os.link;replaced=[]
+        def publish(source,destination):
+            link(source,destination)
+            source.unlink();source.write_bytes(b'new staging owner')
+            (source.parent/'late-file').write_bytes(b'late evidence')
+            replaced.append(source)
+        with mock.patch.object(runner.os,'link',publish):
+            self.assertFalse(self.fixture.invoke(self.output,self.candidate,self.original,
+                self.fixture.complete_suites(self.candidate,self.original)))
+        self.assertEqual(replaced[0].read_bytes(),b'new staging owner')
+        self.assertEqual((replaced[0].parent/'late-file').read_bytes(),b'late evidence')
+        self.assertEqual(json.loads(self.output.read_bytes())['case_count'],10468)
+
+    def test_rename_failure_keeps_complete_recovery(self):
+        with self.assertRaisesRegex(OSError,'rename failed'):
+            self.invoke_windows(mock.Mock(side_effect=OSError('rename failed')))
+        self.assertFalse(self.output.exists())
+        self.assertEqual(len(list(self.retained.glob('*.json.gz'))),44)
+        self.assertEqual(len(list(self.output.parent.glob('.report.json.staging-*/report.json'))),1)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__=='__main__':unittest.main()
