@@ -1,78 +1,196 @@
-"""`scripts/pump_cashback_accept_differential.py` must execute one candidate image per run.
+"""Real cashback CLI image binding, input preservation and atomic publication.
 
-Sibling of merged #2722 (pump create-control and IDL-authority
-differentials) and the buy-v2/sell-v2/legacy-sell pinning PRs, which pinned
-their candidate images: this script's `main()` calls `v3.run()` once per
-case with the raw candidate path, and `v3.run()` hands that path straight
-to `add_program_from_file`, which reads the file on every call — so
-replacing the candidate file mid-run makes later cases execute a
-different image, while the report's `candidate_sha256` is read from the
-candidate path only at the end. One receipt would then cover two images.
-Unlike `v3`'s own `main()`, which pins its candidate, this script bypasses
-that pinning by calling `v3.run()` directly.
-
-The script module itself is not imported here (it needs solders and the
-LiteSVM fixture); only the pinning wiring is checked by AST, so the test
-fails on base (no `pin_program` use) and passes with the fix. The runtime
-swap test of #2722 is not runnable here (solders is absent).
+Captured Pump is a diagnostic candidate, not a reconstructed build. All 18
+cases retain the real fixture, dependency programs and signed VM transactions.
 """
-
-import ast
+import gzip
+import hashlib
+import json
+import os
 from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
 import unittest
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-SCRIPT = ROOT / "scripts" / "pump_cashback_accept_differential.py"
+ROOT = Path(__file__).resolve().parents[1]
+ORIGINAL = ROOT / 'evidence/original/pump/deployed.so'
+OTHER = ROOT / 'evidence/original/pump_fees/deployed.so'
+SCRIPT = ROOT / 'scripts/pump_cashback_accept_differential.py'
+DRIVER = r'''
+import json, os, shutil, sys
+from pathlib import Path
+scripts, fixture_root, candidate, replacement, output, audit, mode = sys.argv[1:]
+sys.path.insert(0, scripts)
+import pump_cashback_accept_differential as module
+module.f.R = Path(fixture_root)
+original = module.f.R / 'evidence/original/pump/deployed.so'
+returned = []
+def hook(frame, event, arg):
+    if event == 'return' and frame.f_code.co_name == 'run' and frame.f_code.co_filename == module.v3.__file__:
+        if isinstance(arg, dict):
+            returned.append({'signature_verified': arg.get('signature_verified'), 'error': arg.get('error')})
+        if len(returned) == 2:
+            if mode == 'mutate':
+                shutil.copyfile(replacement, candidate)
+                shutil.copyfile(replacement, original)
+            elif mode == 'late-alias':
+                Path(output).unlink(missing_ok=True)
+                Path(output).symlink_to(candidate)
+if mode == 'stage-failure':
+    import pump_differential_output as publication
+    def fail_replace(*args):
+        raise OSError('controlled publication failure')
+    publication.os.replace = fail_replace
+sys.setprofile(hook)
+sys.argv = [module.__file__, '--output', output]
+if mode != 'original-only':
+    sys.argv += ['--candidate', candidate]
+old_umask = os.umask(0o022)
+try:
+    module.main()
+finally:
+    sys.setprofile(None)
+    os.umask(old_umask)
+    Path(audit).write_text(json.dumps(returned))
+'''
 
 
-def load_tree():
-    return ast.parse(SCRIPT.read_text(encoding="utf-8"))
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def main_body(tree):
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return node.body
-    raise AssertionError("main() not found")
+def receipt(path):
+    raw = Path(path).read_bytes()
+    return json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw)
 
 
 class CashbackAcceptPinnedImageTests(unittest.TestCase):
-    def test_candidate_pinned_before_case_loop(self):
-        body = main_body(load_tree())
-        pin_index = None
-        loop_index = None
-        for i, stmt in enumerate(body):
-            if isinstance(stmt, ast.Assign) and any(
-                isinstance(t, ast.Attribute)
-                and t.attr == "candidate"
-                for t in stmt.targets
-            ):
-                value = stmt.value
-                if (
-                    isinstance(value, ast.IfExp)
-                    and isinstance(value.body, ast.Call)
-                    and isinstance(value.body.func, ast.Name)
-                    and value.body.func.id == "pin_program"
-                ):
-                    pin_index = i
-            if isinstance(stmt, ast.For):
-                loop_index = i
-                break
-        self.assertIsNotNone(pin_index, "main() never pins a.candidate")
-        self.assertIsNotNone(loop_index, "main() has no case loop")
-        self.assertLess(pin_index, loop_index, "pinning must precede the case loop")
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='cashback-binding-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        original = self.root / 'evidence/original/pump/deployed.so'
+        original.parent.mkdir(parents=True)
+        shutil.copyfile(ORIGINAL, original)
+        self.original = original
+        (self.root / 'evidence/original/pump_fees').symlink_to(OTHER.parent, target_is_directory=True)
+        (self.root / 'evidence/dependencies').symlink_to(ROOT / 'evidence/dependencies', target_is_directory=True)
+        self.candidate = self.root / 'candidate.so'
+        shutil.copyfile(ORIGINAL, self.candidate)
+        self.output = self.root / 'new/nested/receipt.json.gz'
+        self.audit = self.root / 'audit.json'
 
-    def test_pin_program_imported(self):
-        tree = load_tree()
-        imported = any(
-            isinstance(node, ast.ImportFrom)
-            and node.module == "pump_amm_reusable_harness"
-            and any(alias.name == "pin_program" for alias in node.names)
-            for node in ast.walk(tree)
-        )
-        self.assertTrue(imported, "pin_program is not imported")
+    def run_cli(self, mode='normal', output=None):
+        environment = dict(os.environ)
+        environment.pop('PYTHONOPTIMIZE', None)
+        result = subprocess.run(
+            [sys.executable, '-B', '-c', DRIVER, str(ROOT / 'scripts'), str(self.root),
+             str(self.candidate), str(OTHER), str(output or self.output), str(self.audit), mode],
+            cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120)
+        return result
+
+    def assert_full_signed_run(self, candidate=True):
+        rows = json.loads(self.audit.read_text())
+        self.assertEqual(len(rows), 36 if candidate else 18)
+        self.assertTrue(all(row['signature_verified'] is True for row in rows))
+
+    def test_both_images_stay_bound_after_first_pair(self):
+        result = self.run_cli('mutate')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(digest(self.candidate), digest(OTHER))
+        self.assertEqual(digest(self.original), digest(OTHER))
+        report = receipt(self.output)
+        self.assertEqual(report['original_sha256'], digest(ORIGINAL))
+        self.assertEqual(report['candidate_sha256'], digest(ORIGINAL))
+        self.assertEqual(report['case_count'], 18)
+        self.assertEqual(report['mismatches'], [])
+        self.assertTrue(all(row['match'] is True for row in report['cases']))
+        self.assert_full_signed_run()
+
+    def test_stable_wrong_candidate_reports_actual_mismatches(self):
+        shutil.copyfile(OTHER, self.candidate)
+        result = self.run_cli()
+        self.assertNotEqual(result.returncode, 0)
+        report = receipt(self.output)
+        self.assertEqual(report['candidate_sha256'], digest(OTHER))
+        self.assertTrue(report['mismatches'])
+        self.assertEqual(report['case_count'], 18)
+        self.assert_full_signed_run()
+
+    def test_original_only_keeps_no_comparison_and_normal_file_mode(self):
+        result = self.run_cli('original-only')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = receipt(self.output)
+        self.assertIsNone(report['candidate_sha256'])
+        self.assertTrue(all(row['match'] is None and row['candidate_error'] is None for row in report['cases']))
+        self.assert_full_signed_run(candidate=False)
+        if os.name != 'nt':
+            self.assertEqual(stat.S_IMODE(self.output.stat().st_mode), 0o644)
+            self.assertEqual(stat.S_IMODE(self.output.parent.stat().st_mode), 0o755)
+        self.assertEqual(list(self.output.parent.glob('.receipt.json.gz.*')), [])
+
+    def test_public_candidate_and_original_aliases_are_rejected(self):
+        symlink, hardlink = self.root / 'alias.so', self.root / 'hard.so'
+        symlink.symlink_to(self.candidate)
+        os.link(self.candidate, hardlink)
+        for output in (self.candidate, symlink, hardlink, self.original):
+            with self.subTest(output=output):
+                shutil.copyfile(ORIGINAL, self.candidate)
+                shutil.copyfile(ORIGINAL, self.original)
+                result = self.run_cli(output=output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('report output aliases an input', result.stderr)
+                self.assertEqual(digest(self.candidate), digest(ORIGINAL))
+                self.assertEqual(digest(self.original), digest(ORIGINAL))
+                self.assertEqual(json.loads(self.audit.read_text()), [])
+
+    def test_late_alias_does_not_overwrite_candidate(self):
+        self.output.parent.mkdir(parents=True)
+        result = self.run_cli('late-alias')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('report output aliases an input', result.stderr)
+        self.assertTrue(self.output.is_symlink())
+        self.assertEqual(digest(self.candidate), digest(ORIGINAL))
+        self.assert_full_signed_run()
+        self.assertEqual(list(self.output.parent.glob('.receipt.json.gz.*')), [])
+
+    def test_vm_and_publication_failures_preserve_existing_receipt(self):
+        self.output.parent.mkdir(parents=True)
+        self.output.write_bytes(b'prior complete receipt')
+        self.candidate.write_bytes(b'not an ELF')
+        result = self.run_cli()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.output.read_bytes(), b'prior complete receipt')
+        shutil.copyfile(ORIGINAL, self.candidate)
+        result = self.run_cli('stage-failure')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('controlled publication failure', result.stderr)
+        self.assertEqual(self.output.read_bytes(), b'prior complete receipt')
+        self.assertEqual(list(self.output.parent.glob('.receipt.json.gz.*')), [])
+        self.assert_full_signed_run()
+
+    def test_direct_cli_all_cases_and_optimization_guards(self):
+        environment = dict(os.environ)
+        environment.pop('PYTHONOPTIMIZE', None)
+        result = subprocess.run([sys.executable, '-B', str(SCRIPT), '--candidate',
+                                 str(self.candidate), '--output', str(self.output)],
+                                env=environment, capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(receipt(self.output)['case_count'], 18)
+        self.assertEqual(receipt(self.output)['mismatches'], [])
+        before = self.output.read_bytes()
+        for flags, override in ((['-O'], {}), (['-OO'], {}), ([], {'PYTHONOPTIMIZE':'1'})):
+            with self.subTest(flags=flags, override=override):
+                result = subprocess.run([sys.executable, *flags, '-B', str(SCRIPT), '--candidate',
+                                         str(self.candidate), '--output', str(self.output)],
+                                        env=dict(environment, **override), capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Normal Python is required', result.stderr)
+                self.assertEqual(self.output.read_bytes(), before)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

@@ -102,6 +102,7 @@ jobs:
               python -B tests/test_pump_exact_quote_pinned_image.py
               python -B tests/test_pump_v3_configured_fee_pinned_image.py
               python -B tests/test_pump_v3_token_extensions_pinned_image.py
+              python -B tests/test_pump_cashback_accept_pinned_image.py
               python -B tests/test_create_mayhem_candidate_pair.py
               python -B tests/test_mayhem_trade_normal_python.py
               python -B tests/test_pump_set_mayhem_params_synthetic_cpi_pinned_image.py
