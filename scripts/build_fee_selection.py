@@ -2,6 +2,8 @@
 """Compile recovered Rust independently, then compare one original function.
 No original bytes enter compilation; object remains unmodified, including relocations.
 """
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,hashlib,json,pathlib,subprocess
 from elftools.elf.elffile import ELFFile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
