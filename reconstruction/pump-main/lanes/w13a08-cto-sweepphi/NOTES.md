@@ -78,3 +78,13 @@ Other trials on 74b3171 / f7ce2e34:
 - IR oracle (hrb IR, 74b3171): the original's gate polarity (`br skip, post, sweep`, orig `jne skip,0 -> post`) alone collapses
   the layout exactly like the if-gate source (0.38165). A 2000:1 weight scan over all 147 branches on that IR finds at best
   0.512 (collect_old `!holder_reward` test 1:2000), so the gate polarity does not pay off without a different validate layout.
+
+## Reviewed composition with wallet-event signer layout
+
+Composed with current main after #2961 before building. The primary instruction-token
+ratio remains **0.51857**, while positional differing 8-byte slots improve from
+**3,335 to 3,327** in the original-sized 27,400-byte window. The raw and normalized
+exact-window totals remain 1,034/1,035, with no missing, resized or lost windows.
+All 363 signed admin comparisons and 408 one-hop swap/boundary comparisons pass.
+The latter disable AMM PDA signature verification; this is bounded runtime evidence,
+not a whole-program identity or all-input equivalence proof.
