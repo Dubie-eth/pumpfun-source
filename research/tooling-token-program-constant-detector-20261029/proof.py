@@ -28,7 +28,10 @@ REPO = next(
     parent for parent in P.parents
     if (parent / 'evidence/original/pump/deployed.so').is_file()
 )
+# The bound helper is pinned inside the packet: the live scripts/ copy evolved
+# after sealing, which made the inputs binding fail against current main.
 SOURCE = 'scripts/bytecode_signatures.py'
+ARCHIVED = str(P.relative_to(REPO) / 'archived' / 'bytecode_signatures.py')
 PROGRAMS = ('pump', 'pump_amm', 'pump_fees', 'mayhem')
 TOKEN_PROGRAMS = {
     'Tokenkeg': bytes.fromhex(
@@ -49,7 +52,7 @@ sha = lambda data: hashlib.sha256(data).hexdigest()
 
 
 def _reviewed():
-    path = REPO / SOURCE
+    path = REPO / ARCHIVED
     raw = path.read_bytes()
     lf = raw.replace(b'\r\n', b'\n')
     forms = {sha(raw), sha(lf), sha(lf.replace(b'\n', b'\r\n'))}
@@ -153,7 +156,7 @@ def check(root=REPO):
     assert totals['Tokenkeg'] == 23 and totals['Tokenz'] == 6
     return {
         'script': SOURCE,
-        'script_sha256': sha((root / SOURCE).read_bytes()),
+        'script_sha256': sha((root / ARCHIVED).read_bytes()),
         'method': 'four consecutive lddw chunks assembled into a 32-byte token program id',
         'old_scope': 'archived lddw immediates 3/7/12 labelled spl_token_instruction',
         'totals': dict(totals),
@@ -175,7 +178,7 @@ def seal(packet=P):
         }, indent=2) + '\n', encoding='utf-8', newline='\n'
     )
     inventory = {
-        str(path.relative_to(packet)): sha(path.read_bytes())
+        path.relative_to(packet).as_posix(): sha(path.read_bytes())
         for path in sorted(packet.rglob('*'))
         if path.is_file() and path.name != 'manifest.json'
         and '__pycache__' not in path.parts and path.suffix != '.pyc'

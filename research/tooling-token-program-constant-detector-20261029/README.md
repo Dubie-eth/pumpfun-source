@@ -46,3 +46,13 @@ The script binding was re-reviewed for `bytecode_signatures.py` `e4e4e541…`
 (after #1311, #1573, #1772, #1806, #1831, #2205, #2319, #2458 and the
 byte-stable packet commit d4370827). Regenerated observations differ from the
 previous seal only in `script_sha256`; every row and total above is unchanged.
+
+## Helper pinning
+
+The reviewed helper is pinned inside the packet at
+`archived/bytecode_signatures.py` (sha256 `e4e4e541…`, the exact revision the
+observations were sealed against). The live `scripts/bytecode_signatures.py`
+evolved after sealing, which made the packet's `inputs.json` binding fail
+against current main; the packet now verifies the archived revision it actually
+measured, and the `'script'` label in the observations keeps recording the
+historical path.

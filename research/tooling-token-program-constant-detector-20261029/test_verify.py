@@ -79,7 +79,7 @@ class TokenDetectorTests(unittest.TestCase):
     def test_manifest_inventory(self):
         saved = json.loads((P / 'manifest.json').read_text(encoding='utf-8'))
         actual = {
-            str(path.relative_to(P)): hashlib.sha256(path.read_bytes()).hexdigest()
+            path.relative_to(P).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(P.rglob('*'))
             if path.is_file() and path.name != 'manifest.json'
             and '__pycache__' not in path.parts and path.suffix != '.pyc'
@@ -114,6 +114,14 @@ class TokenDetectorTests(unittest.TestCase):
             self.assertIn("(P / '%s').read_text(encoding='utf-8')" % name, verify)
         self.assertNotIn('read_text()', verify)
         self.assertEqual(proof.count("encoding='utf-8'"), 2)
+
+
+    def test_bound_helper_is_pinned_in_the_packet(self):
+        # The live scripts/ copy evolved after sealing and broke the inputs
+        # binding on main; the packet now pins the exact revision it measured.
+        archived = P / 'archived' / 'bytecode_signatures.py'
+        self.assertTrue(archived.is_file())
+        self.assertEqual(hashlib.sha256(archived.read_bytes()).hexdigest(), proof.LF_SHA256)
 
 
 if __name__ == '__main__':
