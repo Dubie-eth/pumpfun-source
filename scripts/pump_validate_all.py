@@ -6,6 +6,8 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -120,61 +122,86 @@ def main():
     protect_inputs([args.output, *(retained / (name + '.json.gz') for name, _ in SUITES)],
                    [candidate, original, runner, ROOT / 'scripts/pump_diagnostic_audit.py',
                     *suite_paths, *source_paths])
-    with tempfile.TemporaryDirectory(prefix='pump-differential-') as tmp:
-        for name, filename in SUITES:
-            script = ROOT / filename if filename.startswith(('repro/', 'research/')) else ROOT / 'scripts' / filename
-            before = sha(script)
-            output = Path(tmp) / (name + '.json')
-            command = [sys.executable, str(script), '--candidate', str(candidate), '--output', str(output)]
-            source_text = script.read_text()
-            if "'--source-directory'" in source_text or '"--source-directory"' in source_text:
-                command += ['--source-directory', str(args.source_directory.resolve())]
-            subprocess.run(command, check=True, cwd=ROOT)
-            assert before == sha(script), f'harness changed during execution: {filename}'
-            assert runner_sha == sha(runner), 'aggregate runner changed during execution'
-            assert candidate_sha == sha(candidate), 'candidate changed during execution'
-            assert original_sha == sha(original), 'original changed during execution'
-            raw = output.read_bytes()
-            result = json.loads(gzip.decompress(raw) if raw.startswith(b'\x1f\x8b') else raw)
-            if name == 'quote_control':
-                count = validate_quote_control(result, candidate, original)
-            elif name == 'multi_hop_curve_partial':
-                assert result['candidate_sha256'] == candidate_sha
-                assert result['original_pump_sha256'] == original_sha
-                assert result['passed'] == result['case_count'] == 56
-                assert len(result['cases']) == 56
-                assert all(not row['mismatches'] for row in result['cases'])
-                count = result['case_count']
-            elif name == 'tokenkeg_two_curve':
-                count = validate_two_curve(result, candidate_sha, original_sha)
-            else:
-                assert result.get('original_sha256', result.get('provenance', {}).get(str(original))) == original_sha
-                assert result.get('candidate_sha256', result.get('provenance', {}).get(str(candidate))) == candidate_sha
-                count = retained_case_count(result)
-                validate_case_results(result)
-            assert count == EXPECTED_CASES[name], (name, count, EXPECTED_CASES[name])
-            assert not result.get('mismatches', result.get('failures', [])), name
-            result['case_count'] = count
-            suites[name] = result
-            scripts[filename] = before
-            retained.mkdir(parents=True, exist_ok=True)
-            (retained / (name + '.json.gz')).write_bytes(
-                gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
-    assert sum(s['case_count'] for s in suites.values()) == 10468
-    diagnostics = audit_diagnostics(suites)
-    report = {
-        'scope': 'Published 44-suite bounded Pump differential corpus. Per-suite limits remain in receipts; not full source recovery or binary identity.',
-        'original_sha256': original_sha, 'candidate_sha256': candidate_sha,
-        'runner_sha256': runner_sha, 'script_sha256': scripts,
-        'case_count': sum(s['case_count'] for s in suites.values()),
-        'source_directory': str(args.source_directory.resolve()),
-        'diagnostic_audit_sha256': sha(ROOT / 'scripts/pump_diagnostic_audit.py'),
-        'diagnostics': diagnostics,
-        'mismatches': diagnostics['mismatches'], 'suites': suites,
-    }
-    raw = (json.dumps(report, separators=(',', ':')) + '\n').encode()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(gzip.compress(raw, mtime=0) if args.output.suffix == '.gz' else raw)
+    for destination in (args.output, retained):
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(destination)
+    retained_staging = Path(tempfile.mkdtemp(
+        prefix='.' + retained.name + '.staging-', dir=retained.parent))
+    descriptor, report_name = tempfile.mkstemp(
+        prefix='.' + args.output.name + '.staging-', dir=args.output.parent)
+    os.close(descriptor)
+    report_staging = Path(report_name)
+    published_retained = False
+    try:
+        with tempfile.TemporaryDirectory(prefix='pump-differential-') as tmp:
+            for name, filename in SUITES:
+                script = ROOT / filename if filename.startswith(('repro/', 'research/')) else ROOT / 'scripts' / filename
+                before = sha(script)
+                output = Path(tmp) / (name + '.json')
+                command = [sys.executable, str(script), '--candidate', str(candidate), '--output', str(output)]
+                source_text = script.read_text()
+                if "'--source-directory'" in source_text or '"--source-directory"' in source_text:
+                    command += ['--source-directory', str(args.source_directory.resolve())]
+                subprocess.run(command, check=True, cwd=ROOT)
+                assert before == sha(script), f'harness changed during execution: {filename}'
+                assert runner_sha == sha(runner), 'aggregate runner changed during execution'
+                assert candidate_sha == sha(candidate), 'candidate changed during execution'
+                assert original_sha == sha(original), 'original changed during execution'
+                raw = output.read_bytes()
+                result = json.loads(gzip.decompress(raw) if raw.startswith(b'\x1f\x8b') else raw)
+                if name == 'quote_control':
+                    count = validate_quote_control(result, candidate, original)
+                elif name == 'multi_hop_curve_partial':
+                    assert result['candidate_sha256'] == candidate_sha
+                    assert result['original_pump_sha256'] == original_sha
+                    assert result['passed'] == result['case_count'] == 56
+                    assert len(result['cases']) == 56
+                    assert all(not row['mismatches'] for row in result['cases'])
+                    count = result['case_count']
+                elif name == 'tokenkeg_two_curve':
+                    count = validate_two_curve(result, candidate_sha, original_sha)
+                else:
+                    assert result.get('original_sha256', result.get('provenance', {}).get(str(original))) == original_sha
+                    assert result.get('candidate_sha256', result.get('provenance', {}).get(str(candidate))) == candidate_sha
+                    count = retained_case_count(result)
+                    validate_case_results(result)
+                assert count == EXPECTED_CASES[name], (name, count, EXPECTED_CASES[name])
+                assert not result.get('mismatches', result.get('failures', [])), name
+                result['case_count'] = count
+                suites[name] = result
+                scripts[filename] = before
+                (retained_staging / (name + '.json.gz')).write_bytes(
+                    gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
+        assert sum(s['case_count'] for s in suites.values()) == 10468
+        diagnostics = audit_diagnostics(suites)
+        report = {
+            'scope': 'Published 44-suite bounded Pump differential corpus. Per-suite limits remain in receipts; not full source recovery or binary identity.',
+            'original_sha256': original_sha, 'candidate_sha256': candidate_sha,
+            'runner_sha256': runner_sha, 'script_sha256': scripts,
+            'case_count': sum(s['case_count'] for s in suites.values()),
+            'source_directory': str(args.source_directory.resolve()),
+            'diagnostic_audit_sha256': sha(ROOT / 'scripts/pump_diagnostic_audit.py'),
+            'diagnostics': diagnostics,
+            'mismatches': diagnostics['mismatches'], 'suites': suites,
+        }
+        raw = (json.dumps(report, separators=(',', ':')) + '\n').encode()
+        report_staging.write_bytes(
+            gzip.compress(raw, mtime=0) if args.output.suffix == '.gz' else raw)
+        from deep_disassembly import rename_directory
+        rename_directory(retained_staging, retained)
+        published_retained = True
+        try:
+            os.link(report_staging, args.output)
+        except BaseException:
+            shutil.rmtree(retained, ignore_errors=True)
+            published_retained = False
+            raise
+    finally:
+        shutil.rmtree(retained_staging, ignore_errors=True)
+        report_staging.unlink(missing_ok=True)
+        if published_retained and not args.output.exists():
+            shutil.rmtree(retained, ignore_errors=True)
     print(json.dumps({'cases': report['case_count'], 'diagnostic_log_cases': diagnostics['log_bearing_cases'], 'mismatches': len(report['mismatches'])}))
     return bool(report['mismatches'])
 
