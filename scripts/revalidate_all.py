@@ -401,13 +401,16 @@ def main():
 
     from deep_disassembly import rename_directory, temporary_sibling
     staging = temporary_sibling(output_dir, "staging")
+    published = False
     try:
         write_reports(
             staging, packets, results, pass_count, fail_count,
             skip_count, elapsed)
         rename_directory(staging, output_dir)
+        published = True
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        if not published:
+            shutil.rmtree(staging, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
