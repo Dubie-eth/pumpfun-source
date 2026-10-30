@@ -182,7 +182,7 @@ def main():
                     if path.is_file() and 'target' not in path.relative_to(args.source_directory).parts
                     and (path.suffix == '.rs' or path.name in ('Cargo.toml', 'Cargo.lock'))]
     protect_inputs([args.output, *(retained / (name + '.json.gz') for name, _ in SUITES)],
-                   [candidate, original, runner, *build_inputs,
+                   [candidate_input, candidate, original, runner, *build_inputs,
                     ROOT / 'scripts/pump_diagnostic_audit.py',
                     *suite_paths, *source_paths])
     args.output.parent.mkdir(parents=True, exist_ok=True)

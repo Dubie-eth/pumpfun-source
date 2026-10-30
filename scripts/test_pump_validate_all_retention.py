@@ -295,7 +295,7 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
                 if path.stem == 'tokenkeg_two_curve':
                     self.assertIn('--build-report', command)
                     self.assertEqual(Path(command[command.index('--build-report') + 1]),
-                                     candidate.parent / 'build-comparison.json')
+                                     (candidate.parent / 'build-comparison.json').resolve())
                     seen.append(path.stem)
                 return complete(command, **kwargs)
 
@@ -306,6 +306,20 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
             for name in ('build-comparison.json', 'build-attempt.json'):
                 source = candidate.parent / name
                 self.assertEqual(report['build_inputs_sha256'][runner.bound_input_key(source, runner.ROOT)], sha(source))
+
+    def test_real_pinning_keeps_public_candidate_in_output_admission(self):
+        from pump_amm_reusable_harness import pin_program
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); candidate = root / 'candidate.so'
+            candidate.write_bytes(b'candidate')
+            original = runner.ROOT / 'evidence/original/pump/deployed.so'
+            alias = root / 'candidate-alias.json'; os.link(candidate, alias)
+            for destination in (candidate, alias):
+                with self.subTest(destination=destination), mock.patch.object(runner, 'pin_program', side_effect=pin_program):
+                    with self.assertRaisesRegex(ValueError, 'output aliases a bound input'):
+                        self.invoke(destination, candidate, original,
+                            lambda *_a, **_k: self.fail('suite ran before public input admission'))
+                    self.assertEqual(candidate.read_bytes(), b'candidate')
 
     def test_changed_producer_receipt_cannot_publish_complete_corpus(self):
         with tempfile.TemporaryDirectory() as directory:
