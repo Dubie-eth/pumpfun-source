@@ -20,6 +20,7 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
 from pump_diagnostic_audit import bound_input_key
+from pump_differential_output import PumpReport
 
 ROOT = next(p for p in pathlib.Path(__file__).resolve().parents
             if (p / 'evidence/upstream/pump.json').is_file() and (p / 'programs/pump/Cargo.toml').is_file())
@@ -243,6 +244,9 @@ def main():
             if source_path.is_file() and 'target' not in source_path.parts and (
                     source_path.suffix == '.rs' or source_path.name in {'Cargo.toml', 'Cargo.lock'}):
                 bound_files.append(source_path)
+    # Refuse to publish through any input before a single case executes.
+    publisher = PumpReport(a.output, ROOT, a.candidate, __file__,
+                           extra_inputs=bound_files)
     bound = {bound_input_key(f, ROOT): digest(f) for f in bound_files}
     results, mismatches = [], 0
     compare_keys = ['error', 'before_accounts', 'after_accounts', 'rollback', 'event_payloads',
@@ -265,9 +269,7 @@ def main():
               'solders_version': version('solders'),
               'fixture_policy': 'Ordinary test-owned synthetic keys, explicit signature and blockhash checks; complete signed transaction bytes saved. No live broadcast.',
               'results': results}
-    a.output.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(a.output, 'wt') as f:
-        json.dump(report, f)
+    publisher.write(gzip.compress(json.dumps(report).encode(), mtime=0))
     print(f'{len(results)} cases, {mismatches} mismatches', flush=True)
     return 1 if mismatches else 0
 

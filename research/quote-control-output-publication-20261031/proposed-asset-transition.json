@@ -1,0 +1,16 @@
+{
+  "scope": "Proposed maintained-script asset transition for quote-control differential report publication; captures, fixtures and prior reports remain unchanged.",
+  "base": "5889e795eba64e85e613b4409921323bfecec414",
+  "files": {
+    "scripts/pump_quote_control_fresh_differential.py": {
+      "before_sha256": "f2d38db3eb4af5d1e38195e3a5107a9a76dafe46dc760cb0ad6b588b9505f5a8",
+      "proposed_sha256": "9a9fbf21560391b8755d1854ce99bf09f335976d9d89e90f1cf15750e988fa59"
+    }
+  },
+  "script_set_changed": false,
+  "program_source_changed": false,
+  "capture_bytes_changed": false,
+  "new_test": "tests/test_quote_control_output_publication.py",
+  "existing_ci_discovery": "contract-tests: python -B -m unittest discover -s tests -v",
+  "historical_checkpoint_note": "No packet under research/ is changed; the report is a local diagnostic artifact and was never committed."
+}
