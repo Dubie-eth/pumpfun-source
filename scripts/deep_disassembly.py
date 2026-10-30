@@ -37,6 +37,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 from window_elf_reader import Elf
+from analyze import capture_directory
 
 # BPF opcode mnemonics
 BPF_ALU64  = 0x07
@@ -689,7 +690,7 @@ def publish_packet(staging, output_dir, expected_identity):
 
 
 def build_packet(program, output_dir, output_label):
-    deployed_path = REPO / "evidence" / "original" / program / "deployed.so"
+    deployed_path = capture_directory(REPO, program) / "deployed.so"
 
     print(f"[disasm] Reading {deployed_path}")
     elf = Elf(deployed_path)
@@ -1014,7 +1015,7 @@ def main():
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    deployed_path = REPO / "evidence" / "original" / args.program / "deployed.so"
+    deployed_path = capture_directory(REPO, args.program) / "deployed.so"
     if not deployed_path.exists():
         print(f"ERROR: {deployed_path} not found")
         return 1

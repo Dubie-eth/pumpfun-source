@@ -33,6 +33,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 from window_elf_reader import Elf
+from analyze import capture_directory
 from deep_disassembly import load_idl_discriminators, directory_identity, publish_packet, temporary_sibling
 
 SYSCALL_NAMES = {
@@ -714,7 +715,7 @@ def prepare_destination(output_dir):
 
 
 def build_packet(program, output_dir, output_label):
-    deployed_path = REPO / "evidence" / "original" / program / "deployed.so"
+    deployed_path = capture_directory(REPO, program) / "deployed.so"
     if not deployed_path.exists():
         print(f"ERROR: {deployed_path} not found")
         return 1
