@@ -252,6 +252,7 @@ jobs:
               # see .github/retired-workflows/2026-10-29-verify-matrix.md.
               python scripts/test_reconstruction_build_selection.py ResearchSelectionTests.test_default_does_not_select_header_incompatible_older_family ResearchSelectionTests.test_explicit_experiment_and_argument_boundaries_are_preserved
               python scripts/test_reconstruction_identity_audit.py
+              python -B reconstruction/diagnostics/identity-audit-unoptimized/test_run.py
               python scripts/local_validation.py
               python -B research/tooling-interior-string-references-20261030/test_verify.py
               python -I -B scripts/test_verify_evidence_paths.py

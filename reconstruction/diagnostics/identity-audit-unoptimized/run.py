@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 # Digests of the reviewed scripts/ sources this entrypoint pins; refresh them
@@ -20,18 +21,28 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     root = args.repo.resolve()
+    sources = {}
     for name, digest in REVIEWED.items():
         raw = (root / name).read_bytes()
         if hashlib.sha256(raw.replace(b'\r\n', b'\n')).hexdigest() != digest:
             parser.error(f'reviewed identity audit source changed: {name}')
+        sources[name] = raw
     if args.output.exists() or args.output.is_symlink():
         parser.error('output already exists; preserve prior audits')
-    script = root / 'scripts/reconstruction_identity_audit.py'
-    # -I ignores an inherited PYTHONOPTIMIZE; omission of -O starts a normal
-    # interpreter even when this entrypoint itself was invoked with -O/-OO.
-    command = [sys.executable, '-I', '-B', '-X', 'utf8', '-c', BOOTSTRAP, str(script),
-               '--repo', str(root), '--index', args.index, '--output', str(args.output)]
-    return subprocess.call(command)
+    # Run exactly the admitted bytes, including local imports. Public files may
+    # change after admission; they must not supply unreviewed code to the child.
+    with tempfile.TemporaryDirectory(prefix='identity-audit-reviewed-') as scratch:
+        staged = Path(scratch)
+        for name, raw in sources.items():
+            target = staged / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+        script = staged / 'scripts/reconstruction_identity_audit.py'
+        # -I ignores an inherited PYTHONOPTIMIZE; omission of -O starts a normal
+        # interpreter even when this entrypoint itself was invoked with -O/-OO.
+        command = [sys.executable, '-I', '-B', '-X', 'utf8', '-c', BOOTSTRAP, str(script),
+                   '--repo', str(root), '--index', args.index, '--output', str(args.output)]
+        return subprocess.call(command)
 
 
 if __name__ == '__main__':
