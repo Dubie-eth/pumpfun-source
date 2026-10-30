@@ -65,6 +65,8 @@ try:
             # A relative input name keeps objdump's file heading deterministic.
             with target.open('wb') as output:
                 run_tool(['-d',snapshot.name],cwd=snapshot.parent,stdout=output)
+            # Even an image with no code gets a file heading from objdump.
+            if not target.stat().st_size:raise RuntimeError(f'{name}: objdump wrote no disassembly')
             manifest['outputs'][name]={'input_sha256':input_sha256,'output_sha256':hashlib.sha256(target.read_bytes()).hexdigest()}
     (staging/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8',newline='\n')
     staging.rename(args.output)
