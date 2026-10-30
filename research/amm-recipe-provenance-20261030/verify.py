@@ -57,7 +57,10 @@ def tree_blobs(revision):
 
 
 def verify():
-    manifest = json.loads((PACKET / 'manifest.json').read_text())
+    # Named recipe.json, not manifest.json: the revalidation audit treats a
+    # packet manifest.json as a file-hash manifest and rejects this record's
+    # path/commit fields as malformed hashes.
+    manifest = json.loads((PACKET / 'recipe.json').read_text())
     recipe = load_recipe(ROOT, manifest['recipe_path'], manifest['recipe_sha256'])
 
     inputs, workspace = recipe.expected_workspace(ROOT)

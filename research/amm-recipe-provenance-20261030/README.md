@@ -10,11 +10,11 @@ At source commit `8498ea4c5307d8537484464d27d6d82bb90a85c1`,
 `scripts/amm_sell/workspace_recipe.py` selects exactly 68 files from
 `programs/pump-amm` and `crates/native-transfer-fee`. The Git tree contains
 exactly the same 68 ordinary blobs. Their current bytes match both the pinned
-Git blob IDs and the SHA-256 values in `manifest.json`. The recipe transforms
+Git blob IDs and the SHA-256 values in `recipe.json`. The recipe transforms
 the standalone crate manifest into a 69-file workspace; all 59 Rust files stay
 byte-identical. A fresh source-only stage passes its own workspace verifier.
 
-The recipe SHA-256 in `manifest.json` is pinned to the file as changed by
+The recipe SHA-256 in `recipe.json` is pinned to the file as changed by
 #2139. That change only tightened `stage()`'s output-containment check; the
 selected inputs and the workspace transformation checked here are unchanged.
 
