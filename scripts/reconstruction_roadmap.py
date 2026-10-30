@@ -254,6 +254,28 @@ def analyze_cross_references(elf, entries):
     return rodata_strings
 
 
+def planning_windows(data):
+    return [{'address': w['address'], 'size': w['size'], 'complexity': w['complexity_score'],
+             'callers': [c[0] for c in w['likely_callers'][:5]],
+             'callees': [c[0] for c in w['likely_callees'][:5]],
+             'strings': w['string_references'][:3]}
+            for w in sorted(data['window_details'], key=lambda w: -w['size']) if not w['name']]
+
+
+def cluster_windows(unnamed_windows):
+    clusters = []
+    for w in unnamed_windows:
+        names = {c[0] for c in w['likely_callers']}
+        if not names:
+            continue
+        joined = [c for c in clusters if c['callers'] & names]
+        clusters = [c for c in clusters if not c['callers'] & names]
+        clusters.append({'callers': names.union(*(c['callers'] for c in joined)),
+                         'windows': [a for c in joined for a in c['windows']] + [w['address']],
+                         'total_bytes': sum(c['total_bytes'] for c in joined) + w['size']})
+    return clusters
+
+
 def prepare_output_directory(output_dir):
     """Keep a new roadmap packet from adopting entries left by another run."""
     if output_dir.is_symlink():
@@ -353,25 +375,7 @@ def generate_roadmap(output_dir):
         unnamed_windows.sort(key=lambda w: -w["size"])
 
         # Identify clusters of related unnamed windows
-        clusters = []
-        for w in unnamed_windows:
-            if w["likely_callers"]:
-                caller_names = set(c[0] for c in w["likely_callers"])
-                # Find cluster with same callers
-                found = False
-                for cluster in clusters:
-                    if cluster["callers"] & caller_names:
-                        cluster["windows"].append(w["address"])
-                        cluster["total_bytes"] += w["size"]
-                        cluster["callers"] |= caller_names
-                        found = True
-                        break
-                if not found:
-                    clusters.append({
-                        "callers": caller_names,
-                        "windows": [w["address"]],
-                        "total_bytes": w["size"],
-                    })
+        clusters = cluster_windows(unnamed_windows)
 
         # Sort clusters by total bytes
         clusters.sort(key=lambda c: -c["total_bytes"])
@@ -466,7 +470,7 @@ def generate_roadmap(output_dir):
     # Phase 1: Low-hanging fruit (small unnamed windows with known callers)
     phase1_windows = []
     for prog_name, data in all_program_data.items():
-        for w in data["unnamed_windows_by_size"]:
+        for w in planning_windows(data):
             if w["size"] <= 512 and w["callers"]:
                 phase1_windows.append({
                     "program": prog_name,
@@ -487,7 +491,7 @@ def generate_roadmap(output_dir):
     # Phase 2: Medium windows with call context
     phase2_windows = []
     for prog_name, data in all_program_data.items():
-        for w in data["unnamed_windows_by_size"]:
+        for w in planning_windows(data):
             if 512 < w["size"] <= 4096 and (w["callers"] or w["callees"]):
                 phase2_windows.append({
                     "program": prog_name,
@@ -510,7 +514,7 @@ def generate_roadmap(output_dir):
     # Phase 3: Large handler bodies
     phase3_windows = []
     for prog_name, data in all_program_data.items():
-        for w in data["unnamed_windows_by_size"]:
+        for w in planning_windows(data):
             if w["size"] > 4096:
                 phase3_windows.append({
                     "program": prog_name,
