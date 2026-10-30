@@ -52,6 +52,21 @@ class PumpCheckpointNonregularPathTests(unittest.TestCase):
                 path.write_bytes(b'sealed-bytes\n')
                 self.assertEqual(module.content(path), b'sealed-bytes\n')
 
+    @unittest.skipUnless(hasattr(os, 'symlink'), 'symlinks need POSIX')
+    def test_symlink_ancestry_is_still_rejected(self):
+        # The OS's own aliases (/var, /tmp, /etc on macOS) are resolved by
+        # plain_path; a symlink the caller introduced must still fail there.
+        for module in MODULES.values():
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'real').mkdir()
+                (root / 'real' / 'input.txt').write_bytes(b'sealed-bytes\n')
+                (root / 'link').symlink_to(root / 'real', target_is_directory=True)
+                with self.assertRaises(module.CheckpointError) as caught:
+                    module.content(root / 'link' / 'input.txt')
+                self.assertIn('Symlink ancestry', str(caught.exception))
+                self.assertIn(str(root / 'link'), str(caught.exception))
+
     @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFOs need POSIX')
     def test_fifo_inputs_are_rejected_without_blocking(self):
         for name in MODULES:
