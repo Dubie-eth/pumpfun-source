@@ -145,6 +145,7 @@ def main():
     p.add_argument('--candidate', type=Path)
     p.add_argument('--output', type=Path)
     a = p.parse_args()
+    a.output.parent.mkdir(parents=True, exist_ok=True)
     a.candidate = pin_program(a.candidate) if a.candidate else None
     original = pin_program(ORIGINAL)
     stub = pin_program(STUB)

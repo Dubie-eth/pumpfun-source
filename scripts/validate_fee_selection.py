@@ -9,7 +9,7 @@ from solders.instruction import Instruction,AccountMeta
 from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-ap=argparse.ArgumentParser();ap.add_argument('--host',type=pathlib.Path,required=True);ap.add_argument('--output',type=pathlib.Path,required=True);args=ap.parse_args()
+ap=argparse.ArgumentParser();ap.add_argument('--host',type=pathlib.Path,required=True);ap.add_argument('--output',type=pathlib.Path,required=True);args=ap.parse_args();args.output.parent.mkdir(parents=True,exist_ok=True)
 idl=json.loads((ROOT/'evidence/upstream/pump_fees.json').read_text());prog=Pubkey.from_string(idl['address']);configprog=Pubkey.from_string('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');key,bump=Pubkey.find_program_address([b'fee_config',bytes(configprog)],prog)
 disc=bytes(next(a for a in idl['accounts'] if a['name']=='FeeConfig')['discriminator']);ixdisc=bytes(next(a for a in idl['instructions'] if a['name']=='get_fees')['discriminator'])
 fees=lambda x:struct.pack('<QQQ',*x)

@@ -3,7 +3,7 @@
 import argparse,hashlib,json,pathlib,random,subprocess
 from solders.pubkey import Pubkey
 from fee_recovery_fixture import FeeFixture,ROOT
-ap=argparse.ArgumentParser();ap.add_argument('--host',type=pathlib.Path,required=True);ap.add_argument('--output',type=pathlib.Path,required=True);args=ap.parse_args()
+ap=argparse.ArgumentParser();ap.add_argument('--host',type=pathlib.Path,required=True);ap.add_argument('--output',type=pathlib.Path,required=True);args=ap.parse_args();args.output.parent.mkdir(parents=True,exist_ok=True)
 f=FeeFixture();rng=random.Random(10425)
 quotes=[bytes(32)]+[bytes(Pubkey.from_string(s)) for s in ['So11111111111111111111111111111111111111112','9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP','EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v']]+[bytes([1])*32]
 configs=[([],[]),([(100,(10,20,30)),(1000,(40,50,60))],[(50,(70,80,90)),(100,(100,200,300))]),([(200,(1,2,3)),(0,(4,5,6)),(100,(7,8,9))],[(0,(20,30,40)),(0,(50,60,70))])]

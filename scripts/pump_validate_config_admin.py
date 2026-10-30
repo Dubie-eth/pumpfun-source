@@ -70,7 +70,7 @@ def execute(binary, instruction, arg, mutation):
 
 
 
-p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--source-directory',type=pathlib.Path,default=ROOT/'programs/pump');p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate)
+p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--source-directory',type=pathlib.Path,default=ROOT/'programs/pump');p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate);a.output.parent.mkdir(parents=True,exist_ok=True)
 import struct,gzip
 original=ROOT/'evidence/original/pump/deployed.so';u=lambda n:struct.pack('<Q',n)
 arguments={

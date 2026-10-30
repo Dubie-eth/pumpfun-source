@@ -18,7 +18,7 @@ data=lambda a:base64.b64decode(a['data_base64'])
 def shortvec(v):
  n=sum((b&127)<<(7*i) for i,b in enumerate(v[0]));raw=bytes(v[1:]);assert len(raw)==n;return raw
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--receipts',type=Path,required=True);ap.add_argument('--candidate',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--receipts',type=Path,required=True);ap.add_argument('--candidate',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args();a.output.parent.mkdir(parents=True,exist_ok=True)
  raw=a.receipts.read_bytes();report=json.loads(gzip.decompress(raw) if a.receipts.suffix=='.gz' else raw);assert report['candidate_sha256']==sha(a.candidate.read_bytes())
  assert report['original_sha256']==sha((ROOT/'evidence/original/mayhem/deployed.so').read_bytes())
  for path,digest in report['harness_sha256'].items():assert sha((ROOT/path).read_bytes())==digest
