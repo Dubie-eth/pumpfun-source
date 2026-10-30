@@ -88,6 +88,7 @@ jobs:
               python -I -B tests/test_dispatch_root.py
               python -I -B tests/test_analyze_input_admission.py
               python scripts/test_tooling.py
+              python -B scripts/test_tooling_litesvm_collection.py
               python -B scripts/test_pump_diagnostic_audit_coverage.py
               python -B scripts/test_pump_diagnostic_audit_publication.py
               python -B scripts/test_pump_fresh_output_optimized.py
