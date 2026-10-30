@@ -296,8 +296,11 @@ def variants():
 def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
          second_build_path=None):
     candidate, build_path, output = map(Path, (candidate, build_path, output))
-    extra_inputs = [build_path]
-    if second_build_path:
+    source_inputs = [ROOT / name for name in (
+        "programs/pump/src/incentives.rs", "programs/pump/src/volume_sync.rs",
+        "programs/pump/src/lib.rs", "programs/pump/Cargo.toml", "programs/pump/Cargo.lock")]
+    extra_inputs = [build_path, TARGET, IDL, SNAPSHOT, *DEPENDENCIES.values(), *source_inputs]
+    if second_build_path is not None:
         extra_inputs.append(Path(second_build_path))
     publisher = PumpReport(output, ROOT, candidate, __file__, extra_inputs=extra_inputs)
     candidate = pin_program(candidate)
@@ -331,12 +334,7 @@ def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
                    if row["program_name"] == "pump")
     assert sha(base64.b64decode(fixture["data_base64"])) == fixture["data_sha256"]
     assert fixture["address"] == str(GLOBAL) and fixture["owner"] == str(PUMP)
-    source_hashes = {str(path.relative_to(ROOT)): sha(path) for path in (
-        ROOT / "programs/pump/src/incentives.rs",
-        ROOT / "programs/pump/src/volume_sync.rs",
-        ROOT / "programs/pump/src/lib.rs",
-        ROOT / "programs/pump/Cargo.toml",
-        ROOT / "programs/pump/Cargo.lock")}
+    source_hashes = {str(path.relative_to(ROOT)): sha(path) for path in source_inputs}
     dependency_hashes = {name: sha(pin_program(path)) for name, path in DEPENDENCIES.items()}
     rows = []
     for name, case in variants():
