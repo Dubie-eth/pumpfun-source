@@ -1,60 +1,98 @@
 #!/usr/bin/env python3
-"""analyze.py must refuse to publish empty reports for an empty evidence tree."""
+"""Actual analyzer CLI input admission and paired-report publication controls."""
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
-import analyze  # noqa: E402
+REPORTS = ('binary-analysis.json', 'interface-inventory.json')
 
 
 class AnalyzeEmptyInputTests(unittest.TestCase):
-    def run_analyze(self, root):
-        with mock.patch.object(analyze, 'ROOT', root):
-            analyze.analyze()
-        return root / 'evidence'
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='analyze-empty-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        (self.root / 'scripts').mkdir()
+        (self.root / 'evidence/upstream').mkdir(parents=True)
+        shutil.copyfile(ROOT / 'scripts/analyze.py', self.root / 'scripts/analyze.py')
 
-    def test_missing_captures_and_idls_publish_nothing(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'evidence/upstream').mkdir(parents=True)
-            with self.assertRaisesRegex(SystemExit, 'refusing to publish empty reports'):
-                self.run_analyze(root)
-            self.assertFalse((root / 'evidence/binary-analysis.json').exists())
-            self.assertFalse((root / 'evidence/interface-inventory.json').exists())
+    def add_capture(self):
+        capture = self.root / 'evidence/original/pump'
+        capture.mkdir(parents=True)
+        for name in ('deployed.so', 'capture.json'):
+            shutil.copyfile(ROOT / 'evidence/original/pump' / name, capture / name)
 
-    def test_captures_without_idls_publish_nothing(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            capture = root / 'evidence/original/pump'
-            capture.mkdir(parents=True)
-            for name in ('deployed.so', 'capture.json'):
-                shutil.copyfile(ROOT / 'evidence/original/pump' / name, capture / name)
-            (root / 'evidence/upstream').mkdir()
-            with self.assertRaisesRegex(SystemExit, 'refusing to publish empty reports'):
-                self.run_analyze(root)
-            self.assertFalse((root / 'evidence/binary-analysis.json').exists())
+    def add_idl(self):
+        shutil.copyfile(ROOT / 'evidence/upstream/pump.json',
+                        self.root / 'evidence/upstream/pump.json')
 
-    def test_captures_and_idls_publish_both_reports(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            capture = root / 'evidence/original/pump'
-            capture.mkdir(parents=True)
-            for name in ('deployed.so', 'capture.json'):
-                shutil.copyfile(ROOT / 'evidence/original/pump' / name, capture / name)
-            upstream = root / 'evidence/upstream'
-            upstream.mkdir()
-            shutil.copyfile(ROOT / 'evidence/upstream/pump.json', upstream / 'pump.json')
-            evidence = self.run_analyze(root)
-            binary = json.loads((evidence / 'binary-analysis.json').read_text())
-            inventory = json.loads((evidence / 'interface-inventory.json').read_text())
-            self.assertEqual(sorted(binary), ['pump'])
-            self.assertEqual(sorted(inventory), ['pump'])
+    def invoke(self, *options):
+        env = dict(os.environ)
+        env.pop('PYTHONOPTIMIZE', None)
+        return subprocess.run([sys.executable, *options, '-B', 'scripts/analyze.py'],
+                              cwd=self.root, env=env, capture_output=True,
+                              text=True, timeout=30)
+
+    def assert_empty_refused(self):
+        for existing in (False, True):
+            with self.subTest(existing_reports=existing):
+                before = {}
+                for name in REPORTS:
+                    output = self.root / 'evidence' / name
+                    if existing:
+                        output.write_bytes(('prior ' + name + '\n').encode())
+                        before[name] = output.read_bytes()
+                result = self.invoke()
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('refusing to publish empty reports', result.stderr)
+                for name in REPORTS:
+                    output = self.root / 'evidence' / name
+                    if existing:
+                        self.assertEqual(output.read_bytes(), before[name])
+                    else:
+                        self.assertFalse(output.exists())
+                self.assertFalse(list((self.root / 'evidence').glob('.*.json.*')))
+
+    def test_missing_captures_and_idls_preserve_reports(self):
+        self.assert_empty_refused()
+
+    def test_captures_without_idls_preserve_reports(self):
+        self.add_capture()
+        self.assert_empty_refused()
+
+    def test_idls_without_captures_preserve_reports(self):
+        self.add_idl()
+        self.assert_empty_refused()
+
+    def test_empty_guard_remains_active_under_optimized_python(self):
+        result = self.invoke('-O')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('refusing to publish empty reports', result.stderr)
+        self.assertTrue(all(not (self.root / 'evidence' / name).exists() for name in REPORTS))
+
+    def test_real_capture_and_idl_publish_both_reports(self):
+        self.add_capture()
+        self.add_idl()
+        inputs = {path: path.read_bytes() for path in (self.root / 'evidence').rglob('*')
+                  if path.is_file()}
+        for name in REPORTS:
+            (self.root / 'evidence' / name).write_bytes(b'prior report\n')
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        binary, inventory = [json.loads((self.root / 'evidence' / name).read_bytes())
+                             for name in REPORTS]
+        self.assertEqual(sorted(binary), ['pump'])
+        self.assertEqual(sorted(inventory), ['pump'])
+        self.assertGreater(binary['pump']['elf_extent'], 0)
+        self.assertGreater(inventory['pump']['instructions'], 0)
+        for path, raw in inputs.items():
+            self.assertEqual(path.read_bytes(), raw)
 
 
 if __name__ == '__main__':

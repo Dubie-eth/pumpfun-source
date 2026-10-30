@@ -23,3 +23,12 @@ Required checks on the proposed tree: `python3 -E -X utf8 scripts/test_tooling.p
 (217 pass) and `python3 -E -X utf8 scripts/verify_evidence.py` (nine captures
 verified). macOS arm64, Python 3.14.3. The tracked reports, captured bytes and
 IDLs in the repository are unchanged by this proposal.
+
+## Review qualification
+
+The current five regression tests invoke a copied `scripts/analyze.py` through
+its real command-line entrypoint, without mocking its analysis or publisher.
+They cover missing captures and IDLs, each missing side separately, preserved
+prior report bytes, the guard under optimized Python, and a real captured Pump
+ELF plus its IDL publishing both reports. Existing paired-publication tests also
+pass. The three-test timing in `results.json` records the original submission.
