@@ -108,6 +108,41 @@ class WorkflowInputsTests(unittest.TestCase):
                 self.assertEqual(report['checked_references'], 0)
                 self.assertEqual(report['uninspected'][0][2], 'dynamic command/directory')
 
+    def test_clustered_python_value_options_resolve_the_script(self):
+        self.write('scripts/probe.py', "print('cluster probe')\n")
+        for options in (['-IBW', 'error'], ['-IBX', 'utf8'],
+                        ['-I', '-BW', 'error'], ['-IBWmodule'], ['-IBXutf8']):
+            with self.subTest(options=options):
+                # Run a real interpreter to establish which token is the
+                # script, rather than only testing a tokenization helper.
+                native = subprocess.run([sys.executable, *options, 'scripts/probe.py'],
+                                        cwd=self.root, capture_output=True, text=True)
+                self.assertEqual(native.returncode, 0, native.stderr)
+                self.assertEqual(native.stdout.strip(), 'cluster probe')
+                self.workflow('python ' + ' '.join(options) + ' scripts/probe.py')
+                status, report = self.run_check('--all')
+                self.assertEqual(status, 0)
+                self.assertEqual(report['checked_references'], 1)
+                self.assertFalse(report['uninspected'])
+
+    def test_clustered_python_option_cannot_hide_a_missing_script(self):
+        self.workflow('python -IBW error scripts/missing.py')
+        native = subprocess.run([sys.executable, '-IBW', 'error', 'scripts/missing.py'],
+                                cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(native.returncode, 2)
+        status, report = self.run_check('--all')
+        self.assertEqual(status, 1)
+        self.assertEqual([entry[2] for entry in report['new_missing']], ['scripts/missing.py'])
+
+    def test_clustered_python_inline_modes_have_no_script_input(self):
+        for command in ('python -IBc "print(1)"', 'python -IBm json.tool --help'):
+            with self.subTest(command=command):
+                self.workflow(command)
+                status, report = self.run_check('--all')
+                self.assertEqual(status, 0)
+                self.assertEqual(report['checked_references'], 0)
+                self.assertFalse(report['uninspected'])
+
     def test_committed_head_checks_deleted_files(self):
         self.git('rm', 'scripts/ok.py')
         self.git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
