@@ -12,6 +12,7 @@ from pathlib import Path
 
 import fees_donation_create_differential as create
 import fees_donation_crank_probe as crank
+from pump_amm_reusable_harness import pin_program
 from solders.account import Account
 from solders.clock import Clock
 from solders.compute_budget import set_compute_unit_limit
@@ -163,6 +164,7 @@ def main():
     parser.add_argument("--candidate", type=Path, default=ROOT / "localnet/recovery/fees-donation/pump_fees_candidate.so")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    args.candidate = pin_program(args.candidate)
     original = ROOT / "evidence/original/pump_fees/deployed.so"
     left, right = execute(original), execute(args.candidate)
     if len(left) != len(right):
