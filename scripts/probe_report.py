@@ -11,9 +11,11 @@ def write_json_report(path, value):
     # A plain exclusive open keeps the umask-derived mode of a direct write.
     # Include an unpredictable suffix so a stale file from a reused PID cannot
     # block a later publication.
+    # Keep the readable prefix short: a valid output basename can already be
+    # near the filesystem's component limit before the staging suffix is added.
     for _ in range(100):
         staged = path.with_name(
-            "." + path.name + "." + str(os.getpid()) + "." + secrets.token_hex(8)
+            "." + path.name[:32] + "." + str(os.getpid()) + "." + secrets.token_hex(8)
         )
         try:
             stream = open(staged, "x", encoding="utf-8", newline="\n")

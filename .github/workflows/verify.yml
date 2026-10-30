@@ -178,6 +178,7 @@ jobs:
               python -B scripts/test_donation_relay_oracle_optimization.py
               python -B tests/test_claim_token_incentives_pinned_image.py
               python -B tests/test_pump_admin_token_incentives_pinned_image.py
+              python -B tests/test_pump_admin_cto_pinned_image.py
               python -B -X utf8 tests/test_dispatch_idl_encoding.py
               python -B tests/test_local_validation_idl_encoding.py
               python -B tests/test_claim_token_incentives_idl_encoding.py
@@ -191,6 +192,7 @@ jobs:
               python -B reconstruction/harness/test_score_symbol_admission.py
               python -B reconstruction/pump-main/test_ledger_negative_limit.py
               python -B reconstruction/diagnostics/census-portability/test_output_guard.py
+              python -B reconstruction/harness/test_census_argument_constants.py
               python -B reconstruction/harness/test_experiment_declared_name.py
               python -B reconstruction/harness/test_experiment_executable_snapshot.py
               python -B reconstruction/harness/test_experiment_worktree_source.py
@@ -200,6 +202,7 @@ jobs:
               python -B reconstruction/harness/test_minimize_patch_list_encoding.py
               python -B reconstruction/harness/test_treediff.py
               python -B scripts/test_probe_report_mode.py
+              python -B scripts/test_probe_report.py
               python -B scripts/test_probe_report_atomicity.py
               python -B scripts/test_pump_validate_all_retention.py
               python -B scripts/test_prepare_pump_nested_runtime_publication.py
