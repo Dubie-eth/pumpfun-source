@@ -55,3 +55,22 @@ Region-1 statements and what the original does there (orig offsets):
 | 0xd78-0xe58 | after 312: cashback, shared override | `target=st.creator` copied **inside** the non-holder arm before the fee checks (orig chunk 0x0f20) | override after validate (OVMK collapses / costs) |
 | 0x1858-0x1a48 | sharing payload / tuple phi copies | 7/9 B payload pieces from the copy, target + payload into the block result slots | |
 | 0x1a50-0x1c58 | prepare_bonding_curve, 410 require | | |
+
+## Landable step 1 (base main 8f050a2 = #2921, 0.50929 / 3,325 slots)
+
+| build | bytes | ratio | slots | norm/raw | R1 | R2 | R3 |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |
+| main 8f050a2 | 27,400 | 0.50929 | 3,325 | 1034/1034 | 512 | 493 | 695 |
+| q0: `let args=&(new,);` before the CtoState literal | 27,384 | 0.51393 | | 1034/347 | | | |
+| **q_evboth: q0 + event `is_holder_reward:holder,is_cashback_coin:cashback`** | **27,400** | **0.51228** | 3,334 | 1034/1034, 0 losses | 516 | 505 | 689 |
+
+Runtime differential: 363/363 cases match. Unstripped sha 89dc0ae69faf3fd6.
+
+Mechanism: #2921 binds the referenced entry copy `args=&(new,)` after `st` (x_g8). Binding it before the CtoState
+literal (w13a03's r1 placement) is -16 B and +0.0046; the event fields read back from the locals instead of the curve
+(the reverse of #2921's p_ev_both_curve) repay exactly +16 B. Same semantics: the curve fields were just stored from
+those locals.
+
+Other size companions measured on q0 (ledger `0x22a10-w13-8f050a2-region1-r1ord-*`): sweep gate `if/else` 0.38094
+(collapse), `let rent=&Rent::get()?` 27,368, `reset` inline 27,392, only `is_holder_reward` 27,392, only
+`is_cashback_coin` 27,400 / 0.51049, holder_key before shared 27,416 / 0.50943.
