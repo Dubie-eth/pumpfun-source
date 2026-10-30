@@ -4,6 +4,8 @@
 The synthetic caller supplies the required PDA signature in a local VM. This
 is not evidence of a production caller or live reachability. No other program
 is reconstructed or changed, and no transaction is broadcast.
+Every execution uses the same frozen program and configuration bytes; receipt
+hashes identify those snapshots even if the input paths later change.
 """
 if not __debug__:
     raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
@@ -17,19 +19,35 @@ from pathlib import Path
 
 import pump_set_mayhem_virtual_params_differential as f
 from build_source_manifest import source_manifest
+from pump_amm_reusable_harness import pin_program
 
 FIELDS = ('error', 'before', 'after', 'events', 'inner', 'return_data')
 U64 = 2**64 - 1
+RETAINED_SHA256 = {
+    'original': '7a19affaa2c6187e04a5fe0ea298cee81fa5eb8c24cfcc30d85f615e89f7b02d',
+    'stub': '2cbb2d1908b5a2e6416b3c2d01693c45495706d8556fac07883bc5ac72f44b3b',
+    'spl_token_2022': '15a2e615a42e20f31714bbaaee43002ae6f1cda2e8d7118243117ab3c1342e2d',
+    'associated_token': '6804554e69fd3a58caa191dc4a58f4c67223d30ca28ab8987f39fc18d2f7374d',
+}
 
 
-def run(binary, case):
+def program_paths():
+    return {'original': f.ORIGINAL, 'stub': f.STUB,
+            'spl_token_2022': f.ROOT / 'evidence/dependencies/spl_token_2022/deployed.so',
+            'associated_token': f.ROOT / 'evidence/dependencies/associated_token/deployed.so'}
+
+
+def run(binary, case, *, programs=None, capture=None):
+    binary = binary if isinstance(binary, bytes) else pin_program(binary).read_bytes()
+    if programs is None:
+        programs = {name: pin_program(path).read_bytes() for name, path in program_paths().items()}
     vm = f.LiteSVM().with_transaction_history(0).with_sigverify(True)
-    vm.add_program_from_file(f.PUMP, str(binary))
-    vm.add_program_from_file(f.MAYHEM, str(f.STUB))
+    vm.add_program(f.PUMP, binary)
+    vm.add_program(f.MAYHEM, programs['stub'])
     for key, name in ((f.TOKEN22, 'spl_token_2022'), (f.ATA, 'associated_token')):
-        vm.add_program_from_file(key, str(f.ROOT / f'evidence/dependencies/{name}/deployed.so'))
+        vm.add_program(key, programs[name])
     vm.airdrop(f.PAYER.pubkey(), 10**10)
-    global_data = bytearray(base64.b64decode(f.CAPTURE['data_base64']))
+    global_data = bytearray(base64.b64decode((f.CAPTURE if capture is None else capture)['data_base64']))
     struct.pack_into('<Q', global_data, f.IRTR_OFF, case['irtr'])
     roles = {'authority': f.SOL_VAULT[0], 'vault': f.MTV, 'mint': f.MINT,
              'global': f.GLOBAL, 'curve': f.CURVE, 'token_program': f.TOKEN22,
@@ -67,7 +85,8 @@ def run(binary, case):
         payload = struct.pack('<H', len(f.SMVP_DISC)) + f.SMVP_DISC + bytes([2,9]) + b'sol-vault' + bytes([1,f.SOL_VAULT[1]])
         ix = f.Instruction(f.MAYHEM, payload, metas)
     tx = f.Transaction.new_signed_with_payer([ix], f.PAYER.pubkey(), [f.PAYER], vm.latest_blockhash())
-    assert all(tx.verify_with_results())
+    if not all(tx.verify_with_results()):
+        raise ValueError('transaction signature verification failed')
     def snapshot():
         out = {}
         for name, key in {**roles, 'payer': f.PAYER.pubkey()}.items():
@@ -131,27 +150,49 @@ def main():
     args = p.parse_args()
     if args.output.exists() or args.output.is_symlink():
         raise FileExistsError('Refusing to overwrite existing output; choose a fresh path')
-    sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    sha = lambda raw: hashlib.sha256(raw).hexdigest()
+    candidate = pin_program(args.candidate).read_bytes()
+    paths = program_paths()
+    programs = {name: pin_program(path).read_bytes() for name, path in paths.items()}
+    for name, raw in programs.items():
+        if sha(raw) != RETAINED_SHA256[name]:
+            raise ValueError(f'retained {name} image hash mismatch')
+    config_path = f.ROOT / 'research/imported-lab/analysis/pump_fun/config-snapshot.json'
+    config_bytes = config_path.read_bytes()
+    captures = [item for item in json.loads(config_bytes)['accounts'] if item['program_name'] == 'pump']
+    if len(captures) != 1:
+        raise ValueError('configuration snapshot must contain one Pump account')
+    capture = captures[0]
     build = json.loads(args.build_comparison.read_text()) if args.build_comparison else None
-    if build:
-        assert build['comparison']['candidate_sha256'] == sha(args.candidate)
-        assert build['source_sha256'] == source_manifest(f.ROOT/'programs/pump', f.ROOT/'programs/pump', f.ROOT)
-    inputs = {str(p.relative_to(f.ROOT)): sha(p) for p in (
-        Path(__file__).resolve(), Path(f.__file__).resolve(), f.STUB,
-        f.ROOT/'research/imported-lab/analysis/pump_fun/config-snapshot.json',
-        f.ROOT/'evidence/dependencies/spl_token_2022/deployed.so',
-        f.ROOT/'evidence/dependencies/associated_token/deployed.so')}
+    if build is not None:
+        if not isinstance(build, dict) or not isinstance(build.get('comparison'), dict):
+            raise ValueError('invalid build comparison')
+        if build['comparison'].get('candidate_sha256') != sha(candidate):
+            raise ValueError('candidate does not match build comparison')
+        if build['source_sha256'] != source_manifest(f.ROOT/'programs/pump', f.ROOT/'programs/pump', f.ROOT):
+            raise ValueError('source does not match build comparison')
+    source_paths = {'scripts/pump_virtual_reserve_differential.py': Path(__file__).resolve(),
+                    'scripts/pump_set_mayhem_virtual_params_differential.py': Path(f.__file__).resolve(),
+                    'scripts/pump_amm_reusable_harness.py': Path(pin_program.__code__.co_filename).resolve()}
+    source_hashes = {name: sha(path.read_bytes()) for name, path in source_paths.items()}
+    inputs = {str(paths[name].relative_to(f.ROOT)): sha(raw) for name, raw in programs.items()}
+    inputs.update(source_hashes)
+    inputs[str(config_path.relative_to(f.ROOT))] = sha(config_bytes)
     rows = []
     for case in cases():
-        original = run(f.ORIGINAL, case); candidate = run(args.candidate, case)
-        assert original['transaction_base64'] == candidate['transaction_base64']
-        rows.append({'case': case, 'original': original, 'candidate': candidate,
-                     'differences': [key for key in FIELDS if original[key] != candidate[key]]})
-    assert all(sha(f.ROOT/name) == digest for name,digest in inputs.items())
-    if build:
-        assert build['source_sha256'] == source_manifest(f.ROOT/'programs/pump', f.ROOT/'programs/pump', f.ROOT)
-    report = {'scope': __doc__, 'original_sha256': sha(f.ORIGINAL), 'candidate_sha256': sha(args.candidate),
-              'inputs_sha256': inputs, 'compiled_source_sha256': build['source_sha256'] if build else None,
+        original = run(programs['original'], case, programs=programs, capture=capture)
+        compared = run(candidate, case, programs=programs, capture=capture)
+        if original['transaction_base64'] != compared['transaction_base64']:
+            raise ValueError('original and candidate transactions differ')
+        rows.append({'case': case, 'original': original, 'candidate': compared,
+                     'differences': [key for key in FIELDS if original[key] != compared[key]]})
+    if any(sha(path.read_bytes()) != source_hashes[name] for name, path in source_paths.items()):
+        raise ValueError('differential source changed during run')
+    if build is not None:
+        if build['source_sha256'] != source_manifest(f.ROOT/'programs/pump', f.ROOT/'programs/pump', f.ROOT):
+            raise ValueError('source changed during run')
+    report = {'scope': __doc__, 'original_sha256': sha(programs['original']), 'candidate_sha256': sha(candidate),
+              'inputs_sha256': inputs, 'compiled_source_sha256': build['source_sha256'] if build is not None else None,
               'case_count': len(rows), 'mismatches': [r['case']['name'] for r in rows if r['differences']], 'cases': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('xb') as stream:
