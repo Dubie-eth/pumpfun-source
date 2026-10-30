@@ -372,8 +372,9 @@ def recover_anchor_dispatch(elf):
     if discriminators:
         return recover_idl_dispatch(elf, discriminators)
 
-    entry = struct.unpack_from("<Q", elf.b, 24)[0]
-    if not (elf.lo <= entry < elf.hi):
+    # ELF entrypoints are virtual addresses; the scan walks file offsets.
+    entry = elf.text_offset(struct.unpack_from("<Q", elf.b, 24)[0])
+    if entry is None:
         return {}
 
     # Anchor dispatch: entrypoint computes sighash = sha256("global:<name>")[..8]
@@ -482,7 +483,7 @@ def analyze_stack_frame(instructions):
 
 
 def relocated_syscalls(elf):
-    """Resolve call relocations without changing the captured ELF reader.
+    """Resolve call relocations using the ELF reader's file-offset coordinates.
 
     The pinned SBPF loader treats a function symbol with a nonzero value as
     BPF-to-BPF; other call symbols are resolved through its syscall registry.
@@ -501,9 +502,10 @@ def relocated_syscalls(elf):
             or rel[5] % 16 or sym[5] % 24):
         return calls
     for pos in range(rel[4], rel[4] + rel[5], 16):
-        at, info = struct.unpack_from('<QQ', b, pos)
+        address, info = struct.unpack_from('<QQ', b, pos)
         if info & 0xffffffff != 10:
             continue
+        at = elf.file_offset(address, 8)
         calls[at] = None
         index = info >> 32
         if index >= sym[5] // 24:
