@@ -130,9 +130,12 @@ class CompilerDeadlineTests(unittest.TestCase):
                     'print(json.dumps({"timed_out":t,"returncode":r.returncode,"stdout":r.stdout}),flush=True)\n'
                 )
             started = time.monotonic()
+            # A shell background job starts with SIGINT ignored, and Python then
+            # never raises KeyboardInterrupt; give the wrapper a real handler.
             outer = subprocess.Popen(
                 [sys.executable, '-u', '-c', wrapper], start_new_session=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
             )
             returned = False
             output = ''
