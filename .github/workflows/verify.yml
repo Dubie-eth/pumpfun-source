@@ -213,6 +213,7 @@ jobs:
               python -B tests/test_pump_planning_regressions.py
               python -B tests/test_analyze_donation_relay_regression.py
               python -B reconstruction/diagnostics/roadmap-reviewed-regeneration/test_generate.py
+              python -B tests/test_roadmap_reviewed_regeneration_publication.py
               python -B reconstruction/diagnostics/roadmap-stable-attribution/test_generate.py
               python -B tests/test_roadmap_stable_attribution_publication.py
               python -B reconstruction/diagnostics/defined-dynamic-calls/test_generate.py
