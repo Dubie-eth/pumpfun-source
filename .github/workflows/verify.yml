@@ -95,6 +95,7 @@ jobs:
               python -I -B tests/test_dispatch_root.py
               python -I -B tests/test_analyze_input_admission.py
               python scripts/test_tooling.py
+              python -B scripts/test_pump_text_layout_linker_options.py
               python -B scripts/test_tooling_litesvm_collection.py
               python -B -m unittest discover -s scripts -p 'test_sbf_backend*.py'
               python -B scripts/test_pump_diagnostic_audit_coverage.py
