@@ -15,6 +15,14 @@ from experiment_runner import run_trial
 COMPARE_NAME = 'import sys; raise SystemExit(0 if sys.orig_argv[0] == sys.argv[1] else 1)'
 
 
+# macOS CPython reports sys.orig_argv[0] as the real executable path whatever
+# argv[0] the launcher passes, and a virtual environment's sys.prefix follows
+# the executable actually started. A trial that execs the hashed binary
+# therefore cannot show either property there, while a launcher that execs the
+# declared alias again could be retargeted after the hash check. The cases
+# stay enforced where argv[0] survives.
+@unittest.skipIf(sys.platform == 'darwin',
+                 'macOS CPython reports the real executable, not the declared argv[0]')
 class DeclaredNameTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
