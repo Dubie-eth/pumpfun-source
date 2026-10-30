@@ -4,6 +4,7 @@ import argparse,base64,hashlib,json,struct
 import pump_trade_fixture as f
 from pump_amm_reusable_harness import pin_program
 from pump_differential_output import PumpReport
+from pump_trade_fixture import REPORT_INPUTS
 R=f.R;P=f.Pubkey.from_string(f.x['program']);USER=f.Keypair.from_seed(bytes([231])*32)
 INITIAL={k:f.vm.get_account(k) for k in f.msg.account_keys};CURVE=f.Pubkey.from_string(f.x['accounts']['curve']);GLOBAL=f.Pubkey.from_string(f.x['accounts']['global']);FEE=f.Pubkey.from_string(f.x['accounts']['fee_config'])
 FEES=f.Pubkey.from_string('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ');TOKEN=f.Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');TOKEN22=f.Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');ATA=f.Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');WSOL=f.Pubkey.from_string('So11111111111111111111111111111111111111112');USDC=f.Pubkey.from_string('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
@@ -87,7 +88,7 @@ def cases():
  return rows
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);a=ap.parse_args();publisher=PumpReport(a.output,R,a.candidate,__file__);rows=[]
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);a=ap.parse_args();publisher=PumpReport(a.output,R,a.candidate,__file__,extra_inputs=REPORT_INPUTS);rows=[]
  for c in cases():
   o=run(c);r={'case':c,'original':o}
   if a.candidate:

@@ -4,6 +4,7 @@ import argparse,base64,hashlib,json,struct,gzip
 import pump_trade_fixture as f
 from pump_amm_reusable_harness import pin_program
 from pump_differential_output import PumpReport
+from pump_trade_fixture import REPORT_INPUTS
 R=f.R;P=f.Pubkey.from_string(f.x['program']);USER=f.Keypair.from_seed(bytes([231])*32)
 INITIAL={k:f.vm.get_account(k) for k in f.msg.account_keys}
 CURVE=f.Pubkey.from_string(f.x['accounts']['curve']);GLOBAL=f.Pubkey.from_string(f.x['accounts']['global']);FEE=f.Pubkey.from_string(f.x['accounts']['fee_config'])
@@ -85,7 +86,7 @@ def cases():
  return base
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);args=ap.parse_args();publisher=PumpReport(args.output,R,args.candidate,__file__);rows=[]
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);args=ap.parse_args();publisher=PumpReport(args.output,R,args.candidate,__file__,extra_inputs=REPORT_INPUTS);rows=[]
  for c in cases():
   o=run(c);r={'case':c,'original':o}
   if args.candidate:
