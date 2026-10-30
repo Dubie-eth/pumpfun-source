@@ -45,6 +45,16 @@ class AtomicScoreReportTests(unittest.TestCase):
         self.assertEqual(self.candidate.read_bytes(),self.image)
         self.assertEqual(list(self.root.glob('.score-*')),[])
 
+    def test_report_bytes_do_not_follow_the_host_line_ending(self):
+        # The staging file was opened without newline pinning, so a Windows
+        # write_report emitted CRLF where the canonical baseline score.json
+        # is LF; the sibling verdict publisher pins LF with the same guard.
+        from unittest import mock
+        with mock.patch('os.linesep', '\r\n'):
+            self.run_score()
+        raw = self.output.read_bytes()
+        self.assertNotIn(b'\r', raw)
+
     def test_missing_parent_directory_is_created(self):
         # write_report used to publish through a temporary file in the
         # destination's parent without creating it: scoring a full candidate
