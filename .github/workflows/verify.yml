@@ -172,6 +172,7 @@ jobs:
               python -B scripts/test_bytecode_signatures_publication.py
               python -B scripts/test_bytecode_signatures_atomic_publication.py
               python -B scripts/test_revalidate_all_publication.py
+              python -B scripts/test_revalidate_all_atomic_publication.py
               python -B scripts/test_donation_relay_oracle_optimization.py
               python -B tests/test_claim_token_incentives_pinned_image.py
               python -B tests/test_pump_admin_token_incentives_pinned_image.py
