@@ -30,6 +30,7 @@ from solders.litesvm import LiteSVM
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
+from pump_amm_reusable_harness import pin_program
 
 ROOT = Path(__file__).resolve().parents[1]
 PUMP = Pubkey.from_string('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P')
@@ -139,6 +140,7 @@ def main():
     p.add_argument('--candidate', type=Path)
     p.add_argument('--output', type=Path)
     a = p.parse_args()
+    a.candidate = pin_program(a.candidate) if a.candidate else None
     assert sha(ORIGINAL.read_bytes()) == '7a19affaa2c6187e04a5fe0ea298cee81fa5eb8c24cfcc30d85f615e89f7b02d'
     rows, bad = [], []
     for i, c in enumerate(cases()):
