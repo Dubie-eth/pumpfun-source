@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--baseline", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
+    original_image = pin_program(ORIGINAL)
     candidate = pin_program(args.candidate)
     baseline = pin_program(args.baseline) if args.baseline else None
     rows = []
@@ -40,7 +41,7 @@ def main():
         def run(binary):
             return module.ConfigFixture(binary).run(case) if family == "configuration" else module.run(case, binary)
 
-        original, candidate_result = run(ORIGINAL), run(candidate)
+        original, candidate_result = run(original_image), run(candidate)
         messages = error_messages(original)
         if not (len(messages) == 1 and messages[0][1:] == [code, "format."]):
             raise ValueError(f"original {family} case did not emit error {code}: {messages}")
@@ -56,7 +57,7 @@ def main():
     sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     report = {
         "scope": "Two normally signed offline synthetic cases compare error name/number/message, state, balances, events and inner calls. Source-location and compute-log differences are retained but excluded from the message comparison. No full source or executable equality claim.",
-        "original_sha256": sha(ORIGINAL), "candidate_sha256": sha(candidate),
+        "original_sha256": sha(original_image), "candidate_sha256": sha(candidate),
         "case_count": len(rows), "cases": rows,
         "mismatches": [row["case"]["name"] for row in rows if not row["match"]],
     }
