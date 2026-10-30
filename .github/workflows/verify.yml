@@ -131,6 +131,7 @@ jobs:
               python -B scripts/test_rebuild_workflow_action_pins.py
               python -B scripts/test_macos_v144_qualification_optimization.py
               python -B scripts/test_mayhem_initialize_state_optimization.py
+              python -B scripts/test_mayhem_initialize_state_exit.py
               python -B scripts/test_fees_crank_probe_optimization.py
               python -B scripts/test_surfpool_truncated_events.py
               python -B scripts/test_constant_product_range_pinning.py
