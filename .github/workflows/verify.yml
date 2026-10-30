@@ -138,7 +138,11 @@ jobs:
               python -B tests/test_pump_amm_buyback_report_publication.py
               python -B tests/test_pump_amm_admin_report_publication.py
               python -B tests/test_pump_amm_collect_report_publication.py
+              python -B tests/test_pump_amm_liquidity_report_publication.py
               python -B tests/test_pump_amm_boost_report_publication.py
+              python -B tests/test_fees_social_claim_v2_report_publication.py
+              python -B tests/test_fees_extend_report_publication.py
+              python -B tests/test_fees_admin_cto_report_publication.py
               python -B tests/test_remaining_output_parents.py
               python -B tests/test_pump_admin_token_incentives_report_publication.py
               python -B tests/test_pump_creator_collect_report_publication.py
@@ -151,6 +155,7 @@ jobs:
               python -B tests/test_pump_exact_quote_report_publication.py
               python -B tests/test_pump_amm_config_reports_publication.py
               python -B tests/test_pump_amm_trade_reports_publication.py
+              python -B tests/test_fees_admin_reports_publication.py
               python -B scripts/test_validation_report_boundaries.py
               python -B tests/test_create_mayhem_normal_python.py
               python -B tests/test_two_curve_optimization_guard.py
@@ -182,7 +187,10 @@ jobs:
               python -B tests/test_recovered_builds_optimization.py
               python -B scripts/test_mayhem_burn_sequence_optimization.py
               python -B scripts/test_pump_amm_report_encoding.py
+              python -B scripts/test_fixture_reads_encoding.py
               python -B scripts/test_build_evidence_encoding.py
+              python -B scripts/test_pump_receipt_encoding.py
+              python -B scripts/test_tooling_writers_encoding.py
               python -B scripts/test_fees_report_encoding.py
               python -B scripts/test_surfpool_report_encoding.py
               python -B scripts/test_mayhem_report_encoding.py
