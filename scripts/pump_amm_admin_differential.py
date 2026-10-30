@@ -70,7 +70,7 @@ class Harness:
 def main():
     p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--quick',action='store_true');a=p.parse_args()
     sources=[p for p in (ROOT/'programs/pump-amm').rglob('*.rs') if 'target' not in p.parts]
-    output=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=sources)
+    output=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=[ROOT/'programs/pump-amm',*sources])
     original=ROOT/'evidence/original/pump_amm/deployed.so'
     left,right=Harness(original),Harness(a.candidate)
     cases=[];mismatches=[]
