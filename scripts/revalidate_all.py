@@ -8,8 +8,6 @@ Usage:
     python3 scripts/revalidate_all.py --output research/revalidation-audit-20261028
 """
 import argparse
-import ctypes
-import errno
 import hashlib
 import json
 import os
@@ -19,7 +17,6 @@ import subprocess
 import stat
 import sys
 import time
-import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -184,44 +181,6 @@ def run_verify(packet_dir):
         return {"status": "timeout", "output": "verify.py exceeded 60s"}
     except Exception as e:
         return {"status": "error", "output": str(e)}
-
-
-def temporary_sibling(output_dir, label):
-    while True:
-        staging = output_dir.parent / (
-            f".{output_dir.name}.{label}-{os.getpid()}-{uuid.uuid4().hex}")
-        try:
-            staging.mkdir()
-        except FileExistsError:
-            continue
-        return staging
-
-
-def rename_directory(source, destination):
-    """Publish a new directory atomically without replacing a late writer."""
-    if os.name == "nt":
-        source.rename(destination)
-        return
-    library = ctypes.CDLL(None, use_errno=True)
-    if sys.platform == "darwin":
-        rename = getattr(library, "renamex_np", None)
-        args = (os.fsencode(source), os.fsencode(destination), 4)
-        types = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-    elif sys.platform.startswith("linux"):
-        rename = getattr(library, "renameat2", None)
-        args = (-100, os.fsencode(source), -100, os.fsencode(destination), 1)
-        types = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
-                 ctypes.c_char_p, ctypes.c_uint]
-    else:
-        rename = None
-    if rename is None:
-        raise OSError(errno.ENOTSUP,
-                      "atomic audit publication unavailable; use a supported host")
-    rename.argtypes = types
-    rename.restype = ctypes.c_int
-    if rename(*args) != 0:
-        code = ctypes.get_errno()
-        raise OSError(code, os.strerror(code), str(destination))
 
 
 def write_reports(output_dir, packets, results, pass_count, fail_count,
@@ -440,6 +399,7 @@ def main():
     print(f"[revalidate] Done: {len(packets)} packets in {elapsed:.0f}s")
     print(f"[revalidate] {pass_count} pass, {fail_count} fail, {skip_count} skip/inconclusive")
 
+    from deep_disassembly import rename_directory, temporary_sibling
     staging = temporary_sibling(output_dir, "staging")
     try:
         write_reports(

@@ -1,5 +1,6 @@
 """Research revalidation reports are published as one complete packet."""
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import revalidate_all as runner
+import deep_disassembly as publisher
 
 
 class RevalidateAllAtomicPublicationTests(unittest.TestCase):
@@ -93,6 +95,47 @@ class RevalidateAllAtomicPublicationTests(unittest.TestCase):
             self.assertEqual(marker.read_text(), 'prior complete audit')
             self.assertEqual(
                 sorted(path.name for path in output.iterdir()), ['prior.txt'])
+
+    def test_late_destination_is_not_replaced(self):
+        for late_file in (False, True):
+            with self.subTest(late_file=late_file), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                repo = self.repository(root)
+                output = root / 'audit'
+                rename = publisher.rename_directory
+
+                def compete(source, destination, **kwargs):
+                    output.mkdir()
+                    if late_file:
+                        (output / 'user-evidence').write_bytes(b'keep me')
+                    return rename(source, destination, **kwargs)
+
+                with mock.patch.object(publisher, 'rename_directory', compete):
+                    with self.assertRaises(FileExistsError):
+                        self.invoke(repo, output)
+                self.assertEqual(list(root.glob('.audit.staging-*')), [])
+                self.assertEqual(sorted(p.name for p in output.iterdir()),
+                                 ['user-evidence'] if late_file else [])
+                if late_file:
+                    self.assertEqual((output / 'user-evidence').read_bytes(), b'keep me')
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX permission check')
+    def test_audit_preserves_umask_and_source_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.repository(root)
+            source = repo / 'research/first/source.txt'
+            source.write_bytes(b'original evidence')
+            output = root / 'audit'
+            previous = os.umask(0o027)
+            try:
+                self.invoke(repo, output)
+            finally:
+                os.umask(previous)
+            self.assertEqual(source.read_bytes(), b'original evidence')
+            self.assertEqual(output.stat().st_mode & 0o777, 0o750)
+            for path in output.iterdir():
+                self.assertEqual(path.stat().st_mode & 0o777, 0o640, path.name)
 
 
 if __name__ == '__main__':
