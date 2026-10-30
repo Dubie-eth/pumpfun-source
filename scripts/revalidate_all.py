@@ -163,6 +163,17 @@ def check_manifest(packet_dir):
     }
 
 
+def required_arguments(output):
+    """Return the required options argparse reported as missing."""
+    marker = "the following arguments are required:"
+    for line in output.splitlines():
+        if marker not in line:
+            continue
+        listed = line.split(marker, 1)[1]
+        return [part.strip() for part in listed.split(",") if part.strip()]
+    return []
+
+
 def run_verify(packet_dir):
     """Run the packet's verify.py script."""
     verify_path = packet_dir / "verify.py"
@@ -195,6 +206,16 @@ def run_verify(packet_dir):
         )
         output = (result.stdout + result.stderr).strip()
         passed = result.returncode == 0
+        # A usage error means verify.py never ran its checks.  Reporting it as a
+        # failed verification would blame the evidence for a missing argument.
+        required = required_arguments(output) if result.returncode == 2 else []
+        if required:
+            return {
+                "status": "not_invoked",
+                "returncode": result.returncode,
+                "required": required,
+                "output": output[-500:] if len(output) > 500 else output,
+            }
         return {
             "status": "pass" if passed else "fail",
             "returncode": result.returncode,
@@ -207,7 +228,7 @@ def run_verify(packet_dir):
 
 
 def write_reports(output_dir, packets, results, pass_count, fail_count,
-                  skip_count, elapsed):
+                  skip_count, not_invoked_count, elapsed):
     """Write all audit artifacts into an unpublished directory."""
     # --- Write outputs ---
 
@@ -222,12 +243,18 @@ def write_reports(output_dir, packets, results, pass_count, fail_count,
         "pass": pass_count,
         "fail": fail_count,
         "skip_or_inconclusive": skip_count,
+        "not_invoked": not_invoked_count,
         "elapsed_seconds": round(elapsed, 1),
         "failed_packets": [
             {"packet": r["packet"],
              "manifest_errors": r["manifest_check"].get("errors", []),
              "verify_output": r["verify_check"].get("output", "")}
             for r in results if r["overall"] == "fail"
+        ],
+        "not_invoked_packets": [
+            {"packet": r["packet"],
+             "required": r["verify_check"].get("required", [])}
+            for r in results if r["overall"] == "not_invoked"
         ],
     }
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -239,8 +266,12 @@ def write_reports(output_dir, packets, results, pass_count, fail_count,
     (output_dir / "failed.json").write_text(json.dumps(
         [r["packet"] for r in results if r["overall"] == "fail"],
         indent=2) + "\n", encoding="utf-8", newline="\n")
+    (output_dir / "not-invoked.json").write_text(json.dumps(
+        [r["packet"] for r in results if r["overall"] == "not_invoked"],
+        indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "skipped.json").write_text(json.dumps(
-        [r["packet"] for r in results if r["overall"] not in ("pass", "fail")],
+        [r["packet"] for r in results
+         if r["overall"] not in ("pass", "fail", "not_invoked")],
         indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 4. README
@@ -261,6 +292,7 @@ verify.py (standalone verification script).
 | **Pass** | **{pass_count}** |
 | **Fail** | **{fail_count}** |
 | Skip/inconclusive | {skip_count} |
+| Not invoked (verifier requires an argument) | {not_invoked_count} |
 | Elapsed | {elapsed:.0f}s |
 
 ## Failed Packets
@@ -268,6 +300,16 @@ verify.py (standalone verification script).
     f"- `{f['packet']}`: {'; '.join(f['manifest_errors'][:3]) or f['verify_output'][:100]}"
     for f in summary["failed_packets"][:30]
 )}
+
+## Not Invoked Packets
+{"_None._" if not_invoked_count == 0 else chr(10).join(
+    f"- `{f['packet']}`: requires {', '.join(f['required']) or 'an undeclared argument'}"
+    for f in summary["not_invoked_packets"][:30]
+)}
+
+A verifier that exits 2 because argparse rejected an uninvoked invocation has
+not checked its evidence.  The audit reports those packets separately instead
+of counting them as failures.
 
 ## Files
 | File | Description |
@@ -277,6 +319,7 @@ verify.py (standalone verification script).
 | passed.json | List of passing packet names |
 | failed.json | List of failing packet names |
 | skipped.json | List of packets without verification |
+| not-invoked.json | List of packets whose verifier was never invoked |
 
 ## Verification
 ```bash
@@ -416,6 +459,7 @@ def main():
     pass_count = 0
     fail_count = 0
     skip_count = 0
+    not_invoked_count = 0
     manifest_only = 0
     start_time = time.time()
 
@@ -453,6 +497,9 @@ def main():
         } for result in checks):
             overall = "fail"
             fail_count += 1
+        elif any(result["status"] == "not_invoked" for result in checks):
+            overall = "not_invoked"
+            not_invoked_count += 1
         else:
             overall = "inconclusive"
             skip_count += 1
@@ -469,12 +516,14 @@ def main():
         if (i + 1) % 50 == 0:
             elapsed = time.time() - start_time
             print(f"[revalidate] {i+1}/{len(packets)} "
-                  f"({pass_count} pass, {fail_count} fail, {skip_count} skip) "
+                  f"({pass_count} pass, {fail_count} fail, "
+                  f"{not_invoked_count} not invoked, {skip_count} skip) "
                   f"[{elapsed:.0f}s]")
 
     elapsed = time.time() - start_time
     print(f"[revalidate] Done: {len(packets)} packets in {elapsed:.0f}s")
-    print(f"[revalidate] {pass_count} pass, {fail_count} fail, {skip_count} skip/inconclusive")
+    print(f"[revalidate] {pass_count} pass, {fail_count} fail, "
+          f"{not_invoked_count} not invoked, {skip_count} skip/inconclusive")
 
     rename_directory, temporary_sibling = publication_operations()
     staging = temporary_sibling(output_dir, "staging")
@@ -482,7 +531,7 @@ def main():
     try:
         write_reports(
             staging, packets, results, pass_count, fail_count,
-            skip_count, elapsed)
+            skip_count, not_invoked_count, elapsed)
         rename_directory(staging, output_dir)
         published = True
     finally:

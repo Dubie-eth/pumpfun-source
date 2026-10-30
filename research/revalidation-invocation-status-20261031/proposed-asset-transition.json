@@ -1,0 +1,19 @@
+{
+  "scope": "Proposed maintained-script asset transition for revalidation invocation status; historical packets, captures and published audits remain unchanged.",
+  "base": "5889e795eba64e85e613b4409921323bfecec414",
+  "files": {
+    "scripts/revalidate_all.py": {
+      "before_sha256": "65717076357f58146cc3792b2dc73a489ef333366d63d76a0c1fca670a516ac8",
+      "proposed_sha256": "056e149274e3167e2a78b69a780c6681ed53a5f2fd057ff444b37e2f870855c1"
+    },
+    "scripts/test_tooling.py": {
+      "before_sha256": "a0209639f39744ef42164ac7f2b517a53c61cae557a392f15781ea63668f77db",
+      "proposed_sha256": "06a4f4c041b09dd1cd6cb70e2036bde6b1b515b4380b8f1cf493c2c58ab01c8c"
+    }
+  },
+  "script_set_changed": false,
+  "program_source_changed": false,
+  "capture_bytes_changed": false,
+  "new_test": "tests/test_revalidate_all_invocation.py",
+  "historical_checkpoint_note": "No packet file, manifest, receipt or capture is changed; the audit is the only consumer of the transition."
+}
