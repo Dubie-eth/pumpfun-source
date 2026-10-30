@@ -452,16 +452,34 @@ class AuditTests(unittest.TestCase):
             proc.communicate(timeout=1)
         self.assertTrue(timed_out, "frozen run_verify unexpectedly returned")
 
-    def test_frozen_failed_publication_leaves_partial_destination(self):
+    def test_frozen_existing_destination_is_refused_before_verifier(self):
+        marker = self.root / "verifier-ran"
+        self.packet(verifier=f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n")
         output = self.root / "old-audit"
-        self.packet(verifier=(
-            "from pathlib import Path\n"
-            f"Path({str(output / 'results.json')!r}).mkdir()\n"
-        ))
+        output.mkdir()
+        prior = {"results.json": b"sealed prior results\n", "README.md": b"prior\n"}
+        for name, raw in prior.items():
+            (output / name).write_bytes(raw)
         result = self.run_frozen(output)
         self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(output.is_dir())
-        self.assertTrue((output / "results.json").is_dir())
+        self.assertFalse(marker.exists())
+        self.assertEqual({path.name: path.read_bytes() for path in output.iterdir()}, prior)
+
+    def test_frozen_failed_packet_still_publishes_one_complete_report(self):
+        # The frozen runner stages its reports and publishes them with a single
+        # rename, and it reports each packet's verdict in results.json rather
+        # than through the exit status. A failing verifier therefore leaves a
+        # complete destination, never a partial one.
+        self.seal(self.packet(verifier="raise SystemExit(1)\n"))
+        output = self.root / "failed-audit"
+        result = self.run_frozen(output)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        row = json.loads((output / "results.json").read_text())[0]
+        self.assertEqual((row["manifest_check"]["status"], row["verify_check"]["status"],
+                          row["overall"]), ("pass", "fail", "fail"))
+        self.assertEqual(sorted(path.name for path in output.iterdir()),
+                         ["README.md", "failed.json", "manifest.json", "passed.json",
+                          "results.json", "skipped.json", "summary.json", "verify.py"])
 
 
 if __name__ == "__main__":

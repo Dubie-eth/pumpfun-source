@@ -13,7 +13,7 @@ changes only the lifecycle around those checks:
 6. publish a complete, self-verified audit directory with one rename.
 
 The exact reviewed root source is pinned as SHA-256
-`3f8e5965ddbebb9ff5947061ceffc4f661d3fc53eea32dbc5352f190c2fbb1b1`.
+`ffc3387644c9454e88cf119cb001ef33569738489f1afe33cc132be8ce3b318b`.
 The adapter refuses to execute if those bytes change. This binding includes
 #2522's empty-manifest rejection and #2559's UTF-8/LF packet writes; the adapter
 already rejects empty manifests, and the writer change preserves audit content.
