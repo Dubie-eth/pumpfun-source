@@ -23,3 +23,12 @@ After the change the same verifier exits 1 with
 
 Limits: existing packets are not regenerated; the check applies to new output.
 macOS arm64, Python 3.14.3.
+
+## Active wrapper qualification
+
+The maintained output-retention wrapper now accepts the reviewed current
+analyzer and ELF-reader LF/CRLF forms, plus their imported packet-publication
+helper. Its real-capture, failed-input, retention and helper-drift tests pass.
+The missing-capture control reaches the analyzer rather than failing during a
+missing helper import. This refresh changes the executable wrapper only; no
+historical packet is regenerated or rewritten.
