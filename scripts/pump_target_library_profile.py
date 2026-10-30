@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from probe_report import write_json_report
 from pump_dependency_cache import clone_file, digest, sha
 
 HERE = Path(__file__).resolve().parent
@@ -123,13 +124,7 @@ def finish(record):
         check(json.loads(manifest.read_text()) == contents, "profile manifest content changed")
     else:
         check(not manifest.exists(), "profile manifest already exists")
-        temporary = manifest.with_name(manifest.name + ".tmp")
-        try:
-            temporary.write_text(json.dumps(contents, indent=2) + "\n")
-            check(json.loads(temporary.read_text()) == contents, "profile manifest content mismatch")
-            os.replace(temporary, manifest)
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
+        write_json_report(manifest, contents)
+        check(json.loads(manifest.read_text()) == contents, "profile manifest content mismatch")
         record = dict(record, file_manifest_sha256=sha(manifest))
     return dict(record, status="verified", compiler_queries=queries)
