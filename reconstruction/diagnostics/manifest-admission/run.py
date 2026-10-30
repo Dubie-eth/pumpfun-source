@@ -8,8 +8,9 @@ import types
 from check import check_manifest
 
 ROOT = Path(__file__).resolve().parents[3]
-# Fill from the reviewed base when packaging; the regression checks this binding.
-REVIEWED = '1918e7b59bd232a3404336840e431367a9b69111d925b425d3e18948a4367d7f'
+# Digest of the reviewed scripts/revalidate_all.py this entrypoint pins; refresh
+# it whenever the frozen script set moves through a reviewed asset transition.
+REVIEWED = 'ffc3387644c9454e88cf119cb001ef33569738489f1afe33cc132be8ce3b318b'
 
 
 def main():
