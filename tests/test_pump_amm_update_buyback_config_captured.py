@@ -21,6 +21,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from solders.account import Account
 from solders.instruction import AccountMeta, Instruction
@@ -77,9 +78,10 @@ def setup(c):
     config_key = c.get('config_key', GLOBAL_CONFIG)
     signer = c.get('signer', ADMIN)
     metas = [AccountMeta(signer.pubkey(), not c.get('unsigned'), False),
-             AccountMeta(config_key, False, not c.get('readonly')),
-             AccountMeta(c.get('event_key', EVENT_AUTHORITY), False, False),
-             AccountMeta(c.get('program_key', AMM), False, False)]
+             AccountMeta(config_key, False, not c.get('readonly'))]
+    if not c.get('omit_event_metas'):
+        metas += [AccountMeta(c.get('event_key', EVENT_AUTHORITY), False, False),
+                  AccountMeta(c.get('program_key', AMM), False, False)]
     metas += [AccountMeta(k, False, False) for k in c.get('recipients', ())]
     metas = metas[:c.get('count', len(metas))]
     data = IX + args_bytes(c) + bytes.fromhex(c.get('trailing', ''))
@@ -303,6 +305,30 @@ class PumpAmmUpdateBuybackConfigCapturedTests(unittest.TestCase):
             wrong.write_bytes(b'not the captured AMM')
             with self.assertRaisesRegex(ValueError, 'hash mismatch'):
                 read_captured_image(wrong)
+
+    def test_admitted_image_is_used_after_source_path_moves(self):
+        case = {'bps': 10, 'recipients': EIGHT}
+        expected = run_captured(case)
+        with tempfile.TemporaryDirectory() as directory:
+            wrong = Path(directory) / 'replacement.so'
+            wrong.write_bytes(b'wrong ELF')
+            with patch(__name__ + '.AMM_ELF', wrong):
+                self.assertEqual(run_captured(case), expected)
+
+    def test_two_fixed_account_layout_is_rejected_by_captured_program(self):
+        # This is the AdminGlobal-shaped list, not a truncation of the four-meta list.
+        case = {'omit_event_metas': True, 'recipients': EIGHT, 'bps': 10}
+        metas = setup(case)[2]
+        self.assertEqual(len(metas), 10)
+        self.assertEqual([meta.pubkey for meta in metas[2:]], EIGHT)
+        answer = self.host_answers([case])[0]
+        self.assertEqual(answer, 'error:2006')
+        self.assert_matches(answer, run_captured(case))
+        missing = {'omit_event_metas': True}
+        self.assertEqual(len(setup(missing)[2]), 2)
+        answer = self.host_answers([missing])[0]
+        self.assertEqual(answer, 'error:3005')
+        self.assert_matches(answer, run_captured(missing))
 
     def test_fixed_cases_match_captured_program(self):
         self.run_cases(fixed_cases())
