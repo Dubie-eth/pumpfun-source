@@ -662,6 +662,18 @@ def verify_transform(cert, output):
     }
 
 
+def publish_file(staged, path):
+    """Publish without replacement; rename on Windows, link elsewhere.
+
+    Windows sandboxes refuse hard links (WinError 5); a same-directory
+    rename refuses an existing destination, preserving no-replace.
+    """
+    if os.name == "nt":
+        os.rename(staged, path)
+    else:
+        os.link(staged, path)
+
+
 def publish_certificate(path, cert):
     """Link a complete certificate into a new path; never replace an output."""
     staged = None
@@ -673,7 +685,7 @@ def publish_certificate(path, cert):
             stream.write(json.dumps(cert, indent=2) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.link(staged, path)
+        publish_file(staged, path)
     finally:
         if staged is not None:
             staged.unlink(missing_ok=True)
