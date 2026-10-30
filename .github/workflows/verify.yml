@@ -98,6 +98,8 @@ jobs:
               python -B tests/test_aggregate_pinned_image.py
               python -B tests/test_pump_validators_pinned_image.py
               python -B tests/test_pump_exact_quote_pinned_image.py
+              python -B tests/test_pump_v3_configured_fee_pinned_image.py
+              python -B tests/test_pump_v3_token_extensions_pinned_image.py
               python -B tests/test_create_mayhem_candidate_pair.py
               python -B tests/test_mayhem_trade_normal_python.py
               python -B tests/test_fees_donation_create_pinned_image.py
@@ -125,9 +127,11 @@ jobs:
               python -B tests/test_verify_dependencies_optimization.py
               python -B tests/test_recovered_builds_optimization.py
               python -B scripts/test_mayhem_burn_sequence_optimization.py
+              python -B scripts/test_qualification_archive_determinism.py
               python -B scripts/test_rebuild_workflow_action_pins.py
               python -B scripts/test_macos_v144_qualification_optimization.py
               python -B scripts/test_mayhem_initialize_state_optimization.py
+              python -B scripts/test_mayhem_initialize_state_exit.py
               python -B scripts/test_fees_crank_probe_optimization.py
               python -B scripts/test_surfpool_truncated_events.py
               python -B scripts/test_surfpool_first_instruction_guard.py
@@ -145,6 +149,7 @@ jobs:
               python -B scripts/test_pump_validate_constant_product_optimization.py
               python -B scripts/test_pump_with_captured_loader_paths.py
               python -B tests/test_fees_external_codec_pinned_image.py
+              python -B tests/test_fees_error_messages_pinned_image.py
               python -B scripts/test_pump_validate_parallel.py
               python -B scripts/test_pump_validate_volume_optimization.py
               python -B scripts/test_pump_validate_sell_accounting_optimization.py
@@ -190,9 +195,12 @@ jobs:
               python -B reconstruction/harness/test_minimize_patch_list_encoding.py
               python -B reconstruction/harness/test_treediff.py
               python -B scripts/test_probe_report_mode.py
+              python -B scripts/test_probe_report_atomicity.py
+              python -B scripts/test_pump_validate_all_retention.py
               python -B scripts/test_prepare_pump_nested_runtime_publication.py
               python -B scripts/test_prepare_fees_withdraw_runtime_publication.py
               python -B scripts/test_current673_macos_archive_publication.py
+              python -B scripts/test_current673_candidate_download_publication.py
               python -B scripts/test_pump_strict_ordered_logs_output.py
               python -B reconstruction/harness/test_experiment_post_run_errors.py
               python -B reconstruction/harness/test_experiment_root_target.py
@@ -232,6 +240,7 @@ jobs:
               python -B scripts/test_pump_fee_sweep_encoding.py
               python -B scripts/test_pump_creator_collect_encoding.py
               python -B scripts/test_pump_surfpool_optimized_mode.py
+              python -B scripts/test_surfpool_recording_vm.py
           # Packets that pin the digest of a reviewed tool snapshot or of its output. They fail
           # by design when the bound tool changes, until the packet is re-reviewed and re-bound;
           # kept apart so a stale binding does not stop the rest of the evidence suite.

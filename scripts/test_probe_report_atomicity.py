@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """A failed probe report write must retain the previous complete report."""
+import json
 import subprocess
 import os
 import sys
@@ -27,6 +28,21 @@ class ProbeReportAtomicityTests(unittest.TestCase):
                     probe_report.write_json_report(report, {"new": "complete"})
             self.assertEqual(report.read_bytes(), prior)
             self.assertEqual(list(report.parent.glob(".report.json.*")), [])
+
+    def test_stale_pid_named_staging_file_does_not_block_publication(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            report = Path(temporary) / "report.json"
+            stale = Path(temporary) / ".report.json.4242.stale"
+            stale.write_text("interrupted", encoding="utf-8")
+
+            with mock.patch.object(probe_report.os, "getpid", return_value=4242), \
+                 mock.patch.object(probe_report.secrets, "token_hex",
+                                   side_effect=["stale", "fresh"]):
+                probe_report.write_json_report(report, {"fresh": True})
+
+            self.assertEqual(json.loads(report.read_text(encoding="utf-8")), {"fresh": True})
+            self.assertTrue(stale.exists())
+            self.assertEqual(list(report.parent.glob(".report.json.*fresh")), [])
 
     @unittest.skipUnless(os.name == "posix", "RLIMIT_FSIZE requires POSIX")
     def test_file_size_failure_preserves_prior_report(self):
