@@ -17,13 +17,18 @@ The fix constructs the shared `PumpReport` publisher
 before the first case executes. It refuses an output that aliases the candidate,
 the script, or any bound input by path, symlink or hardlink, and publishes the
 complete `gzip.compress(..., mtime=0)` payload through an owned staging file.
-Normal replacement of an existing, non-input report is unchanged.
+Normal replacement of an existing, non-input report is unchanged. The program
+source directory is also protected, including a previously absent report path.
+The publisher helper is included in the bound source hashes and checked again
+before publication.
 
-`tests/test_quote_control_output_publication.py` drives the real CLI three times
-(direct alias, symlink, hardlink). On the base script all three fail with exit 0
-and a replaced candidate; on the proposed script all three are rejected before
-any case runs and finish in 0.2s. The suite is discovered by
-`python -B -m unittest discover -s tests -v`.
+`tests/test_quote_control_output_publication.py` now exercises all 507 signed
+cases with both adjacent build metadata and fallback source binding. It checks
+all copied input aliases, late candidate and source aliases, source-directory
+outputs, failed staging, complete replacement, metadata/image mutation, and the
+wrong-image failure receipt. The original three alias checks and manual timing
+remain historical author observations in `results.json`. The expanded suite is
+covered by `python -B -m unittest discover -s tests -v`.
 
 Required checks on the proposed tree: `python3 -E -X utf8 scripts/test_tooling.py`
 (217 pass) and `python3 -E -X utf8 scripts/verify_evidence.py` (nine captures

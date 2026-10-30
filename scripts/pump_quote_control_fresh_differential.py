@@ -221,6 +221,7 @@ def main():
     digest = lambda f: hashlib.sha256(f.read_bytes()).hexdigest()
     bound_files = [original, a.candidate.resolve(), pathlib.Path(__file__).resolve(),
                    ROOT / 'scripts/pump_diagnostic_audit.py',
+                   ROOT / 'scripts/pump_differential_output.py',
                    ROOT / 'evidence/upstream/pump.json',
                    ROOT / 'research/imported-lab/analysis/pump_fun/config-snapshot.json']
     # Build evidence is adjacent to both clean-target artifacts and frozen package
@@ -246,7 +247,7 @@ def main():
                 bound_files.append(source_path)
     # Refuse to publish through any input before a single case executes.
     publisher = PumpReport(a.output, ROOT, a.candidate, __file__,
-                           extra_inputs=bound_files)
+                           extra_inputs=[ROOT / 'programs/pump', *bound_files])
     bound = {bound_input_key(f, ROOT): digest(f) for f in bound_files}
     results, mismatches = [], 0
     compare_keys = ['error', 'before_accounts', 'after_accounts', 'rollback', 'event_payloads',
