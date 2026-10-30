@@ -232,6 +232,7 @@ jobs:
               python -B scripts/test_pump_fee_sweep_encoding.py
               python -B scripts/test_pump_creator_collect_encoding.py
               python -B scripts/test_pump_surfpool_optimized_mode.py
+              python -B scripts/test_surfpool_recording_vm.py
           # Packets that pin the digest of a reviewed tool snapshot or of its output. They fail
           # by design when the bound tool changes, until the packet is re-reviewed and re-bound;
           # kept apart so a stale binding does not stop the rest of the evidence suite.
