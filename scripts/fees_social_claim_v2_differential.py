@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Original-only normal-signed local SocialFeePda v2 claim probes."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,json,base64,hashlib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]

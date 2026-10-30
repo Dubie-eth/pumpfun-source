@@ -47,9 +47,13 @@ class FeesErrorMessageExitTests(unittest.TestCase):
                         check=False,
                     )
                     self.assertEqual(completed.returncode, 1, completed.stderr)
-                    self.assertIn("update_fee_config-count-51", completed.stdout)
-                    self.assertIn("update_fee_shares-new-count-11", completed.stdout)
-                    self.assertTrue(output.is_file())
+                    if optimization:
+                        self.assertIn("Normal Python is required", completed.stderr)
+                        self.assertFalse(output.exists())
+                    else:
+                        self.assertIn("update_fee_config-count-51", completed.stdout)
+                        self.assertIn("update_fee_shares-new-count-11", completed.stdout)
+                        self.assertTrue(output.is_file())
 
 
 if __name__ == "__main__":

@@ -9,6 +9,10 @@ ast.
 """
 import ast
 import gzip
+import hashlib
+import io
+import json
+import shutil
 import tarfile
 import time
 import unittest
@@ -47,8 +51,44 @@ class QualificationArchiveDeterminismTests(unittest.TestCase):
                 time.sleep(1.1)
                 archive(second, source)
                 self.assertEqual(first.read_bytes(), second.read_bytes())
-                self.assertNotIn(int(time.time()),
-                                 (first.read_bytes()[4:8], ), "gzip mtime field looks current")
+                self.assertEqual(int.from_bytes(first.read_bytes()[4:8], 'little'), 0)
+                decoded = gzip.decompress(first.read_bytes())
+                with tarfile.open(fileobj=io.BytesIO(decoded), mode='r:') as archive:
+                    self.assertEqual(archive.getnames(), ['a.txt', 'nested/b.bin'])
+                    self.assertEqual(archive.extractfile('a.txt').read(), b'alpha')
+                    self.assertEqual(archive.extractfile('nested/b.bin').read(), b'\x00beta')
+
+    def test_control_retainer_closes_gzip_and_retains_identical_complete_archives(self):
+        import tempfile
+        source_text = (SCRIPTS / 'pump_current673_macos_control.py').read_text(encoding='utf-8')
+        nodes = [node for node in ast.parse(source_text).body
+                 if isinstance(node, ast.FunctionDef) and node.name in {'sha', 'write', 'retain'}]
+        self.assertEqual(len(nodes), 3)
+        namespace = {'gzip': gzip, 'tarfile': tarfile, 'shutil': shutil,
+                     'hashlib': hashlib, 'json': json, 'Path': Path}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), 'control-retainer', 'exec'), namespace)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build = root / 'build'
+            (build / 'source').mkdir(parents=True)
+            (build / 'source' / 'input.rs').write_bytes(b'pub fn example() {}\n')
+            archives = []
+            manifests = []
+            for name in ('first', 'second'):
+                evidence = root / name
+                evidence.mkdir()
+                namespace['EVIDENCE'] = evidence
+                namespace['retain'](build)
+                raw = (evidence / 'compiled-source.tar.gz').read_bytes()
+                self.assertEqual(int.from_bytes(raw[4:8], 'little'), 0)
+                decoded = gzip.decompress(raw)
+                with tarfile.open(fileobj=io.BytesIO(decoded), mode='r:') as archive:
+                    self.assertEqual(archive.getnames(), ['input.rs'])
+                    self.assertEqual(archive.extractfile('input.rs').read(), b'pub fn example() {}\n')
+                archives.append(raw)
+                manifests.append((evidence / 'MANIFEST.json').read_bytes())
+            self.assertEqual(archives[0], archives[1])
+            self.assertEqual(manifests[0], manifests[1])
 
 
 if __name__ == "__main__":

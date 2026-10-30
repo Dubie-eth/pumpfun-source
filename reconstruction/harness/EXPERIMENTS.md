@@ -19,6 +19,23 @@ Declare every relevant external input in `inputs`: oracle/harness scripts, origi
 
 Each attempt retains stdout/stderr and all output files, with hashes in latest.json. Resume reuses only pass/fail results whose identity and retained artifacts still match. Errors retry in a new attempt directory; prior attempts remain. A per-trial file lock serializes concurrent users of the same destination. Timeouts kill the process group. Result hashes are integrity checks, not signatures or tamper-proof provenance. A matrix exits 2 on infrastructure error; valid failing predicates remain useful results and do not fail the matrix driver.
 
+Tool aliases are resolved once during admission. The recorded `executable` is
+hashed and executed; `invocation` preserves the declared absolute argv[0] for
+virtual environments and rustup proxies. Switching an alias after admission
+does not select another binary. The changed runner identity invalidates older
+cache keys while retaining previous attempt directories.
+The argument array and child environment are also captured at admission, so
+caller mutations during staging or lock waits cannot execute a different trial
+under an old cache key. Environment values remain unrecorded; only their hash
+appears in the receipt.
+Declared input paths retain their resolved targets as well as content hashes;
+retargeting an input alias or changing its bytes before launch is rejected, and
+post-run checks reject changes still present at the end of execution. These
+checks do not protect against inputs changed and restored between checks.
+The runner fingerprint is captured at import time; later edits to the driver
+on disk cannot relabel that import-time fingerprint. It is not an immutable
+snapshot of every executable or script byte read during the child process.
+
 ## Locate a first-parent regression
 
 `python reconstruction/harness/bisect_membership.py --repo /repo --good GOOD_SHA --bad BAD_SHA --source-subdir programs/pump --oracle oracle.json --out /tmp/bisect --max-trials 20`

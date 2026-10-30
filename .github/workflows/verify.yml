@@ -105,6 +105,7 @@ jobs:
               python -B tests/test_fees_donation_create_pinned_image.py
               python -B tests/test_fees_social_claim_pinned_image.py
               python -B tests/test_fees_donation_crank_pinned_image.py
+              python -B tests/test_fees_differentials_normal_python.py
               python -B tests/test_create_mayhem_normal_python.py
               python -B tests/test_two_curve_optimization_guard.py
               python -O -B tests/test_two_curve_optimization_guard.py
@@ -131,8 +132,10 @@ jobs:
               python -B scripts/test_rebuild_workflow_action_pins.py
               python -B scripts/test_macos_v144_qualification_optimization.py
               python -B scripts/test_mayhem_initialize_state_optimization.py
+              python -B scripts/test_mayhem_initialize_state_exit.py
               python -B scripts/test_fees_crank_probe_optimization.py
               python -B scripts/test_surfpool_truncated_events.py
+              python -B scripts/test_surfpool_first_instruction_guard.py
               python -B scripts/test_constant_product_range_pinning.py
               python -B scripts/test_pump_build_constant_product_binding.py
               python -B scripts/test_fees_validate_all_optimization.py
@@ -170,8 +173,10 @@ jobs:
               python -B scripts/test_bytecode_signatures_publication.py
               python -B scripts/test_bytecode_signatures_atomic_publication.py
               python -B scripts/test_revalidate_all_publication.py
+              python -B scripts/test_revalidate_all_atomic_publication.py
               python -B scripts/test_donation_relay_oracle_optimization.py
               python -B tests/test_claim_token_incentives_pinned_image.py
+              python -B tests/test_pump_admin_token_incentives_pinned_image.py
               python -B -X utf8 tests/test_dispatch_idl_encoding.py
               python -B tests/test_local_validation_idl_encoding.py
               python -B tests/test_claim_token_incentives_idl_encoding.py
@@ -186,6 +191,7 @@ jobs:
               python -B reconstruction/pump-main/test_ledger_negative_limit.py
               python -B reconstruction/diagnostics/census-portability/test_output_guard.py
               python -B reconstruction/harness/test_experiment_declared_name.py
+              python -B reconstruction/harness/test_experiment_executable_snapshot.py
               python -B reconstruction/harness/test_experiment_worktree_source.py
               python -B reconstruction/harness/test_experiment_matrix_overlap.py
               python -B reconstruction/harness/test_bisect_membership.py
@@ -195,6 +201,7 @@ jobs:
               python -B scripts/test_probe_report_mode.py
               python -B scripts/test_probe_report.py
               python -B scripts/test_probe_report_atomicity.py
+              python -B scripts/test_pump_validate_all_retention.py
               python -B scripts/test_prepare_pump_nested_runtime_publication.py
               python -B scripts/test_prepare_fees_withdraw_runtime_publication.py
               python -B scripts/test_current673_macos_archive_publication.py
