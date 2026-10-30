@@ -66,8 +66,12 @@ def main():
     args = parser.parse_args()
     sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     candidate_sha = sha(args.candidate)
-    build = json.loads(args.build_comparison.read_text()) if args.build_comparison else None
-    if build:
+    supplied_build = args.build_comparison is not None
+    build = json.loads(args.build_comparison.read_text()) if supplied_build else None
+    if supplied_build:
+        if (not isinstance(build, dict) or not isinstance(build.get("comparison"), dict)
+                or not isinstance(build.get("source_sha256"), dict) or not build["source_sha256"]):
+            raise ValueError("invalid build comparison")
         assert build["comparison"]["candidate_sha256"] == candidate_sha
         assert all(sha(fixture.ROOT / p) == digest
                    for p, digest in build["source_sha256"].items())
@@ -87,15 +91,15 @@ def main():
                      "differences": differences})
     assert candidate_sha == sha(args.candidate)
     assert all(sha(fixture.ROOT / p) == digest for p, digest in inputs.items())
-    if build:
+    if supplied_build:
         assert all(sha(fixture.ROOT / p) == digest
                    for p, digest in build["source_sha256"].items())
     report = {
         "scope": __doc__, "candidate_sha256": sha(args.candidate),
         "original_sha256": sha(fixture.ORIGINAL),
         "inputs_sha256": inputs,
-        "build_comparison_sha256": sha(args.build_comparison) if build else None,
-        "compiled_source_sha256": build["source_sha256"] if build else None,
+        "build_comparison_sha256": sha(args.build_comparison) if supplied_build else None,
+        "compiled_source_sha256": build["source_sha256"] if supplied_build else None,
         "case_count": len(rows),
         "mismatches": [r["case"]["name"] for r in rows if r["differences"]],
         "original_successes": sum(r["original"]["error"] is None for r in rows),

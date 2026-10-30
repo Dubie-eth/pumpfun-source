@@ -116,8 +116,12 @@ def main():
     inputs = {str(p.relative_to(fixture.ROOT)): sha(p) for p in
               (Path(__file__).resolve(), Path(fixture.__file__).resolve(),
                fixture.ROOT / 'scripts/build_source_manifest.py')}
-    build = json.loads(args.build_comparison.read_text()) if args.build_comparison else None
-    if build:
+    supplied_build = args.build_comparison is not None
+    build = json.loads(args.build_comparison.read_text()) if supplied_build else None
+    if supplied_build:
+        if (not isinstance(build, dict) or not isinstance(build.get('comparison'), dict)
+                or not isinstance(build.get('source_sha256'), dict)):
+            raise ValueError('invalid build comparison')
         assert build['comparison']['candidate_sha256'] == candidate_sha
         assert build['source_sha256'] == source_manifest(
             fixture.ROOT / 'programs/pump', fixture.ROOT / 'programs/pump', fixture.ROOT)
@@ -130,15 +134,15 @@ def main():
         rows.append({'case': case, 'original': original, 'candidate': candidate, 'differences': differences})
     assert candidate_sha == sha(args.candidate) and original_sha == sha(fixture.ORIGINAL)
     assert all(sha(fixture.ROOT / path) == digest for path, digest in inputs.items())
-    if build:
+    if supplied_build:
         assert build['source_sha256'] == source_manifest(
             fixture.ROOT / 'programs/pump', fixture.ROOT / 'programs/pump', fixture.ROOT)
     report = {'scope': __doc__, 'candidate_sha256': candidate_sha, 'original_sha256': original_sha,
               'harness_sha256': sha(Path(__file__)), 'fixture_harness_sha256': sha(Path(fixture.__file__)),
               'fixture_sha256': sha(fixture.FIXTURE), 'case_count': len(rows),
               'inputs_sha256': inputs, 'seed': args.seed,
-              'build_comparison_sha256': sha(args.build_comparison) if build else None,
-              'compiled_source_sha256': build['source_sha256'] if build else None,
+              'build_comparison_sha256': sha(args.build_comparison) if supplied_build else None,
+              'compiled_source_sha256': build['source_sha256'] if supplied_build else None,
               'mismatches': [row['case']['name'] for row in rows if row['differences']], 'cases': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     assert not args.output.exists(), 'Retain earlier results'
