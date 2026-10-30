@@ -37,7 +37,8 @@ def trade_transferfee(key,bps=100,maximum=2**64-1):
    a=h.vm.get_account(buyback);owner=Pubkey.from_bytes(a.data[32:64]);newkey=Pubkey.find_program_address([bytes(owner),bytes(TOKEN22),bytes(quote)],Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'))[0];d=bytearray(a.data[:165])+bytes([2])+struct.pack('<HHQ',2,8,0);h.vm.set_account(newkey,Account(a.lamports,bytes(d),TOKEN22));m[14]=AccountMeta(newkey,False,True)
  return ov
 
-PUMP=Pubkey.from_string(json.load(open('evidence/upstream/pump.json', encoding='utf-8'))['address'])
+PUMP_IDL_PATH=pathlib.Path('evidence/upstream/pump.json').resolve()
+PUMP=Pubkey.from_string(json.load(open(PUMP_IDL_PATH, encoding='utf-8'))['address'])
 def rekey_pool(quote_key,canonical=True,index=0):
  def apply(h,m):
   old=h.vm.get_account(pool);data=bytearray(old.data)
@@ -61,7 +62,7 @@ def custom_fee_table(tiers):
  return apply
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[TRADE_FIXTURE_PATH,PUMP_IDL_PATH]);rows=[]
  def test(name,label,**kw):
   params=dict(amount=10**7 if name=='buy_exact_quote_in_v2' else 10**10,limit=10**9 if name=='buy_v2' else 1);params.update(kw)
   a=trade(name,**params);b=trade(name,candidate=args.candidate,**params)
