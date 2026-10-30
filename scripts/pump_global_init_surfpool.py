@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Normally signed offline Surfpool original/candidate Pump initialize checks."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import base64
 import hashlib
@@ -20,8 +22,7 @@ from solders.transaction import Transaction
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import pump_global_init_differential as fixtures
-sys.path.insert(0, str(ROOT / 'localnet'))
-from social_transactions import RecordingVM
+from surfpool_recording_vm import RecordingVM
 PORT = 20261
 COMPUTE = Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 DEPENDENCIES = []

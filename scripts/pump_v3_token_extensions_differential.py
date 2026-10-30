@@ -4,6 +4,7 @@ if not __debug__:
     raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
 import argparse,hashlib,json,struct,gzip,base64
 import pump_trade_fixture as f
+from pump_amm_reusable_harness import pin_program
 from solders.clock import Clock
 program=f.Pubkey.from_string(f.x['program']);user=f.Keypair.from_seed(bytes([231])*32)
 initial={key:f.vm.get_account(key) for key in f.msg.account_keys}
@@ -121,7 +122,7 @@ def cases():
   for limit in limits:rows.append({**base,'name':op+'_limit_'+str(limit),'max_cost':limit})
  return rows
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path);p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args();rows=[];bad=[];original=f.R/'evidence/original/pump/deployed.so'
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path);p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[];original=pin_program(f.R/'evidence/original/pump/deployed.so')
  for i,c in enumerate(cases()):
   x=run(original,c);y=run(a.candidate,c) if a.candidate else None;match=all(x[k]==y[k] for k in ['error','accounts','inner_instructions','event_payloads','return_data']) if y else None;rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(i)

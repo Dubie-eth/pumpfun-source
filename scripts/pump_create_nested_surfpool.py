@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Normally signed offline Surfpool original/candidate Pump creation checks."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import base64
 import hashlib
@@ -21,8 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import pump_create_nested_fixture as fixtures
 import pump_create_nested_differential as nested
-sys.path.insert(0, str(ROOT / 'localnet'))
-from social_transactions import RecordingVM
+from surfpool_recording_vm import RecordingVM
 PORT = 20151
 COMPUTE = Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 DEPENDENCIES = [('spl_token',fixtures.TOKEN),('spl_token_2022',fixtures.TOKEN22),('associated_token',fixtures.ATA),('token_metadata',fixtures.META),('mayhem',Pubkey.from_string('MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e'))]

@@ -184,7 +184,7 @@ def main():
                     help='source-built mayhem ELF (comparison target)')
     ap.add_argument('--output', type=pathlib.Path, required=True)
     a = ap.parse_args(); a.candidate = pin_program(a.candidate)
-    original = ROOT / 'evidence/original/mayhem/deployed.so'
+    original = pin_program(ROOT / 'evidence/original/mayhem/deployed.so')
     o = Fixture(original); b = Fixture(a.candidate)
     rows = []; mismatches = []
     for c in cases():
@@ -236,7 +236,10 @@ def main():
                       'valid_init_transaction_constructible': False,
                       'terminal_blocker_confirmed': bool(signer_gate),
                       'terminal_blocker': orig_full['anchor_error']}))
-    # Non-zero exit signals that no positive (Ok) oracle case could be formed.
+    # 1: the candidate diverges from the original along the validation chain.
+    # 2: the original no longer stops at the expected signer gate.
+    if mismatches:
+        raise SystemExit(1)
     raise SystemExit(0 if signer_gate else 2)
 
 
