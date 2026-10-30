@@ -112,5 +112,66 @@ class NoBuildCompositionTests(unittest.TestCase):
         self.assertEqual(report['parts'][0]['status'], 'applied')
 
 
+HERE = Path(__file__).resolve().parent
+
+
+def crate(path):
+    (path / 'src').mkdir(parents=True)
+    (path / 'Cargo.toml').write_bytes(b'[package]\nname="fixture"\nversion="0.0.0"\n')
+    (path / 'Cargo.lock').write_bytes(b'version = 3\n')
+    (path / 'src/lib.rs').write_bytes(b'pub fn fixture() {}\n')
+    return path
+
+
+def contents(path):
+    return {p.relative_to(path).as_posix(): p.read_bytes()
+            for p in path.rglob('*') if p.is_file()}
+
+
+class IntegrationScratchOverlapTests(unittest.TestCase):
+    def stage_cli(self, root):
+        harness = root / 'reconstruction/harness'
+        harness.mkdir(parents=True)
+        for name in ('integrate.py', 'treediff.py'):
+            shutil.copyfile(HERE / name, harness / name)
+        return harness / 'integrate.py'
+
+    def test_scratch_overlaps_preserved_in_every_input_role(self):
+        cases = [(role, relative) for role in ('base', 'part', 'derived')
+                 for relative in ('unit/input', 'unit', '.')]
+        for role, relative in cases:
+            with self.subTest(role=role, relative=relative), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                cli = self.stage_cli(root)
+                inputs = {name: crate(root / name) for name in ('base', 'part', 'derived')
+                          if name != role}
+                inputs[role] = crate(root / 'reconstruction/integ/.tmp/trial' / relative)
+                before = {name: contents(path) for name, path in inputs.items()}
+                completed = subprocess.run(
+                    [sys.executable, str(cli), '--no-build', '--name', 'trial',
+                     '--base-src', str(inputs['base']), '--part', 'unit=' + str(inputs['part']),
+                     '--base-of', 'unit=' + str(inputs['derived'])], capture_output=True, text=True)
+                self.assertEqual({name: contents(path) for name, path in inputs.items()}, before,
+                                 completed.stderr)
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn('source overlaps composition scratch', completed.stderr)
+                self.assertFalse((root / 'reconstruction/integ/trial').exists())
+
+    def test_nonoverlapping_no_build_composition_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cli = self.stage_cli(root)
+            source = crate(root / 'base')
+            before = contents(source)
+            completed = subprocess.run(
+                [sys.executable, str(cli), '--no-build', '--name', 'control',
+                 '--base-src', str(source)], capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            out = root / 'reconstruction/integ/control'
+            self.assertEqual(contents(out / 'src'), before)
+            self.assertEqual(contents(source), before)
+            self.assertEqual(json.loads((out / 'report.json').read_text())['parts'], [])
+
+
 if __name__ == '__main__':
     unittest.main()
