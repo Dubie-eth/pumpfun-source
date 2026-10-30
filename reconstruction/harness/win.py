@@ -224,6 +224,8 @@ def cmd_orig(a):
 
 def cmd_sym(a):
     cand = Cand(a.cand)
+    if not cand.funcs:
+        sys.exit('candidate has no function symbols; use an unstripped ELF')
     for s, n, nm in cand.funcs:
         d = demangle(nm)
         if re.search(a.regex, nm) or re.search(a.regex, d):
