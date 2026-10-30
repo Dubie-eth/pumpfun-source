@@ -33,7 +33,8 @@ class DisassembleStagingUniquenessTests(unittest.TestCase):
                 occupied.append(path)
             # Execute the real entry point with deterministic identity and tokens.
             # No FIFO rendezvous can hang if the child fails before startup.
-            code = """import itertools, os, runpy, secrets, sys
+            code = """import itertools, os, pathlib, runpy, secrets, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parent))
 os.getpid = lambda: 4242
 counter = itertools.count()
 secrets.token_hex = lambda size: format(next(counter), '016x')
