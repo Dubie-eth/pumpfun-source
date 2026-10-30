@@ -181,9 +181,14 @@ def preflight(name, base, parts, overrides):
     base = Path(base).resolve()
     selected = {key: path.resolve() for key, path in selected.items()}
     bases = {key: path.resolve() for key, path in bases.items()}
+    scratch_paths = [(SC / 'integ' / '.tmp' / name / key).resolve()
+                     for key in selected]
     for source in {base, *selected.values(), *bases.values()}:
         if source == out or source in out.parents or out in source.parents:
             raise ValueError(f'source overlaps composition output: {source}')
+        for scratch in scratch_paths:
+            if source == scratch or source in scratch.parents or scratch in source.parents:
+                raise ValueError(f'source overlaps composition scratch: {source}')
         if not source.is_dir() or not (source / 'src').is_dir():
             raise ValueError(f'source is not a crate directory with src/: {source}')
         for required in ('Cargo.toml', 'Cargo.lock'):
