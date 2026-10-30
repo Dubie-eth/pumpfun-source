@@ -4,7 +4,7 @@
   "affected": "scripts/pump_create_differential.py:80 and scripts/pump_cashback_differential.py:91 at base",
   "finding": "Both scripts published with a.output.parent.mkdir(...); a.output.write_bytes(...). Neither resolves the destination against the candidate or the shared evidence images, and both exit 0 after the replacement. Sixty-two scripts already import pump_differential_output.PumpReport for exactly this check.",
   "change": {
-    "publisher": "PumpReport(output, ROOT|R, candidate, __file__, ...) constructed before the case loop, so aliasing is refused before any VM work",
+    "publisher": "PumpReport(output, ROOT|R, candidate, __file__, ...) is constructed before the case loop, so aliasing is refused before case execution; imported fixtures may initialize a VM before main.",
     "write": "publisher.write stages complete bytes then atomically replaces the destination; staging failures preserve the prior report",
     "cashback_inputs": "the curve-fresh-trades fixture that pump_trade_fixture loads is added to the bound inputs",
     "unchanged_behaviour": "create still always gzips; cashback still gzips only for a .gz destination"
@@ -55,6 +55,14 @@
   "review_followup": {
     "extra_inputs": "create Token Metadata and Mayhem program images; cashback complete shared REPORT_INPUTS including capture metadata",
     "counterexamples": "Original migration exits0 and overwrites token_metadata/deployed.so and spl_token/capture.json after two real paired cases; repaired publication refuses these destinations.",
-    "historical_runs": "The author run descriptions above are retained as historical claims; independent review results are recorded separately."
+    "historical_runs": "The author run descriptions above are retained as historical claims; independent review results are recorded separately.",
+    "tests": {
+      "full_create_cases": 87,
+      "full_cashback_cases": 283,
+      "mismatches": 0,
+      "real_test_methods": 3,
+      "seconds": 46.164,
+      "controls": "direct/symlink/hardlink consumed-input aliases, late alias, fsync failure, prior output, recreated staging path, original-only"
+    }
   }
 }
