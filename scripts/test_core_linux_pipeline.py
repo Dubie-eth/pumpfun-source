@@ -183,4 +183,19 @@ class PipelineTests(unittest.TestCase):
         frozen=ast.parse('command = ["cargo", "build-sbf", "--manifest-path", str(manifest), "--tools-version", "v1.44", "--offline", "--sbf-sdk", str(sdk), "--sbf-out-dir", str(output / "artifacts"), "--", "--locked", "--offline"]').body[0].value
         self.assertEqual(ast.dump(command),ast.dump(frozen))
 
+    def test_repeated_source_snapshots_are_byte_identical(self):
+        # snapshot_source wrote tar.gz with tarfile's 'w:gz', whose gzip header
+        # carries the current time; retained evidence therefore differed per
+        # run even from a byte-identical frozen source set.
+        import time
+        source=self.root/'source';source.mkdir(exist_ok=True)
+        expected={}
+        for name,payload in (('Cargo.toml',b'[workspace]\n'),('lib.rs',b'pub fn f(){}\n')):
+            (source/name).write_bytes(payload)
+            expected[name]=hashlib.sha256(payload).hexdigest()
+        one=self.root/'one';two=self.root/'two';one.mkdir();two.mkdir()
+        h.snapshot_source(source,expected,one);time.sleep(1.1);h.snapshot_source(source,expected,two)
+        self.assertEqual((one/'source-snapshot.tar.gz').read_bytes(),(two/'source-snapshot.tar.gz').read_bytes())
+        self.assertEqual((one/'source-before.json').read_bytes(),(two/'source-before.json').read_bytes())
+
 if __name__=='__main__':unittest.main(verbosity=2)
