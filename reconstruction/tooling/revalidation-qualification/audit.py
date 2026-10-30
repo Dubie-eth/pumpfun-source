@@ -333,6 +333,8 @@ def run_verifier(frozen, repo, packet, timeout_seconds=60.0, cleanup_seconds=1.0
 
 
 def classify(has_manifest, has_verify, manifest_before, verify, manifest_after, mutation):
+    if mutation["status"] in {"fail", "error", "packet_mutated"}:
+        return "fail"
     if not has_manifest and not has_verify:
         return "no_verification"
     checks = []
@@ -392,17 +394,20 @@ def audit_packet(frozen, repo, packet, timeout_seconds, cleanup_seconds):
             for name in non_file_manifests]}
         if non_file_manifests else None
     )
-    covered = {row["path"] for row in before["manifest_files"]}
-    if before["verifier"]:
-        covered.add(before["verifier"]["path"])
     non_file_members = [row["path"] for row in before["entries"]
-                        if row["kind"] not in {"file", "directory"}
-                        and row["path"] not in covered]
-    manifest_before = manifest_blocked or (
+                        if row["kind"] not in {"file", "directory"}]
+    members_blocked = (
+        {"status": "fail", "errors": [
+            "packet member is not a regular file: " + name
+            for name in non_file_members]}
+        if non_file_members else None
+    )
+    manifest_before = manifest_blocked or members_blocked or (
         safe_manifest_check(frozen, packet) if has_manifest else {"status": "skipped"}
     )
     verify = (
-        run_verifier(frozen, repo, packet, timeout_seconds, cleanup_seconds)
+        {"status": "skipped", "reason": "packet contains nonregular input members"}
+        if members_blocked else run_verifier(frozen, repo, packet, timeout_seconds, cleanup_seconds)
         if has_verify else {"status": "skipped"}
     )
     try:
@@ -424,16 +429,23 @@ def audit_packet(frozen, repo, packet, timeout_seconds, cleanup_seconds):
             "after_sha256": None,
             "error": f"{type(error).__name__}: {error}",
         }
+    after_non_file_members = [row["path"] for row in after["entries"]
+                             if row["kind"] not in {"file", "directory"}]
+    non_file_members = sorted(set(non_file_members + after_non_file_members))
     if non_file_members:
         mutation = {
             **mutation,
-            "status": "fail",
+            "status": "fail" if mutation["status"] == "pass" else mutation["status"],
             "errors": [
                 "packet member is not a regular file: " + name
                 for name in non_file_members
             ],
         }
-    manifest_after = manifest_blocked or (
+    members_blocked_after = (
+        {"status": "fail", "errors": mutation["errors"]}
+        if non_file_members else None
+    )
+    manifest_after = manifest_blocked or members_blocked_after or (
         safe_manifest_check(frozen, packet) if has_manifest else {"status": "skipped"}
     )
     overall = classify(
