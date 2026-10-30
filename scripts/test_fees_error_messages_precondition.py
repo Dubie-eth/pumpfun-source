@@ -56,7 +56,9 @@ class FeesErrorMessagePreconditionTests(unittest.TestCase):
                         check=False,
                     )
                     self.assertNotEqual(completed.returncode, 0, completed.stdout)
-                    self.assertIn("original configuration case did not emit error 6003", completed.stderr)
+                    expected = ("Normal Python is required" if optimization else
+                                "original configuration case did not emit error 6003")
+                    self.assertIn(expected, completed.stderr)
                     self.assertFalse(output.exists())
 
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Original-only buyback probes: normal signatures and synthetic offline accounts."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,pathlib,json,hashlib,base64,argparse
 ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 from fees_admin_differential import *
