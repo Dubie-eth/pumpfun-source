@@ -19,11 +19,26 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _reject_directory_link(path):
+    path = Path(path)
+    if path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction()):
+        raise ValueError('source directory symlinks and other directory links are not supported')
+
+
 def source_receipt(repo):
-    repo = repo.resolve()
+    repo = Path(repo)
+    for entry in (repo, repo / 'programs', repo / 'programs/pump'):
+        _reject_directory_link(entry)
+    repo = repo.resolve(strict=True)
+    toplevel = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', '--show-toplevel'], text=True).rstrip('\r\n')
+    if Path(toplevel).resolve(strict=True) != repo:
+        raise ValueError('Pump source checkout must be a Git worktree root')
     revision = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
-    dirty = subprocess.check_output(['git', '-C', str(repo), 'status', '--porcelain', '--untracked-files=all', '--', 'programs/pump'])
-    if dirty:
+    dirty = subprocess.check_output(
+        ['git', '-C', str(repo), 'status', '--porcelain=v1', '-z',
+         '--untracked-files=all', '--ignored=traditional', '--', 'programs/pump'])
+    if any(not entry.startswith(b'!! programs/pump/target/')
+           for entry in dirty.split(b'\0') if entry):
         raise ValueError('Pump source checkout must be clean')
     crate = repo / 'programs/pump'
     source = snapshot(crate)
@@ -138,6 +153,8 @@ def main():
     parser.add_argument('--timeout', type=float, help='compiler deadline per build in seconds')
     args = parser.parse_args()
     try:
+        for repo in (args.base, args.candidate):
+            _reject_directory_link(repo)
         return run_pair(args.base.resolve(), args.candidate.resolve(), args.out.resolve(), args.sdk.resolve(), args.hybrid.resolve(), timeout=args.timeout)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(2, f'build/score gate failed: {error}\n')
