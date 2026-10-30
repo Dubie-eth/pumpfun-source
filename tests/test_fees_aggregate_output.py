@@ -36,6 +36,7 @@ class FeesAggregateOutputTests(unittest.TestCase):
         for _, name in suites:
             (scripts / name).write_text(CHILD)
         for relative in (
+            'programs/pump-fees/unused-source-input.rs',
             'evidence/original/pump_fees/deployed.so',
             'evidence/dependencies/donation_relay/deployed.so',
             'research/fees-query-inputs/quote-selector-cases.json.gz',
@@ -82,7 +83,8 @@ class FeesAggregateOutputTests(unittest.TestCase):
             root = Path(tmp)
             candidate = self.fixture(root)
             for relative in (
-                'evidence/original/pump_fees/deployed.so',
+                'programs/pump-fees/unused-source-input.rs',
+            'evidence/original/pump_fees/deployed.so',
                 'evidence/dependencies/donation_relay/deployed.so',
                 'scripts/fees_admin_differential.py',
                 'research/fees-query-inputs/quote-selector-cases.json.gz',
@@ -123,6 +125,29 @@ class FeesAggregateOutputTests(unittest.TestCase):
             self.assertIn('File too large', result.stderr)
             self.assertEqual(output.read_bytes(), b'previous complete report\n')
             self.assertEqual(list(root.glob('.report.json.*')), [])
+
+    def test_late_candidate_alias_is_rejected_after_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);candidate=self.fixture(root);output=root/'late.json'
+            script=root/'scripts/validate_fee_handlers.py'
+            script.write_text(script.read_text()+
+                '\npathlib.Path('+repr(str(output))+').symlink_to('+repr(str(candidate))+')\n')
+            result=self.invoke(root,candidate,output)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('report output aliases an input',result.stderr)
+            self.assertTrue(output.is_symlink())
+            self.assertEqual(candidate.read_bytes(),b'retained candidate input')
+            self.assertEqual(list(root.glob('.late.json.*')),[])
+
+    def test_child_failure_preserves_previous_aggregate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);candidate=self.fixture(root);output=root/'prior.json'
+            output.write_bytes(b'previous complete aggregate')
+            (root/'scripts/fees_admin_differential.py').write_text('raise SystemExit(9)\n')
+            result=self.invoke(root,candidate,output)
+            self.assertNotEqual(result.returncode,0)
+            self.assertEqual(output.read_bytes(),b'previous complete aggregate')
+            self.assertEqual(candidate.read_bytes(),b'retained candidate input')
 
 
 if __name__ == '__main__':

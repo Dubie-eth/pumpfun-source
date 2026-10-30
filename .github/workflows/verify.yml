@@ -122,6 +122,7 @@ jobs:
               python -B tests/test_fees_donation_create_pinned_image.py
               python -B tests/test_fees_social_claim_pinned_image.py
               python -B tests/test_fees_withdraw_output_inputs.py
+              python -B tests/test_fees_aggregate_output.py
               python -B tests/test_fees_donation_crank_pinned_image.py
               python -B tests/test_fees_differentials_normal_python.py
               python -B tests/test_amm_differentials_normal_python.py
@@ -154,6 +155,8 @@ jobs:
               python -B scripts/test_admin_cto_optimization.py
               python -B scripts/test_build_token_dependency_optimization.py
               python -B scripts/test_revalidate_empty_manifest.py
+              python -B tests/test_packet_temporary_names.py
+              python -B tests/test_generated_packet_census.py
               python -B scripts/test_revalidate_all_manifest_records.py
               python -B scripts/test_revalidate_packet_root_link.py
               python -B scripts/test_revalidate_manifest_link.py

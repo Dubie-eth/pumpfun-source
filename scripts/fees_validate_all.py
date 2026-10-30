@@ -11,6 +11,7 @@ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,requi
 # and Fees-specific fixture inputs as well as the original CLI candidate path.
 publisher=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=[
  *sorted((ROOT/'scripts').glob('*.py')),
+ ROOT/'programs/pump-fees',
  ROOT/'research/fees-query-inputs/quote-selector-cases.json.gz',
  ROOT/'research/fees-query-inputs/fee-selector-cases.json.gz',
  ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json',
