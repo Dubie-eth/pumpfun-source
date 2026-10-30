@@ -2,6 +2,9 @@
 """Linker file options must not reach rust-lld outside the bound input set."""
 
 from pathlib import Path
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -42,7 +45,8 @@ class LinkerOptionTests(unittest.TestCase):
 
     def test_single_dash_file_options_are_not_unbound_inputs(self):
         for option in ("-script", "-version-script", "-just-symbols", "-dynamic-list",
-                       "-retain-symbols-file", "-call-graph-ordering-file"):
+                       "-retain-symbols-file", "-call-graph-ordering-file", "-remap-inputs",
+                       "-remap-inputs-file", "-export-dynamic-symbol-list"):
             with self.subTest(option=option), self.assertRaisesRegex(
                 AssertionError, "single-dash linker file option"
             ):
@@ -64,6 +68,24 @@ class LinkerOptionTests(unittest.TestCase):
         command = self.prepare(*arguments)
         self.assertEqual(command[0], str(self.linker))
         self.assertIn(str(self.order), command[1])
+
+    def test_real_wrapper_rejects_file_options_before_linker_execution(self):
+        marker=self.root/'linker-ran'
+        self.linker.write_text('#!'+sys.executable+'\nfrom pathlib import Path\nPath('+repr(str(marker))+').write_text("ran")\n')
+        self.linker.chmod(0o755)
+        env=dict(os.environ,PUMP_TEXT_RECORD_DIR=str(self.root/'records'),
+                 PUMP_TEXT_SCRIPT=str(self.order),PUMP_TEXT_LINKER=str(self.linker))
+        command=[sys.executable,'-B',str(Path(pump_text_layout.__file__).with_name('pump_text_layout_linker.py')),
+                 '--script='+str(self.sdk_script)]
+        for option in ('-script='+str(self.extra),'--remap-inputs=a.o=b.o',
+                       '-remap-inputs-file='+str(self.extra)):
+            with self.subTest(option=option):
+                result=subprocess.run(command+[option],env=env,capture_output=True,text=True)
+                self.assertNotEqual(result.returncode,0,result.stdout+result.stderr)
+                self.assertFalse(marker.exists())
+        result=subprocess.run(command+['-shared','-o',str(self.root/'out.so')],env=env,capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual(marker.read_text(),'ran')
 
 
 if __name__ == "__main__":

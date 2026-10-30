@@ -14,7 +14,7 @@ SELECTOR = re.compile(r'^    ' + FILEPAT + r'\((?:"\.text[A-Za-z0-9_.$:+@/-]*"|\
 # declared_inputs and prepare_link do not otherwise recognize.
 FILE_OPTIONS = ('--script', '--version-script', '--just-symbols', '--dynamic-list',
                 '--retain-symbols-file', '--symbol-ordering-file',
-                '--call-graph-ordering-file', '--export-dynamic-symbol-list')
+                '--call-graph-ordering-file', '--export-dynamic-symbol-list', '--remap-inputs')
 SUFFIXES = {'.o': 'object', '.obj': 'object', '.a': 'archive', '.rlib': 'archive',
             '.so': 'shared-object', '.dylib': 'shared-object', '.bc': 'bitcode'}
 sha = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
