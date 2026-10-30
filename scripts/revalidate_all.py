@@ -125,6 +125,8 @@ def check_manifest(packet_dir):
         return {"status": "no_manifest", "errors": []}
     if len(paths) != 1:
         return {"status": "fail", "errors": ["ambiguous manifest filenames"]}
+    if linked(paths[0]):
+        return {"status": "fail", "errors": [f"linked_path: {paths[0].name}"]}
     try:
         manifest = json.loads(paths[0].read_text(encoding="utf-8"))
         records = manifest_records(manifest)
