@@ -78,7 +78,7 @@ def pump_errors():
         m = re.match(r'^([A-Z][A-Za-z0-9]*)\s*(=\s*(\d+))?\s*,', s)
         if m:
             if m.group(3):
-                idx = int(m.group(3)) - 6000
+                idx = int(m.group(3))
             out[6000 + idx] = m.group(1)
             idx += 1
     return out
