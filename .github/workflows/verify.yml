@@ -180,6 +180,7 @@ jobs:
               python -B scripts/test_mayhem_burn_sequence_optimization.py
               python -B scripts/test_pump_amm_report_encoding.py
               python -B scripts/test_fees_report_encoding.py
+              python -B scripts/test_mayhem_report_encoding.py
               python -B scripts/test_mayhem_zero_creator_case.py
               python -B scripts/test_qualification_archive_determinism.py
               python -B scripts/test_rebuild_workflow_action_pins.py
@@ -363,6 +364,7 @@ jobs:
               python -B reconstruction/verification/donation-relay-idl-lifecycle/test_verify_steps.py
               python -B reconstruction/verification/donation-relay-stateful/test_stateful.py
               python -B reconstruction/verification/pump-migration-lifecycle/test_lifecycle.py
+              python -B reconstruction/verification/pump-migration-lifecycle/test_output_refusal.py
               python -B reconstruction/verification/mayhem-dispatch-boundaries/test_inventory.py
               python -B reconstruction/verification/mayhem-dispatch-boundaries/test_producer.py
           - suite: host-fragments
