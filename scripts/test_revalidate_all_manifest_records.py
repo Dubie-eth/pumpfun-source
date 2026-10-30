@@ -3,6 +3,9 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import shutil
+import subprocess
+import sys
 import unittest
 
 import revalidate_all as runner
@@ -47,6 +50,33 @@ class PathKeyedManifestTests(unittest.TestCase):
                          {'payload.txt': {**self.record, 'unsupported': 1}}):
             with self.subTest(document=document), self.assertRaises(ValueError):
                 runner.manifest_records(document)
+
+    def test_invalid_byte_counts_and_unsafe_paths_are_rejected(self):
+        for value in (-1, True, 1.5, '12'):
+            with self.subTest(bytes=value), self.assertRaises(ValueError):
+                runner.manifest_records({'payload.txt': {**self.record, 'bytes': value}})
+        self.write_manifest({'../outside.txt': self.record})
+        result=runner.check_manifest(self.packet)
+        self.assertEqual(result['status'],'fail')
+        self.assertEqual(result['files_checked'],0)
+
+    def test_actual_batch_keeps_pass_and_failure_verdicts(self):
+        repo=self.packet/'repo';(repo/'scripts').mkdir(parents=True)
+        shutil.copyfile(Path(runner.__file__),repo/'scripts/revalidate_all.py')
+        packet=repo/'research/record-packet';packet.mkdir(parents=True)
+        (packet/'payload.txt').write_bytes(b'bound bytes\n')
+        (packet/'manifest.json').write_text(json.dumps({'payload.txt':self.record}))
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                if changed:(packet/'payload.txt').write_bytes(b'changed')
+                output=repo/('changed-audit' if changed else 'valid-audit')
+                result=subprocess.run([sys.executable,'-B',str(repo/'scripts/revalidate_all.py'),
+                    '--output',str(output)],capture_output=True,text=True,timeout=30)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                rows=json.loads((output/'results.json').read_text())
+                self.assertEqual(rows[0]['overall'],'fail' if changed else 'pass')
+                self.assertEqual(rows[0]['manifest_check']['files_checked'],1)
+                self.assertEqual((packet/'payload.txt').read_bytes(),b'changed' if changed else b'bound bytes\n')
 
 
 if __name__ == '__main__':
