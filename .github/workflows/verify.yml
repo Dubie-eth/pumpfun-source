@@ -194,6 +194,8 @@ jobs:
               python -B reconstruction/harness/test_minimize_patch_list_encoding.py
               python -B reconstruction/harness/test_treediff.py
               python -B scripts/test_probe_report_mode.py
+              python -B scripts/test_probe_report_atomicity.py
+              python -B scripts/test_pump_validate_all_retention.py
               python -B scripts/test_prepare_pump_nested_runtime_publication.py
               python -B scripts/test_prepare_fees_withdraw_runtime_publication.py
               python -B scripts/test_current673_macos_archive_publication.py
