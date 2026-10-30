@@ -76,6 +76,7 @@ jobs:
               python -B reconstruction/harness/test_integrate_build_input_recheck.py
               python -B reconstruction/harness/test_composition_boundaries.py
               python -B reconstruction/harness/test_build_pair_boundaries.py
+              python -B reconstruction/harness/test_build_pair_source_overlap.py
               python -B reconstruction/harness/test_composition_deadline.py
               python -B reconstruction/harness/test_fastbuild_stack.py
               python -B reconstruction/harness/test_integrate_empty_files.py
@@ -134,9 +135,13 @@ jobs:
               python -B tests/test_build_partial_normal_python.py
               python -B tests/test_checkpoint_verifiers_normal_python.py
               python -B tests/test_pump_output_parents.py
+              python -B tests/test_pump_amm_buyback_report_publication.py
               python -B tests/test_remaining_output_parents.py
               python -B tests/test_pump_admin_token_incentives_report_publication.py
+              python -B tests/test_pump_creator_collect_report_publication.py
               python -B tests/test_pump_admin_cto_report_publication.py
+              python -B tests/test_pump_amm_accumulator_report_publication.py
+              python -B tests/test_pump_claim_incentives_report_publication.py
               python -B scripts/test_validation_report_boundaries.py
               python -B tests/test_create_mayhem_normal_python.py
               python -B tests/test_two_curve_optimization_guard.py
@@ -159,6 +164,8 @@ jobs:
               python -B scripts/test_revalidate_all_manifest_records.py
               python -B scripts/test_revalidate_packet_root_link.py
               python -B scripts/test_revalidate_manifest_link.py
+              python -B scripts/test_target_library_profile_staging.py
+              python -B scripts/test_revalidate_verify_link.py
               python -B scripts/test_measure_relay13_v148_optimization.py
               python -B scripts/test_fees_withdraw_runtime_optimization.py
               python -B scripts/test_measure_relay_v148_optimization.py
