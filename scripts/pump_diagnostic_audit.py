@@ -30,21 +30,27 @@ def bound_input_key(path, root):
         return path.as_posix()
 
 
-def logs(value):
+def _log_data(value):
+    """Keep an absent log source distinct from an explicitly empty list."""
     result = []
+    available = False
     if isinstance(value, dict):
-        direct_logs = False
         for key, item in value.items():
             if 'log' in key.lower() and isinstance(item, list):
-                direct_logs = True
+                available = True
                 result.extend(x for x in item if isinstance(x, str))
         # Some receipts retain LiteSVM's serialized transaction metadata.
         # A direct list, even an empty one, remains authoritative.
-        if not direct_logs and isinstance(value.get('metadata'), dict):
+        if not available and isinstance(value.get('metadata'), dict):
             nested = value['metadata'].get('logs')
             if isinstance(nested, list):
+                available = True
                 result.extend(x for x in nested if isinstance(x, str))
-    return result
+    return result if available else None
+
+
+def logs(value):
+    return _log_data(value) or []
 
 
 def panic_message(line):
@@ -93,12 +99,16 @@ def messages(lines):
 
 
 def audit(suites):
+    """Audit available pairs, rejecting a log source present on only one side."""
     mismatches, coverage = [], Counter()
 
     def walk(value, path):
         if isinstance(value, dict):
             if isinstance(value.get('original'), dict) and isinstance(value.get('candidate'), dict):
-                left, right = logs(value['original']), logs(value['candidate'])
+                left, right = _log_data(value['original']), _log_data(value['candidate'])
+                if (left is None) != (right is None):
+                    missing = 'original' if left is None else 'candidate'
+                    raise ValueError(f'{path}: execution pair is missing {missing} logs')
                 if left or right:
                     coverage[path.split('/')[0]] += 1
                     a, b = messages(left), messages(right)
