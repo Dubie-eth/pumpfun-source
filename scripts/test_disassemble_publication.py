@@ -15,6 +15,7 @@ import sys
 if sys.argv[1] == "--version":
     print("fake objdump 1.0")
 elif "{fail}" and os.path.basename(os.getcwd()) == "{fail}":
+    print("INJECTED_OBJDUMP_FAILURE " + os.path.basename(os.getcwd()) + " " + sys.argv[-1], file=sys.stderr)
     sys.exit(3)
 else:
     print("disassembly of " + os.path.basename(os.getcwd()) + " from " + sys.argv[-1])
@@ -35,6 +36,7 @@ class DisassemblePublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             completed, output = self.run_tool(temporary, fail="pump_fees")
             self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("INJECTED_OBJDUMP_FAILURE pump_fees deployed.so", completed.stderr)
             self.assertEqual(sorted(path.name for path in Path(temporary).iterdir()), ["objdump"])
             completed, output = self.run_tool(temporary)
             self.assertEqual(completed.returncode, 0, completed.stderr)
