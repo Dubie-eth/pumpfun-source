@@ -610,9 +610,14 @@ def prepare_destination(output_dir):
 
 
 def temporary_sibling(output_dir, label):
+    # Leave room for the label/PID/UUID even when the output basename is near
+    # the filesystem limit. Truncate whole characters, not encoded byte tails.
+    prefix = output_dir.name[:64]
+    while len(os.fsencode(prefix)) > 64:
+        prefix = prefix[:-1]
     while True:
         staging = output_dir.parent / (
-            f".{output_dir.name}.{label}-{os.getpid()}-{uuid.uuid4().hex}"
+            f".{prefix}.{label}-{os.getpid()}-{uuid.uuid4().hex}"
         )
         try:
             staging.mkdir()
@@ -946,6 +951,8 @@ def sha256_file(path):
     return h.hexdigest()
 
 def main():
+    if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
+        print("FAIL: packet directory entry set mismatch"); return 1
     manifest = json.load(open(os.path.join(PACKET, "manifest.json")))
     if not isinstance(manifest, dict) or set(manifest) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
