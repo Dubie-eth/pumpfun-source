@@ -138,6 +138,7 @@ jobs:
               python -B tests/test_pump_amm_buyback_report_publication.py
               python -B tests/test_pump_amm_admin_report_publication.py
               python -B tests/test_pump_amm_collect_report_publication.py
+              python -B tests/test_pump_amm_liquidity_report_publication.py
               python -B tests/test_pump_amm_boost_report_publication.py
               python -B tests/test_remaining_output_parents.py
               python -B tests/test_pump_admin_token_incentives_report_publication.py
