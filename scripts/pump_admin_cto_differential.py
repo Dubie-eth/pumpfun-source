@@ -18,8 +18,8 @@ def run(c,binary=None):
  QUOTE=Pubkey.from_string(c.get('quote',str(globals()['QUOTE'])));TOKEN=Pubkey.from_string(c.get('token_program',str(globals()['TOKEN'])));POOL,POOL_BUMP=Pubkey.find_program_address([b'pool',bytes(2),bytes(POOL_AUTH),bytes(MINT),bytes(QUOTE)],AMM)
  def ata(owner):return Pubkey.find_program_address([bytes(owner),bytes(TOKEN),bytes(QUOTE)],ATA)[0]
  vm=LiteSVM().with_transaction_history(0);vm.set_clock(Clock(1000,0,0,0,1700000000))
- for name,key in [('pump',PUMP),('pump_amm',AMM),('pump_fees',PROGRAM)]:vm.add_program_from_file(key,binary if name=='pump' and binary else ROOT/f'evidence/original/{name}/deployed.so')
- for name,key in [('spl_token',globals()['TOKEN']),('spl_token_2022',Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')),('associated_token',ATA)]:vm.add_program_from_file(key,ROOT/f'evidence/dependencies/{name}/deployed.so')
+ for name,key in [('pump',PUMP),('pump_amm',AMM),('pump_fees',PROGRAM)]:vm.add_program_from_file(key,binary if name=='pump' and binary else pin_program(ROOT/f'evidence/original/{name}/deployed.so'))
+ for name,key in [('spl_token',globals()['TOKEN']),('spl_token_2022',Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')),('associated_token',ATA)]:vm.add_program_from_file(key,pin_program(ROOT/f'evidence/dependencies/{name}/deployed.so'))
  for kp in [PAYER,AUTH,OTHER]:vm.set_account(kp.pubkey(),Account(10**12,b'',Pubkey.default()))
  gd=bytearray(pump.DATA);gd[418:450]=bytes(OTHER.pubkey() if c.get('wrong_authority') else AUTH.pubkey());
  for off,val in c.get('global_patches',[]):gd[off:off+len(bytes.fromhex(val))]=bytes.fromhex(val)
@@ -121,17 +121,20 @@ def cases():
  rows += [{'name':'holder-disabled-'+str(i),'global_patches':[(1086,'00')],**v} for i,v in enumerate([{}, {'holder':True,'new_none':True},{'holder':True},{'curve_patches':[(124,'01')],'holder':True,'new_none':True}])]
  return rows
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[]
- paths=[Path(__file__),ROOT/'evidence/original/pump/deployed.so',ROOT/'evidence/original/pump_fees/deployed.so',ROOT/'evidence/original/pump_amm/deployed.so']+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']]+[ROOT/'scripts'/n for n in ['fees_donation_create_differential.py','fees_admin_differential.py','pump_validate_admin.py','pump_amm_admin_differential.py']]+[ROOT/f'evidence/upstream/{n}.json' for n in ['pump','pump_fees','pump_amm']]
- if a.candidate:paths.append(a.candidate)
- hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();rows=[];bad=[]
+ images=[ROOT/f'evidence/original/{n}/deployed.so' for n in ['pump','pump_fees','pump_amm']]+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']]
+ if a.candidate:images.append(a.candidate)
+ snapshots={path:pin_program(path) for path in images}
+ if a.candidate:a.candidate=snapshots[a.candidate]
+ paths=[Path(__file__),*images]+[ROOT/'scripts'/n for n in ['fees_donation_create_differential.py','fees_admin_differential.py','pump_validate_admin.py','pump_amm_admin_differential.py']]+[ROOT/f'evidence/upstream/{n}.json' for n in ['pump','pump_fees','pump_amm']]
+ hashes={str(p):hashlib.sha256(snapshots.get(p,p).read_bytes()).hexdigest() for p in paths}
  for c in cases():
   x=run(c);y=run(c,a.candidate) if a.candidate else None;match=all(x[k]==y[k] for k in ['error','before','after','events','inner','return']) if y else None
   rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(c['name'])
- original=ROOT/'evidence/original/pump/deployed.so'
+ original=snapshots[ROOT/'evidence/original/pump/deployed.so']
  report={'scope':'Signed synthetic captured Pump admin_cto calling Fees by genuine CPI. Pool authority nonsigner at transaction boundary; no privileged signer injection. Not full program identity.','original_sha256':hashlib.sha256(original.read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(a.candidate.read_bytes()).hexdigest() if a.candidate else None,'provenance':hashes,'case_count':len(rows),'cases':rows,'mismatches':bad}
- assert all(hashlib.sha256(Path(p).read_bytes()).hexdigest()==h for p,h in hashes.items()),'Input changed during run'
+ assert all(hashlib.sha256(snapshots.get(Path(p),Path(p)).read_bytes()).hexdigest()==h for p,h in hashes.items()),'Input changed during run'
  a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(report,indent=2)+'\n');print('Cases',len(rows),'mismatches',bad)
  if bad:raise SystemExit(1)
 if __name__=='__main__':main()
