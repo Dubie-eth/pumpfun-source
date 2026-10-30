@@ -110,48 +110,35 @@ Source inventory: `976a6bf25dd46c867047081de1bc0a0ff758ff0e3dc0a7192d200f7ce1d1e
 Unstripped ELF: `46ba0c60c7b4dd11f7a67f01b81ff7e305b700dd2e1f459fccd07ddca58b3d2c`.
 Runtime ELF: `95f21f881dbf6c3be67819735a291eceaa934314b4e43b2427cda21228420302`.
 
-## Composite 4 (#2925, closed: main c6bf273d3 restored the same order): curve stores back in P1's order
+## Later composite: cashback field and sharing reset
 
-#2917 was merged together with #2906 (w13a08-cto-sweepphi-2, curve stores in the original order: `old_fee` read,
-holder store, then cashback store). The merged main measures 0.49401: #2906's store order costs 0.0003 on top of
-the entry-copy composite. Restoring P1's store order (`is_cashback_coin` store, `old_fee` read, `is_holder_reward`
-store) on a33309705 gives exactly P1's build: 27,400 B / **0.49431** / slots 3,306, 1034/1034, zero losses against
-a33309705, differential 363/363, unstripped sha256 `46ba0c60c7b4dd11...`.
+Relative to the verified #2927 source, the event reads cashback from the curve
+field assigned earlier in the same call, and computes the reset flag directly
+from immutable `sharing_update` instead of caching it. The emitted values are
+unchanged: there is no intervening curve-field write/reload or mutation of the
+sharing option. Validation and CPI order, and all 24 macro call-site line
+numbers, are unchanged.
 
-Conflict noted: #2906's curve-store order composes with C1 (+0.0003 there) but conflicts with the g8 composite.
+The reviewed branch includes main
+`b720cf9267d2ef8ea1e73a36b78f53260e03839e`, whose full Pump source inventory
+matches the verified #2927 build:
+`6ec93b9004c2374f087c98d93a6d5bc3c211ef133999b84a0e995b8b080a3761`.
 
-## g8 size fit (085e5df tail + g8 = 27,432 / 0.50569 needs -32 B)
-
-| 085e5df + g8 + | bytes | ratio | note |
-| --- | ---: | ---: | --- |
-| `st_rref` + `is_holder_reward` from the curve | 27,416 | 0.50434 | |
-| `sh_key_borrow` (`==*a.sharing_config.key`) + hr | 27,352 | 0.50375 | -80 B, keeps the ratio |
-| + `v_296_rev` + `st_rref` | 27,376 | 0.50112 | |
-| any + `c_296_nested` (nested 296 test) | 27,376-27,440 | 0.32-0.40 | conflicts badly with g8 |
-| `st_dborrow` / `k_oborrow` + 296 nested | 27,376-27,432 | 0.32 | conflict |
-
-## Composite 5 (this PR, on main 8f050a236 = #2921 pfclimb-3, 0.50929)
-
-#2921 landed P = 085e5df tail lines + g8 + `hk_after_shared` + event flags from the curve. On it, w13a13-cto-region1of3's
-`p_r1ord` (bind `let args=&(new,);` before the `CtoState` literal, as the original copies `new` before reading the
-curve) is -16 B / +0.0046. The size companions are #2921's own last two size genes, reverted:
-
-| variant on main 8f050a236 | bytes | ratio |
+| Measure | #2927 baseline | Candidate |
 | --- | ---: | ---: |
-| main | 27,400 | 0.50929 |
-| r1ord | 27,384 | 0.51393 |
-| r1ord + event `is_holder_reward:holder` | 27,392 | 0.51356 |
-| r1ord + event `sharing_config_reset:sharing_update.is_some()` (no `reset` local) | 27,392 | 0.51356 |
-| **r1ord + both (this PR)** | **27,400** | **0.51348** |
-| r1ord + event `is_cashback_coin:cashback` | 27,400 | 0.51049 |
-| r1ord + curve stores in the original order | 27,384 | 0.51214 |
-| r1ord + `rent=&Rent::get()?` | 27,368 | 0.51229 |
-| r1ord + Result gate | 27,376 | 0.38094 (conflict) |
-| r1ord + `validate(..,args.0,..)` | 27,496 | 0.47219 (conflict) |
-| event hr local + no reset + rent ref (no r1ord) | 27,400 | 0.50959 |
-| main + `rent=&Rent::get()?` | 27,384 | 0.51004 |
-| main + Result gate | 27,384 | 0.50974 |
-| main + holder_key before shared (revert) | 27,424 | 0.49588 |
+| admin_cto bytes | 27,400 | 27,400 |
+| Sequence diagnostic ratio | 0.51228 | 0.51348 |
+| Differing normalized 8-byte slots | 3,334 | 3,334 |
+| Raw / normalized matched windows | 1,034 / 1,034 | 1,034 / 1,034 |
 
-Composite 5: 27,400 B / **0.51348** / slots 3,334, 1034/1034, zero losses against 8f050a236, differential 363/363,
-unstripped sha256 `620d90b0b2e33a2f...`.
+A fresh identity build and official score preserve every existing raw and
+normalized match across the 1,035-window inventory, with no missing or resized
+windows. This remains a partial-window sequence improvement; the matched-window
+completion percentage is unchanged and whole-ELF identity is not established.
+
+All 363 signed admin_cto differential cases matched the captured program with
+genuine dependency CPIs. This is bounded runtime evidence, not all-input proof.
+
+Source inventory: `e3c9b449d89df914be23f8ba7f42027ae27a6f25e1b6fa25f938f0bc1dae6275`.
+Unstripped ELF: `620d90b0b2e33a2f422cbb6755437804dc3a30d9a125f2e298d39cd3da9ca9fc`.
+Runtime ELF: `1559324ef78658e3d6130754196ebbc17ec77df89d868c7b5b669c1f7b159666`.
