@@ -106,6 +106,21 @@ def validate_case_results(result):
             assert row[name] == [], f'case {index}: {name} is not an empty difference list'
 
 
+def publish_file(staged, output):
+    """Publish without replacement; rename on Windows, link elsewhere.
+
+    Windows sandboxes refuse hard links (WinError 5). The staging
+    directory is a sibling of the output, so a same-directory rename
+    refuses an existing destination, preserving no-replace, and leaves
+    the same end state as the link once main()'s cleanup removes the
+    staging directory.
+    """
+    if os.name == "nt":
+        os.rename(staged, output)
+    else:
+        os.link(staged, output)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--candidate', type=Path, required=True)
@@ -196,7 +211,7 @@ def main():
         rename_directory(retained_staging, retained)
         published_retained = True
         try:
-            os.link(report_staging, args.output)
+            publish_file(report_staging, args.output)
         except BaseException as error:
             # The complete suite directory is already public. A late writer
             # may have added files: retain it and the complete report for
