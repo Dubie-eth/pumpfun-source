@@ -120,6 +120,36 @@ class TokenkegCheckpointOptimizationTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertIn("OK", completed.stdout)
 
+    def test_receipt_keys_use_the_tracked_spelling(self):
+        # The published 'report' and repository_inputs keys used
+        # str(relative_to(ROOT)), which is backslash-spelled on Windows and
+        # forked the receipt content per platform.
+        driver = DRIVER.replace(
+            "report_path = root / 'report.json'",
+            "report_path = pkg / 'report.json'",
+        ).replace(
+            "v.portable_binding(candidate, report_path)\n"
+            "print('OK')\n",
+            "binding = v.portable_binding(candidate, report_path)\n"
+            "print('KEYS ' + json.dumps({'report': binding['report']}))\n",
+        )
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(SCRIPTS) + os.pathsep + env.get("PYTHONPATH", "")
+        completed = subprocess.run(
+            [sys.executable, "-B", "-c", driver, "none", str(self.root)],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        line = next(l for l in completed.stdout.splitlines() if l.startswith("KEYS "))
+        keys = json.loads(line[5:])
+        self.assertEqual(keys["report"], "pkg/report.json")
+        # The repository_inputs key is built from the module's own file, which
+        # the stubbed ROOT in this driver cannot host; pin its expression.
+        source = (SCRIPTS / "pump_tokenkeg_checkpoint_differential.py").read_text(encoding="utf-8")
+        self.assertIn("result['repository_inputs'][Path(__file__).relative_to(ROOT).as_posix()]",
+                      source)
+        self.assertNotIn("str(Path(__file__).relative_to(ROOT))", source)
+
 
 if __name__ == "__main__":
     unittest.main()
