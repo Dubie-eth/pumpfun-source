@@ -73,7 +73,8 @@ def run(binary,cases,surfpool,output):
     # Distinct compute budgets avoid transaction deduplication for repeated payloads.
     # The recorded fixture leads with a compute-budget instruction; replacing a
     # different first instruction would silently drop a real program call.
-    assert keys[instructions[0].program_id]==COMPUTE,('first recorded instruction is not compute-budget',row['name'])
+    if not instructions or instructions[0].program_id!=COMPUTE:
+     raise ValueError(('first recorded instruction is not compute-budget',row['name']))
     instructions[0]=f.set_compute_unit_limit(1400000-len(rows))
     signers=[f.PAYER];assert keys[:h.num_required_signatures]==[f.PAYER.pubkey()]
     tx=Transaction.new_signed_with_payer(instructions,f.PAYER.pubkey(),signers,Hash.from_string(rpc('getLatestBlockhash')['value']['blockhash']));assert all(tx.verify_with_results());encoded=base64.b64encode(bytes(tx)).decode()
