@@ -29,6 +29,10 @@ class FeesAggregateOutputTests(unittest.TestCase):
         scripts.mkdir()
         for name in ('fees_validate_all.py', 'pump_differential_output.py', 'pump_amm_reusable_harness.py'):
             shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
+        harness = root / 'reconstruction/harness'
+        harness.mkdir(parents=True)
+        shutil.copyfile(ROOT / 'reconstruction/harness/build_process.py',
+                        harness / 'build_process.py')
         tree = ast.parse(SCRIPT.read_text())
         suites = next(ast.literal_eval(node.iter) for node in ast.walk(tree)
                       if isinstance(node, ast.For) and isinstance(node.iter, ast.List))
