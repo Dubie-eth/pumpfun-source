@@ -61,7 +61,7 @@ def custom_fee_table(tiers):
  return apply
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__);rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);rows=[]
  def test(name,label,**kw):
   params=dict(amount=10**7 if name=='buy_exact_quote_in_v2' else 10**10,limit=10**9 if name=='buy_v2' else 1);params.update(kw)
   a=trade(name,**params);b=trade(name,candidate=args.candidate,**params)

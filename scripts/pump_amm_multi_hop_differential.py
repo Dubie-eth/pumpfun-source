@@ -211,7 +211,7 @@ def mixed_direction(h,m):
  route2(False)(h,m);second=m[21:];m[21]=second[1];m[22]=second[0];d=bytearray(h.vm.get_account(USER2).data);d[:32]=bytes(BASE2);h.vm.set_account(USER2,Account(10**9,bytes(d),TOKEN))
 
 if __name__=='__main__':
- parser=argparse.ArgumentParser();parser.add_argument('--candidate',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args();candidate=(_CALLER_CWD/args.candidate).resolve();output=(_CALLER_CWD/args.output).resolve();publisher=PumpReport(output,ROOT,candidate,__file__);rows=[]
+ parser=argparse.ArgumentParser();parser.add_argument('--candidate',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args();candidate=(_CALLER_CWD/args.candidate).resolve();output=(_CALLER_CWD/args.output).resolve();publisher=PumpReport(output,ROOT,candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json',ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json']);rows=[]
  def test(label,**params):
   original=run(**params);recovered=run(candidate=candidate,**params);diff=[k for k in original if k!='logs'and original[k]!=recovered[k]];rows.append({'case':label,'mismatches':diff,'original':original,'candidate':recovered});None
  for sell in [False,True]:

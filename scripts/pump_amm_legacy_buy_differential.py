@@ -53,7 +53,7 @@ def existing_volume(length=137,offset=8,value=None):
   h.vm.set_account(volume,Account(10**9,bytes(raw[:length]).ljust(length,b'\0'),PROGRAM))
  return ov
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();a.candidate=(_CALLER_CWD/a.candidate).resolve();a.output=(_CALLER_CWD/a.output).resolve();publisher=PumpReport(a.output,ROOT,a.candidate,__file__);rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();a.candidate=(_CALLER_CWD/a.candidate).resolve();a.output=(_CALLER_CWD/a.output).resolve();publisher=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);rows=[]
  def test(name,label,**kw):
   params=dict(name=name,amount=10**10 if name=='buy' else 10**7,limit=10**12 if name=='buy' else 1);params.update(kw);x=legacy_buy(**params);y=legacy_buy(candidate=a.candidate,**params);diff=[k for k in x if k!='logs' and x[k]!=y[k]];rows.append({'instruction':name,'case':label,'original':x,'candidate':y,'diff':diff})
  for name in ['buy','buy_exact_quote_in']:
