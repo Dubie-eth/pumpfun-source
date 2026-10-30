@@ -39,7 +39,8 @@ The reviewed census hash is updated for this source correction; retained CENSUS
 reports are historical results and have not been regenerated or reinterpreted.
 
 `reconstruction/harness/test_census_argument_constants.py` checks actual Pump
-capture disassembly (scalar and section-pointer controls). With the explicit
+capture instruction bytes even without objdump, plus real capture disassembly
+(scalar and section-pointer controls) when objdump is available. With the explicit
 `PUMP_BUILD_TEST_SDK`, it also compiles four real SBF fixtures differing in MOV or
 LDDW scalar arguments. Set `PUMP_OBJDUMP` to the real SDK objdump if needed.
 These diagnostics remain heuristic and do not change official score acceptance.

@@ -1,6 +1,7 @@
 """Real disassembly must preserve scalar argument values, not treat them as pointers."""
 import importlib.util
 import os
+import struct
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,6 +16,30 @@ LANE = Path(__file__).resolve().parents[1] / 'pump-main/lanes/callgraph-census/c
 spec = importlib.util.spec_from_file_location('argument_census', LANE)
 census = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(census)
+
+
+class CensusArgumentByteTests(unittest.TestCase):
+    def test_captured_instruction_bytes_classify_scalar_and_pointer(self):
+        # Predecoded rows keep this regression active on CI without objdump.
+        # Verify each row against the retained instruction bytes before using it.
+        path = Path(__file__).resolve().parents[2] / 'evidence/original/pump/deployed.so'
+        scalar_start, scalar_at, scalar_call = 0x1afaf0, 0x1afd68, 0x1afd78
+        image = census.Image(path, {scalar_start: (scalar_call + 8 - scalar_start, [])})
+        raw = body(image.blob, image.secs, scalar_at, 8)
+        self.assertEqual((raw[0], raw[1] & 15, struct.unpack_from('<i', raw, 4)[0]), (0xb7, 3, 0x10001))
+        self.assertIn(scalar_call, dict(image.calls(scalar_start)))
+        image._txt[scalar_start] = {scalar_at: 'mov64 r3, 0x10001', scalar_call: 'call 0x0'}
+        self.assertEqual(census.arg_setup(image, scalar_start, [scalar_call])[scalar_call], ['mov64 r3, 0x10001'])
+
+        pointer_start, pointer_at, pointer_call = 0x340, 0x428, 0x460
+        image = census.Image(path, {pointer_start: (0x878 - pointer_start, [])})
+        raw = body(image.blob, image.secs, pointer_at, 16)
+        self.assertEqual((raw[0], raw[1] & 15), (0x18, 1))
+        value = struct.unpack_from('<I', raw, 4)[0] | (struct.unpack_from('<I', raw, 12)[0] << 32)
+        self.assertNotEqual(raw, normalize(raw, pointer_at, image.secs))
+        self.assertIn(pointer_call, dict(image.calls(pointer_start)))
+        image._txt[pointer_start] = {pointer_at: f'lddw r1, {value:#x}', pointer_call: 'call 0x0'}
+        self.assertEqual(census.arg_setup(image, pointer_start, [pointer_call])[pointer_call], ['lddw r1, ADDR'])
 
 
 class CensusArgumentTests(unittest.TestCase):
@@ -72,7 +97,6 @@ pub unsafe extern "C" fn consume(out: *mut u8, data: *const u8, amount: u64) -> 
             recipe = {'triple': 'sbf-solana-solana', 'rustc': sdk / 'rust/bin/rustc', 'template': root / 'no-template'}
             arguments = []
             with patch.object(fastbuild, 'SDK', sdk), patch.dict(fastbuild.RECIPES, {'identity': recipe}), \
-                 patch.object(fastbuild, 'LOCKDIR', root / 'locks'), \
                  patch.object(Path, 'home', return_value=root / 'home'):
                 for amount in (1000000, 2000000, 0x123456789ab, 0x23456789abc):
                     (source / 'src/lib.rs').write_text(code.replace('AMOUNT', str(amount)))
