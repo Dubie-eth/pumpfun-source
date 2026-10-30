@@ -22,7 +22,7 @@ class LibraryArtifactTests(unittest.TestCase):
             ('pump-identity', '', 'pump_identity'),
         ]:
             with self.subTest(package=package, library=lib_table), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
+                root = Path(temporary).resolve()
                 source, work, out = (root / name for name in ('source', 'work', 'out'))
                 (source / 'src').mkdir(parents=True)
                 (source / 'Cargo.toml').write_text(
