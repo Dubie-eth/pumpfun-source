@@ -18,6 +18,9 @@ stubbed scorer would otherwise report a match.
 from pathlib import Path
 import json
 import tempfile
+import subprocess
+import sys
+import os
 import unittest
 from unittest.mock import patch
 import match_oracle as oracle
@@ -27,7 +30,11 @@ class MatchOracleScoringInputRecheckTests(unittest.TestCase):
     def run_oracle(self, root, out, rewrite):
         def build(source, work, output, quiet=True, recipe=None):
             if rewrite:
-                (root / 'work' / 'scoring-inputs' / 'functions.tsv').write_bytes(b'doctored')
+                name = rewrite if isinstance(rewrite, str) else 'functions.tsv'
+                # Actual child process models the filesystem capability of a build script.
+                subprocess.run([sys.executable, '-c',
+                    'from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(b"doctored")',
+                    str(root / 'work' / 'scoring-inputs' / name)], check=True)
             return {'ok': True}
 
         with patch.object(oracle.score, 'BASE', root), \
@@ -53,6 +60,24 @@ class MatchOracleScoringInputRecheckTests(unittest.TestCase):
             # The doctored copy stays visible for recovery; the verdict is the refusal.
             self.assertEqual((root / 'work' / 'scoring-inputs' / 'functions.tsv').read_bytes(),
                              b'doctored')
+
+    def test_each_original_and_added_scoring_input_is_rejected(self):
+        for name in ('original.so', 'functions.tsv', 'added.json'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); out = root / 'out'; out.mkdir()
+                for initial in ('original.so', 'functions.tsv'):
+                    (root / initial).write_bytes(b'fixture')
+                code, scoring = self.run_oracle(root, out, rewrite=name)
+                self.assertEqual(code, 2)
+                scoring.assert_not_called()
+                self.assertEqual(json.loads((out / 'verdict.json').read_text())['status'], 'error')
+
+    def test_timestamp_only_changes_do_not_change_content_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); path = root / 'original.so'; path.write_bytes(b'fixture')
+            before = oracle.bound_scoring_inputs(root)
+            os.utime(path, (1, 1))
+            self.assertEqual(oracle.bound_scoring_inputs(root), before)
 
     def test_untouched_scoring_inputs_still_score(self):
         with tempfile.TemporaryDirectory() as directory:
