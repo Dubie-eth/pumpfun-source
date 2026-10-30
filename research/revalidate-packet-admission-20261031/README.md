@@ -24,3 +24,12 @@ After the change the same packet is `fail` with
 
 Limits: the full research/ corpus is not re-executed here; synthetic packets
 and the existing revalidate tests cover the same path. macOS arm64, Python 3.14.3.
+
+## Review qualification
+
+The actual batch CLI controls use marker files to prove linked verifiers do not
+execute, a nonempty valid manifest for the dangling-verifier counterexample,
+and FIFO/directory verifier entries. A regular verifier still runs. The active
+manifest-admission and revalidation-qualification wrappers pin the reviewed
+updated source; their source-replacement, retention and admission tests remain
+in place. This does not change or regenerate historical packets.
