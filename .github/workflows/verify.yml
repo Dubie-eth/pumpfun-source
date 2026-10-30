@@ -45,6 +45,7 @@ jobs:
           - suite: analysis-packet-encoding
             commands: |
               python -B research/tooling-analysis-encoding-20261030/test_verify.py
+              python -B research/tooling-analysis-output-retention-20261029/test_generate.py
               python -B reconstruction/tooling/roadmap-manifest-members/test_verify.py
               python -B reconstruction/tooling/deep-analysis-output-links/test_verify.py
           - suite: amm-multi-hop-packets
@@ -141,6 +142,8 @@ jobs:
               python -B tests/test_pump_amm_liquidity_report_publication.py
               python -B tests/test_pump_amm_boost_report_publication.py
               python -B tests/test_pump_amm_extend_report_publication.py
+              python -B tests/test_fees_upsert_report_publication.py
+              python -B tests/test_fees_social_claim_v2_report_publication.py
               python -B tests/test_fees_extend_report_publication.py
               python -B tests/test_fees_admin_cto_report_publication.py
               python -B tests/test_remaining_output_parents.py
@@ -188,7 +191,10 @@ jobs:
               python -B tests/test_recovered_builds_optimization.py
               python -B scripts/test_mayhem_burn_sequence_optimization.py
               python -B scripts/test_pump_amm_report_encoding.py
+              python -B scripts/test_fixture_reads_encoding.py
               python -B scripts/test_build_evidence_encoding.py
+              python -B scripts/test_pump_receipt_encoding.py
+              python -B scripts/test_tooling_writers_encoding.py
               python -B scripts/test_fees_report_encoding.py
               python -B scripts/test_surfpool_report_encoding.py
               python -B scripts/test_mayhem_report_encoding.py
