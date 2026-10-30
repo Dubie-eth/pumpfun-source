@@ -111,7 +111,11 @@ def setup(c):
             'program': c.get('program_key', AMM)}
     accounts = {pool_key: Account(10**9, pool, c.get('pool_owner', AMM)),
                 sharing_key: Account(10**9, sharing_bytes(c, bump), c.get('sharing_owner', FEES))}
-    metas = [AccountMeta(keys[n], False, n == 'pool' and not c.get('readonly')) for n in ACCOUNTS][:c.get('count', 4)]
+    metas = [AccountMeta(keys[n], False, n == 'pool' and not c.get('readonly')) for n in ACCOUNTS]
+    count = c.get('count', 4)
+    if count > len(metas):
+        metas.extend(AccountMeta(PAYER.pubkey(), False, False) for _ in range(count - len(metas)))
+    metas = metas[:count]
     data = (DISCRIMINATOR + bytes.fromhex(c.get('trailing', '')))[:c.get('payload', 8 + len(c.get('trailing', '')) // 2)]
     return pool_key, sharing_key, accounts, metas, data
 
@@ -155,17 +159,20 @@ def run_captured(c):
     failed = isinstance(result, FailedTransactionMetadata)
     meta = result.meta() if failed else result
     events = [base64.b64decode(l[len('Program data: '):]) for l in meta.logs() if l.startswith('Program data: ')]
+    after = {k: vm.get_account(k) for k in watched}
+    unchanged = all(
+        (after[k].lamports, after[k].owner, after[k].executable, after[k].rent_epoch)
+        == (before[k].lamports, before[k].owner, before[k].executable, before[k].rent_epoch)
+        and (not failed and k == pool_key or bytes(after[k].data) == bytes(before[k].data))
+        for k in watched if k != PAYER.pubkey())
     if failed:
         text = str(result.err())
         custom = re.search(r'InstructionErrorCustom\((\d+)\)', text)
         error = int(custom.group(1)) if custom else re.search(r'Fieldless\((\w+)\)', text).group(1)
-        return {'error': error, 'events': events}
-    after = {k: vm.get_account(k) for k in watched}
+        return {'error': error, 'events': events, 'unchanged': unchanged}
     cpi = [bytes(ix.instruction().data) for group in meta.inner_instructions() for ix in group]
     return {'error': None, 'events': events, 'cpi': cpi, 'pool': bytes(after[pool_key].data),
-            'unchanged': all(after[k].lamports == before[k].lamports and after[k].owner == before[k].owner
-                             and (k == pool_key or bytes(after[k].data) == bytes(before[k].data))
-                             for k in watched if k != PAYER.pubkey())}
+            'unchanged': unchanged}
 
 
 def fixed_cases():
@@ -274,7 +281,8 @@ def random_cases():
 class PumpAmmMigratePoolCoinCreatorCapturedTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        assert hashlib.sha256(AMM_ELF.read_bytes()).hexdigest() == AMM_SHA256
+        if hashlib.sha256(AMM_ELF.read_bytes()).hexdigest() != AMM_SHA256:
+            raise ValueError('captured AMM hash mismatch')
         cls.tmp = tempfile.TemporaryDirectory()
         host = Path(cls.tmp.name) / 'migrate-pool-coin-creator-host'
         subprocess.run(['rustc', '--edition=2021', '-O', '-D', 'warnings', str(HOST_SOURCE), '-o', str(host)],
@@ -293,6 +301,7 @@ class PumpAmmMigratePoolCoinCreatorCapturedTests(unittest.TestCase):
         return answers
 
     def assert_matches(self, answer, captured):
+        self.assertTrue(captured['unchanged'])
         if answer.startswith('error:'):
             code = answer[6:]
             self.assertEqual(captured['error'], int(code) if code.isdigit() else code)
@@ -318,6 +327,11 @@ class PumpAmmMigratePoolCoinCreatorCapturedTests(unittest.TestCase):
     def test_fixed_cases_match_captured_program(self):
         self.run_cases(fixed_cases())
 
+    def test_extra_account_case_really_supplies_a_fifth_meta(self):
+        case = {'count': 5}
+        self.assertEqual(len(setup(case)[3]), 5)
+        self.assert_matches(self.host_answers([case])[0], run_captured(case))
+
     def test_seeded_random_cases_match_captured_program(self):
         self.run_cases(random_cases())
 
@@ -329,6 +343,8 @@ class PumpAmmMigratePoolCoinCreatorCapturedTests(unittest.TestCase):
         for c, answer in zip(samples, self.host_answers(samples)):
             captured = run_captured(c)
             self.assert_matches(answer, captured)
+            with self.assertRaises(AssertionError):
+                self.assert_matches(answer, dict(captured, unchanged=False))
             if answer.startswith('ok,'):
                 _, pool, event = answer.split(',')
                 flip = lambda h, i: h[:2 * i] + format(int(h[2 * i:2 * i + 2], 16) ^ 1, '02x') + h[2 * i + 2:]
