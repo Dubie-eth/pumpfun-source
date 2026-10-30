@@ -1,5 +1,6 @@
 """Do not re-resolve a tool alias after its old target has been fingerprinted."""
 import os
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -93,6 +94,78 @@ class ExecutableSnapshotTests(unittest.TestCase):
         self.assertTrue(cached['reused'])
         log = self.root / 'trial' / first['attempt'] / 'stdout.log'
         self.assertEqual(log.read_bytes(), b'admitted arguments\n')
+
+    def test_declared_script_alias_change_cannot_cache_a_different_program(self):
+        old = self.root / 'old.py'
+        old.write_text('raise SystemExit(1)\n')
+        new = self.root / 'new.py'
+        new.write_text('raise SystemExit(0)\n')
+        alias = self.root / 'script.py'
+        alias.symlink_to(old)
+        real_identity = runner.identity
+
+        def switch_after_admission(*values, **kwargs):
+            admitted = real_identity(*values, **kwargs)
+            self.swap(alias, new)
+            return admitted
+
+        with patch.object(runner, 'identity', switch_after_admission):
+            result = runner.run_trial(self.source, [sys.executable, str(alias)],
+                                      self.root / 'trial', inputs=[alias])
+        self.assertEqual(result['status'], 'error')
+        self.assertIsNone(result['returncode'], 'retargeted script was launched')
+        self.assertEqual(result['inputs']['declared_input_paths'][str(alias)], str(old.resolve()))
+        self.swap(alias, old)
+        retried = runner.run_trial(self.source, [sys.executable, str(alias)],
+                                   self.root / 'trial', inputs=[alias])
+        self.assertEqual(retried['status'], 'fail')
+        self.assertFalse(retried['reused'])
+
+    def test_retargeted_input_during_execution_cannot_produce_a_pass(self):
+        old, new, alias = (self.root / name for name in ('old.py', 'new.py', 'script.py'))
+        code = (f'from pathlib import Path\np = Path({str(alias)!r})\n'
+                f'p.unlink()\np.symlink_to({str(new)!r})\n')
+        old.write_text(code)
+        new.write_text(code)  # Equal contents do not make the resolved path stable.
+        alias.symlink_to(old)
+        result = runner.run_trial(self.source, [sys.executable, str(alias)],
+                                  self.root / 'trial', inputs=[alias])
+        self.assertEqual(result['returncode'], 0)
+        self.assertEqual(result['status'], 'error')
+        self.assertIn('declared input changed', result['reason'])
+
+    @unittest.skipUnless(shutil.which('false'), 'requires a native false executable')
+    def test_changed_executable_bytes_are_rejected_before_launch(self):
+        executable = self.root / 'false'
+        shutil.copyfile(shutil.which('false'), executable)
+        executable.chmod(0o755)
+        real_identity = runner.identity
+
+        def change_after_admission(*values, **kwargs):
+            admitted = real_identity(*values, **kwargs)
+            executable.write_bytes(b'changed binary')
+            return admitted
+
+        with patch.object(runner, 'identity', change_after_admission):
+            result = runner.run_trial(self.source, [str(executable)], self.root / 'trial')
+        self.assertEqual(result['status'], 'error')
+        self.assertIsNone(result['returncode'])
+        log = self.root / 'trial' / result['attempt'] / 'stderr.log'
+        self.assertIn(b'declared input changed before launch', log.read_bytes())
+
+    def test_loaded_driver_hash_cannot_be_relabelled_by_disk_edit(self):
+        driver = self.root / 'driver.py'
+        loaded_bytes = Path(runner.__file__).read_bytes()
+        driver.write_bytes(loaded_bytes)
+        spec = importlib.util.spec_from_file_location('snapshot_driver', driver)
+        loaded = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(loaded)
+        driver.write_bytes(loaded_bytes + b'\n# later disk revision\n')
+        result = loaded.run_trial(self.source, [sys.executable, '-c', 'pass'],
+                                  self.root / 'trial')
+        self.assertEqual(result['status'], 'pass')
+        self.assertEqual(result['inputs']['runner_sha256'], runner.digest(loaded_bytes))
+        self.assertNotEqual(result['inputs']['runner_sha256'], runner.digest(driver.read_bytes()))
 
     @unittest.skipUnless(os.environ.get('PUMP_BUILD_TEST_SDK') and shutil.which('rustc'),
                          'requires the explicit SBF SDK and a host rustc')

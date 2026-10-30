@@ -35,6 +35,11 @@ def stage_ignore(source):
 def digest(data): return hashlib.sha256(data).hexdigest()
 
 
+# A long-lived importer keeps executing this loaded module if its source file
+# changes on disk. Bind receipts to those loaded bytes, not a later disk edit.
+LOADED_RUNNER_SHA256 = digest(Path(__file__).read_bytes())
+
+
 def linked_source(path):
     metadata = path.lstat()
     return (stat.S_ISLNK(metadata.st_mode) or
@@ -90,11 +95,21 @@ def identity(source, command, inputs, timeout, *, environment=None):
     declared = shutil.which(command[0], path=environment.get('PATH', os.defpath))
     if declared is None: raise ValueError('command executable is unavailable')
     executable = Path(declared).resolve(strict=True)
+    inputs = list(inputs)
+    declared_paths = {os.path.abspath(value): str(Path(value).resolve(strict=True))
+                      for value in inputs}
     return {'schema': 'experiment-input-v1', 'source': manifest(source), 'command': command,
             'executable': str(executable), 'invocation': os.path.abspath(declared),
             'inputs': input_hashes([executable, *inputs]), 'timeout': timeout,
+            'declared_input_paths': declared_paths,
             'environment_sha256': digest(json.dumps(environment, sort_keys=True).encode()),
-            'runner_sha256': digest(Path(__file__).read_bytes())}
+            'runner_sha256': LOADED_RUNNER_SHA256}
+
+
+def admitted_inputs_match(admission):
+    return (input_hashes(admission['inputs']) == admission['inputs']
+            and all(str(Path(path).resolve(strict=True)) == target
+                    for path, target in admission['declared_input_paths'].items()))
 
 
 def atomic_json(path, value):
@@ -143,7 +158,8 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
             attempt = destination / name
             if previous.get('key') == key and previous.get('status') in ('pass', 'fail'):
                 try:
-                    valid = (not attempt.is_symlink()
+                    valid = (admitted_inputs_match(admission)
+                             and not attempt.is_symlink()
                              and manifest(attempt / 'source') == admission['source']
                              and artifacts(attempt) == previous['artifacts'])
                 except (OSError, ValueError): valid = False
@@ -166,6 +182,8 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
         status, reason, code = 'error', None, None
         with (attempt / 'stdout.log').open('wb') as stdout, (attempt / 'stderr.log').open('wb') as stderr:
             try:
+                if not admitted_inputs_match(admission):
+                    raise OSError('declared input changed before launch')
                 process = subprocess.Popen(argv, executable=admission['executable'], cwd=work,
                                            stdout=stdout, stderr=stderr, start_new_session=True,
                                            env=environment)
@@ -184,7 +202,7 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
                     process.wait()
         retained = {}
         try:
-            if manifest(source) != admission['source'] or manifest(copied) != admission['source'] or input_hashes(admission['inputs']) != admission['inputs']:
+            if manifest(source) != admission['source'] or manifest(copied) != admission['source'] or not admitted_inputs_match(admission):
                 status, reason = 'error', 'source or declared input changed during execution'
             retained = artifacts(attempt)
         except (OSError, ValueError) as error:

@@ -28,6 +28,11 @@ The argument array and child environment are also captured at admission, so
 caller mutations during staging or lock waits cannot execute a different trial
 under an old cache key. Environment values remain unrecorded; only their hash
 appears in the receipt.
+Declared input paths retain their resolved targets as well as content hashes;
+retargeting an input alias or changing its bytes before launch is rejected, and
+post-run checks prevent changed inputs from yielding reusable pass/fail results.
+The runner fingerprint describes the loaded module bytes, so later edits to the
+driver on disk cannot relabel an already imported implementation.
 
 ## Locate a first-parent regression
 
