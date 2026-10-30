@@ -115,7 +115,11 @@ def cases():
   rows.append({'amount':rng.randrange(1,10**12),'max_cost':rng.choice([1,10**9,10**14]),'fees':[rng.randrange(0,1001),rng.randrange(0,1001),rng.randrange(0,10001)],'user_lamports':10**16,'trailing':[rng.randrange(2)]})
  return [{'reserve_in':base_in,'reserve_out':base_out,**c} for c in rows]
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path);p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args();publisher=PumpReport(a.output,f.R,a.candidate,__file__);a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[];original=pin_program(f.R/'evidence/original/pump/deployed.so')
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path);p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args()
+ inputs=[f.R/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json']
+ inputs += [f.R/f'evidence/original/{name}/capture.json' for name in ('pump','pump_fees')]
+ inputs += [f.R/f'evidence/dependencies/{name}/capture.json' for name in ('spl_token','spl_token_2022','associated_token')]
+ publisher=PumpReport(a.output,f.R,a.candidate,__file__,extra_inputs=inputs);a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[];original=pin_program(f.R/'evidence/original/pump/deployed.so')
  for i,c in enumerate(cases()):
   x=run(original,c);y=run(a.candidate,c) if a.candidate else None;match=all(x[k]==y[k] for k in ['error','accounts','inner_instructions','event_payloads','return_data']) if y else None;rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(i)
