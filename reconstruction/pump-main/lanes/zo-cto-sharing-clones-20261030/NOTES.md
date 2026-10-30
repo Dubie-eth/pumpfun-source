@@ -64,6 +64,7 @@ Merged [#3019](https://github.com/lalalune/pumpfun-source/pull/3019) introduced
 the existing explicit sharing-CPI copies. Merged
 [#3039](https://github.com/lalalune/pumpfun-source/pull/3039) and
 [#3051](https://github.com/lalalune/pumpfun-source/pull/3051) improved the fee
-transfer CPI in this same source file; those changes are retained. The merged
+transfer CPI in this same source file; those changes are retained. The
 [#3049](https://github.com/lalalune/pumpfun-source/pull/3049) cashback tuple and
-scalar sweep bump are preserved and included in both builds reported here.
+scalar sweep bump, incorporated through #3051 before #3049 was closed as
+superseded, are preserved and included in both builds reported here.
