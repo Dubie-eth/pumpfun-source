@@ -35,3 +35,18 @@ Required checks on the proposed tree: `python3 -E -X utf8 scripts/test_tooling.p
 verified). macOS arm64, Python 3.14.3. The default `programs/pump` directory,
 case corpora, comparison fields and captured ELFs are unchanged; no
 program-equivalence claim is made.
+
+## Review qualification
+
+The reviewed implementation enumerates each suite's Rust/Cargo inputs once at
+admission, then hashes that same path list for the report. Removing an admitted
+file during execution therefore fails instead of producing an empty binding.
+The `target` exclusion is relative to the source directory; a source tree under
+an ancestor named `target` remains usable. Configuration and aggregate admission
+run before candidate pinning or report-directory creation.
+
+The replacement regression tests invoke all six real entrypoints for missing,
+empty, non-source and generated-only inputs. They execute all five unchanged
+corpora against the captured Pump control (334/130/301/351/59 cases), check source
+output aliases, and remove admitted files after real VM execution begins. These
+presence/hash checks do not prove that the supplied source produced the ELF.
