@@ -3,7 +3,8 @@
 The saved callgraph census tools import their harness through an absolute path
 in the original contributor's checkout. In another checkout, even `--help`
 fails before argument parsing. This successor supplies repository-relative module
-bindings while retaining every archived lane source and saved report unchanged.
+bindings while preserving saved reports. The census source pin now includes the bounded
+argument-normalization correction described below.
 
 ```
 python -B reconstruction/diagnostics/census-portability/run.py hotness --remarks input.log --json work/hotness-new.json
@@ -26,5 +27,19 @@ All five real CLI parsers start; occupied output bytes remain unchanged.
 Full graph/data-reference/candidate commands retain the archived external SDK,
 objdump and explicit unstripped-candidate requirements. They were not qualified
 by a `--help` check. This does not reconstruct programs, change scorer masking,
-prove source/runtime equivalence or qualify security. Frozen helper and historical
-lane/report bytes remain unchanged; the source pin requires review on transitions.
+prove source/runtime equivalence or qualify security. Frozen helpers and historical reports remain unchanged; the source pin requires
+review on transitions.
+
+
+Argument setup retains scalar immediates, including large MOV and LDDW constants.
+Only a LDDW whose value `score.normalize` identifies inside an ELF section is
+shown as `ADDR`. The previous text heuristic erased every hexadecimal value with
+five or more digits, including captured Pump's `mov64 r3, 0x10001` at `0x1afd68`.
+The reviewed census hash is updated for this source correction; retained CENSUS
+reports are historical results and have not been regenerated or reinterpreted.
+
+`reconstruction/harness/test_census_argument_constants.py` checks actual Pump
+capture disassembly (scalar and section-pointer controls). With the explicit
+`PUMP_BUILD_TEST_SDK`, it also compiles four real SBF fixtures differing in MOV or
+LDDW scalar arguments. Set `PUMP_OBJDUMP` to the real SDK objdump if needed.
+These diagnostics remain heuristic and do not change official score acceptance.
