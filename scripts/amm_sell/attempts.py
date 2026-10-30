@@ -47,12 +47,19 @@ def short(e):
             f"score_version={m.get('score_version', 'unversioned')} size={m.get('sell_size')} :: {e['hypothesis'][:200]}")
 
 
+def row_limit(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError('must not be negative')
+    return value
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
     p.set_defaults(score_version=SCORE_VERSION)
     sub.add_parser('summary')
-    b = sub.add_parser('best'); b.add_argument('n', nargs='?', type=int, default=10)
+    b = sub.add_parser('best'); b.add_argument('n', nargs='?', type=row_limit, default=10)
     b.add_argument('--score-version', type=int, default=SCORE_VERSION,
                    help='rank one metric version; defaults to the current scorer')
     g = sub.add_parser('grep'); g.add_argument('text')
