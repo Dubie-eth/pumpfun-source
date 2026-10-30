@@ -214,6 +214,7 @@ jobs:
               python -B reconstruction/harness/test_score_empty_baseline.py
               python -B reconstruction/harness/test_score_baseline_option_conflict.py
               python -B reconstruction/harness/test_score_symbol_admission.py
+              python -B reconstruction/harness/test_batch_target_metric.py
               python -B reconstruction/pump-main/test_ledger_negative_limit.py
               python -B reconstruction/diagnostics/census-portability/test_output_guard.py
               python -B reconstruction/harness/test_census_argument_constants.py
