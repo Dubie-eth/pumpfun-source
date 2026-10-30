@@ -23,6 +23,8 @@ HELPERS = {
         "bc2f71be6e043735dda5c6d43e5e3ed614f405c6e15adefe47d6e0a74d94d10a",
     },
     "scripts/deep_disassembly.py": {
+        "c71540059cb76cf4b6cca866113395f11092134d9110201e38aaa36475f360af",
+        "a91c80af30d1fa9bdb217f1450e8856b98c2873e57502aef48b06cfe6602e854",
         "0275d4680af3b239ac4bca442685357d4dff2a59b2f633a58fed768980682bab",
         "6ca5d4711d64b8af061d9becd71eff289dd4b1aa40f5ba9d234ef7675e098efc",
     },
