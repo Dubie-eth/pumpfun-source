@@ -8,6 +8,7 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 from fees_donation_create_differential import *
 import pump_validate_admin as pump
 import pump_amm_admin_differential as amm
+from pump_amm_reusable_harness import pin_program
 from solders.clock import Clock
 from solders.compute_budget import set_compute_unit_limit
 TOKEN=Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');ATA=Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
@@ -120,7 +121,7 @@ def cases():
  rows += [{'name':'holder-disabled-'+str(i),'global_patches':[(1086,'00')],**v} for i,v in enumerate([{}, {'holder':True,'new_none':True},{'holder':True},{'curve_patches':[(124,'01')],'holder':True,'new_none':True}])]
  return rows
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();rows=[];bad=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.candidate=pin_program(a.candidate) if a.candidate else None;rows=[];bad=[]
  paths=[Path(__file__),ROOT/'evidence/original/pump/deployed.so',ROOT/'evidence/original/pump_fees/deployed.so',ROOT/'evidence/original/pump_amm/deployed.so']+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']]+[ROOT/'scripts'/n for n in ['fees_donation_create_differential.py','fees_admin_differential.py','pump_validate_admin.py','pump_amm_admin_differential.py']]+[ROOT/f'evidence/upstream/{n}.json' for n in ['pump','pump_fees','pump_amm']]
  if a.candidate:paths.append(a.candidate)
  hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
