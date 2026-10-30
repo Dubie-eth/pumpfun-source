@@ -7,6 +7,8 @@ packet and declare only a subset of its files, leaving the rest unhashed.
 
 import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -39,6 +41,17 @@ class RevalidateManifestLinkTests(unittest.TestCase):
         (self.packet / 'manifest.json').write_text(self.subset)
         result = rv.check_manifest(self.packet)
         self.assertEqual(result['status'], 'pass', result)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'POSIX FIFO control')
+    def test_fifo_manifest_is_rejected_without_reading(self):
+        os.mkfifo(self.packet / 'manifest.json')
+        command = [sys.executable, '-B', '-c',
+            'import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
+            'import revalidate_all as r; print(r.check_manifest(Path(sys.argv[2])))',
+            str(REPO / 'scripts'), str(self.packet)]
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn('not_a_file', completed.stdout)
 
     def test_symlinked_manifest_is_rejected(self):
         external = self.root / 'external-manifest.json'

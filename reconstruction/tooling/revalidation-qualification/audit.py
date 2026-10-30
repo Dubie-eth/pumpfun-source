@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 VERSION = "pump-revalidation-qualification-v1"
 FROZEN_SOURCE = "scripts/revalidate_all.py"
-FROZEN_SHA256 = "620a8b2be17a76900cf5e9109c6a95d3326671ef4de93fb3628098dba28720c0"
+FROZEN_SHA256 = "d61c061eeed02998023ec5edd049e5821a995e134b28857b62f8dc35af59642f"
 REPORT_MEMBERS = (
     "README.md",
     "failed.json",
@@ -364,6 +364,8 @@ def safe_manifest_check(frozen, packet):
         # The frozen parser keeps only the last occurrence of a JSON key.
         # Reject ambiguous declarations before delegating its format/hash checks.
         for path in frozen.manifest_paths(packet):
+            if frozen.linked(path) or not stat.S_ISREG(path.lstat().st_mode):
+                return {"status": "fail", "errors": ["manifest is not a regular file: " + path.name]}
             json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique_manifest_fields)
         result = frozen.check_manifest(packet)
         if result.get("status") == "pass" and not result.get("files_expected"):

@@ -10,6 +10,7 @@ strength of the external declaration.
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -59,6 +60,15 @@ class AuditManifestLinkTests(unittest.TestCase):
         (self.packet / "manifest.json").write_text(self.subset)
         row = self.run_adapter()
         self.assertEqual(row["overall"], "pass", row)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'POSIX FIFO control')
+    def test_verifier_replacing_manifest_with_fifo_cannot_block_postcheck(self):
+        (self.packet / 'manifest.json').write_text(self.subset)
+        (self.packet / 'verify.py').write_text('import os\nfrom pathlib import Path\np=Path(__file__).with_name("manifest.json")\np.unlink()\nos.mkfifo(p)\n')
+        row = self.run_adapter()
+        self.assertEqual(row['manifest_check']['status'], 'pass')
+        self.assertEqual(row['manifest_check_after']['status'], 'fail')
+        self.assertNotEqual(row['overall'], 'pass')
 
     def test_symlinked_manifest_fails_the_audit(self):
         external = self.root / "external-manifest.json"
