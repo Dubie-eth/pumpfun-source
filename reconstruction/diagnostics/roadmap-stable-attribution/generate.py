@@ -46,17 +46,22 @@ def trace_handler_attribution(elf, entries, forward, reverse):
 
 
 def generate(root, output):
-    root, output = Path(root).resolve(), Path(output).resolve()
+    root, output = Path(root).resolve(), Path(output).absolute()
     raw = (root / SOURCE).read_bytes()
     if hashlib.sha256(raw.replace(b'\r\n', b'\n')).hexdigest() != REVIEWED:
         raise ValueError('unreviewed roadmap source')
-    if output.exists():
+    if output.exists() or output.is_symlink():
         raise ValueError('output already exists; retain prior packets')
     sys.path.insert(0, str(root / 'scripts'))
     module = types.ModuleType('reviewed_roadmap')
     module.__file__ = str(root / SOURCE)
     exec(compile(raw, module.__file__, 'exec'), module.__dict__)
     module.trace_handler_attribution = trace_handler_attribution
+    bindings = {SOURCE: hashlib.sha256(raw).hexdigest(),
+                'adapter_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+    for info in module.PROGRAMS.values():
+        path = info['deployed']
+        bindings[path] = hashlib.sha256((root / path).read_bytes()).hexdigest()
     # Stage beside the destination and publish by rename, so a write failure
     # never leaves a partial packet at the destination: the destination check
     # above would otherwise block a retry at the same path, and the partial
@@ -76,17 +81,21 @@ def generate(root, output):
         raise FileExistsError('could not allocate a staging directory')
     try:
         module.generate_roadmap(stage)
-        bindings = {SOURCE: hashlib.sha256(raw).hexdigest(),
-                    'adapter_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
         (stage / 'attribution-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
         manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(stage.iterdir())
                     if p.is_file() and p.name != 'manifest.json'}
         (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
-        if output.exists():
-            raise ValueError('output already exists; retain prior packets')
-        stage.rename(output)
+        for name, digest in bindings.items():
+            path = Path(__file__) if name == 'adapter_sha256' else root / name
+            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                raise ValueError('input changed during attribution: ' + name)
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        from deep_disassembly import rename_directory
+        rename_directory(stage, output)
+        stage = None
     except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        if stage is not None:
+            shutil.rmtree(stage, ignore_errors=True)
         raise
 
 
