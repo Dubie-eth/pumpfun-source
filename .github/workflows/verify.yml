@@ -296,6 +296,7 @@ jobs:
               python -B reconstruction/harness/test_report_scorer_inputs.py
               python -B reconstruction/harness/test_match_oracle.py
               python -B reconstruction/harness/test_match_oracle_scoring_input_recheck.py
+              python -B reconstruction/harness/test_match_oracle_verdict_staging.py
               python -B reconstruction/harness/test_score_atomic_report.py
               python -B reconstruction/harness/test_coords_report_destination.py
               python -B reconstruction/harness/test_short_window_ranking.py
