@@ -206,7 +206,7 @@ def inspect_vendor(vendor: Path, controller: Path) -> dict[str, object]:
         actual = {
             path.relative_to(directory).as_posix()
             for path in directory.rglob("*")
-            if path.is_file() and path.name != ".cargo-checksum.json"
+            if (path.is_symlink() or not path.is_dir()) and path.name != ".cargo-checksum.json"
         }
         require(actual == set(data["files"]), f"vendor file set differs: {directory.name}")
         for name, digest in data["files"].items():
