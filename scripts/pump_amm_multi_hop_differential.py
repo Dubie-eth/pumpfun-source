@@ -1,5 +1,7 @@
 """Original AMM multi-hop observations with normally signed synthetic local state."""
 
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,pathlib,os
 
 _CALLER_CWD=pathlib.Path.cwd()
