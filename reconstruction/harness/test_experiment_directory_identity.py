@@ -53,5 +53,30 @@ class DirectoryIdentityTests(unittest.TestCase):
             self.assertTrue(run_trial(source, command, root / 'trial')['reused'])
 
 
+    def test_nested_directory_survives_ignored_contents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'source'
+            cache = source / 'nested' / '__pycache__'
+            cache.mkdir(parents=True)
+            noise = cache / 'ignored'
+            noise.write_text('first')
+            command = [sys.executable, '-c',
+                       'from pathlib import Path; import sys; '
+                       'p=Path(sys.argv[1], "nested"); '
+                       'sys.exit(0 if p.is_dir() and not list(p.iterdir()) else 1)', '{source}']
+            first = run_trial(source, command, root / 'trial')
+            self.assertEqual(first['status'], 'pass')
+            noise.write_text('changed ignored bytes')
+            self.assertTrue(run_trial(source, command, root / 'trial')['reused'])
+            noise.unlink()
+            cache.rmdir()
+            self.assertTrue(run_trial(source, command, root / 'trial')['reused'])
+            (source / 'nested').rmdir()
+            final = run_trial(source, command, root / 'trial')
+            self.assertFalse(final['reused'])
+            self.assertEqual(final['status'], 'fail')
+
+
 if __name__ == '__main__':
     unittest.main()
