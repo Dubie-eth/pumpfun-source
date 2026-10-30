@@ -2,7 +2,28 @@
 
 Target `0x22a10` `admin_cto::execute` (`programs/pump/src/creator/admin_cto.rs`), pinned at 27,400 B.
 Scratch: `~/.cache/pumpfun-reconstruction/lanes/w13a29-cto-spillslot109/` (not in git).
-Ledger keys: `0x22a10-w13-k1-spillslot109-*`, `0x22a10-w13-d81d0f5-spillslot109-*`.
+Ledger keys: `0x22a10-w13-k1-spillslot109-*`, `0x22a10-w13-d81d0f5-spillslot109-*`, `0x22a10-w13-dfc3693-spillslot109-*`.
+
+## Result (landable)
+
+| main | before | after | bytes | normalized / raw | losses |
+| --- | ---: | ---: | ---: | --- | --- |
+| dfc3693 | 0.59916 / 3,313 | **0.61833** / 3,306 | 27,400 | 1034 / 1034 | none |
+
+Runtime differential: 363 cases, 0 mismatches. Unstripped sha16 `2bc480ebebb23f98`.
+
+Source change (two lines, line count unchanged):
+1. `transfer_creator_fees_to_pump_v2`: the `TransferCreatorFeesToPumpV2` literal in the original's clone order
+   `payer, quote_mint, token_program, system_program, associated_token_program, ...` with every field a plain
+   `.to_account_info()`, except the two `pump_amm` clones (the `CpiContext::new` program and the `program` field), which
+   are hand-written `AccountInfo{key,owner,lamports.clone(),data.clone(),..}` (owner read before the Rc increments).
+2. The event's `is_holder_reward` read back from the curve (`a.bonding_curve.is_holder_reward`, w13a10's `m_ev_hr_curve`),
+   the -8 B size companion.
+
+How it was found: payer-first all-plain base `P0` (27,416 B, 0.5879 on 06e6bb8+) captured as raw IR, then w13a21's
+`fieldscan.py --pairs 6` llc oracle over it: `O1878+O2404` (owner early in both pump_amm clones) = 0.61114 at 27,400,
+and the source build matched the oracle exactly (s2 = 0.61114). Main's hill-climbed literal (system_program first with
+key-late copies) does not compose with payer-first (q0 0.56578 at 27,440); the faithful order wants its own copy forms.
 
 ## Spill-slot map (k1 = #3011, 0.56291)
 
