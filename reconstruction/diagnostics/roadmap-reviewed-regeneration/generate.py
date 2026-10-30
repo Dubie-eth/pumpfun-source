@@ -5,7 +5,9 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import sys
+import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 ARCHIVE = 'research/tooling-roadmap-call-classification-20261029/proof.py'
@@ -39,11 +41,34 @@ def generate(root, output):
     for name in proof.PROGRAMS:
         path = f'evidence/original/{name}/deployed.so'
         bindings[path] = hashlib.sha256((root / path).read_bytes()).hexdigest()
-    output.mkdir(parents=True, exist_ok=False)
-    (output / 'observations.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
-    (output / 'inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
-    manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(output.iterdir())}
-    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+    # Stage beside the destination and publish by rename, so a write failure
+    # never leaves a partial packet at the destination: the destination check
+    # above would otherwise block a retry at the same path, and the partial
+    # directory would masquerade as a result although it has no manifest.
+    # The stage is an ordinary mkdir, so it keeps the caller's umask.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = None
+    for _ in range(8):
+        candidate = output.parent / ('.' + output.name + '.staging-' + uuid.uuid4().hex)
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        stage = candidate
+        break
+    if stage is None:
+        raise FileExistsError('could not allocate a staging directory')
+    try:
+        (stage / 'observations.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+        (stage / 'inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
+        manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(stage.iterdir())}
+        (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+        if output.exists():
+            raise ValueError('output already exists; retain prior results')
+        stage.rename(output)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
     return report['totals']
 
 
