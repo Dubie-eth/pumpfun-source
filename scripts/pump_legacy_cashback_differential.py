@@ -38,6 +38,6 @@ def main():
   a=h.run(case);b=h.run(case,args.candidate);diff=[k for k in ('error','before','accounts','events','inner','return_data') if a[k]!=b[k]]
   if diagnostics(a)!=diagnostics(b):diff.append('diagnostics')
   rows.append({'case':case,'original':a,'candidate':b,'different_fields':diff,'match':not diff})
- result={'scope':__doc__,'case_count':len(rows),'original_sha256':hashlib.sha256((ROOT/'evidence/original/pump/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(args.candidate.read_bytes()).hexdigest(),'script_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'cases':rows,'calibration':cal,'mismatches':[i for i,r in enumerate(rows) if r['different_fields']]}
+ result={'scope':__doc__,'case_count':len(rows),'original_sha256':hashlib.sha256((ROOT/'evidence/original/pump/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(h.pin_program(args.candidate).read_bytes()).hexdigest(),'script_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'cases':rows,'calibration':cal,'mismatches':[i for i,r in enumerate(rows) if r['different_fields']]}
  output.write(gzip.compress(json.dumps(result,indent=2).encode(),mtime=0));print(json.dumps({'cases':len(rows),'mismatches':result['mismatches']}));assert not result['mismatches']
 if __name__=='__main__':main()
