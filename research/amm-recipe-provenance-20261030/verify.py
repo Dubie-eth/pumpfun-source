@@ -82,6 +82,8 @@ def verify():
     commit = manifest['source_commit']
     if not re.fullmatch('[0-9a-f]{40}', commit):
         raise ValueError('source_commit must be an exact commit')
+    if git('cat-file', '-t', commit).strip() != b'commit':
+        raise ValueError('source_commit must identify a commit object')
     with tempfile.TemporaryDirectory(prefix='amm-recipe-') as temporary:
         source = Path(temporary) / 'source'
         materialize(commit, manifest['recipe_path'], source)

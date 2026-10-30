@@ -43,9 +43,9 @@ ID, regenerates the 69-file workspace there, and removes only that temporary
 directory. It does not read the working tree's recipe or AMM sources. It never invokes Cargo, a compiler, RPC, a VM, the target program,
 or the original ELF. It checks the recipe path and SHA-256 before executing
 exactly those verified Python source bytes, without an import bytecode cache.
-The three synthetic tests reject a mismatched source before its sentinel side
+The loader controls reject a mismatched source before its sentinel side
 effect, show a stale timestamp-matching `.pyc` cannot replace the verified
 source, and reject a symlinked recipe. A checkout missing the source commit
-fails closed.
+fails closed. Historical controls also stage the real pinned commit without reading current source bytes, reject altered input/workspace hashes, and reject a tree object used as a commit.
 The selected historical checkpoint cannot be recovered from this packet; it
 would require separately authenticated artifacts and their full verification.
