@@ -228,6 +228,7 @@ jobs:
               python -B reconstruction/harness/test_score_atomic_report.py
               python -B reconstruction/harness/test_coords_report_destination.py
               python -B reconstruction/harness/test_short_window_ranking.py
+              python -B -m unittest discover -s reconstruction/harness -p 'test_triage*.py'
               python -B reconstruction/harness/test_applicability_evidence_paths.py
               python -B reconstruction/harness/test_diagnostic_range_boundaries.py
               python -B reconstruction/harness/test_stack_access_isa.py
