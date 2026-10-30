@@ -126,7 +126,7 @@ class AmmTradePublicationTests(unittest.TestCase):
    if 'sweep' not in name:
     ancestry += ['scripts/pump_amm_trade_v2_differential.py','evidence/upstream/pump.json','evidence/original/pump_fees/deployed.so']
    if 'legacy_buy' in name or 'multi_hop' in name:ancestry += ['scripts/pump_amm_legacy_sell_differential.py']
-   if 'legacy' in name or 'multi_hop' in name:ancestry += ['evidence/dependencies/associated_token/deployed.so']
+   if any(part in name for part in ('legacy','multi_hop','sweep')):ancestry += ['evidence/dependencies/associated_token/deployed.so']
    if 'multi_hop' in name:ancestry += [CURVE,'evidence/original/pump/deployed.so']
    for index,relative in enumerate(dict.fromkeys((*common,'scripts/'+name,*ancestry))):
     for kind in ('direct','symlink','hardlink'):
