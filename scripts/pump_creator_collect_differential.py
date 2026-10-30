@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Offline normally signed creator collection differential fixtures."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import base64
 import argparse,json,pathlib,gzip,hashlib
 from solders.account import Account
