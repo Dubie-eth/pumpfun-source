@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Compare two recovered error messages using normally signed offline fixtures."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import hashlib
 import json
