@@ -13,7 +13,7 @@ Hooks (entry points `pump_link_rustc.sh`, `pump_link_lld.sh`, using the configur
 - RUSTC_WRAPPER: for the root cdylib only, append `-C linker=pump_link_lld.sh` (an untracked
   rustc option: object code and every dependency are unchanged), then run the next wrapper.
 - linker: reject response-file inputs, check the incoming script is the default one, swap in the
-  pinned script, write a receipt and a link map beside it, and exec the real rust-lld with otherwise
+  pinned script, write a receipt and a link map beside it, and run the real rust-lld until it exits with otherwise
   identical arguments.
 """
 import hashlib
@@ -132,9 +132,9 @@ def rustc_main(argv, env):
     os.execv(command[0], command)
 
 
-def lld_args(args, env, *, script_path=None, script_bytes=None):
+def lld_args(args, env, *, script_path=None, script_bytes=None, default_bytes=None):
     """Linker arguments with the default script replaced; raises unless exactly one default script."""
-    default = DEFAULT.read_text()
+    default = (DEFAULT.read_bytes() if default_bytes is None else default_bytes).decode('utf-8')
     raw = Path(env['PUMP_LINK_SCRIPT']).read_bytes() if script_bytes is None else script_bytes
     script = env['PUMP_LINK_SCRIPT'] if script_path is None else str(script_path)
     if hashlib.sha256(raw).hexdigest() != env['PUMP_LINK_SCRIPT_SHA256']:
@@ -162,15 +162,16 @@ def lld_args(args, env, *, script_path=None, script_bytes=None):
 
 def lld_main(argv, env):
     raw = Path(env['PUMP_LINK_SCRIPT']).read_bytes()
+    default = DEFAULT.read_bytes()
     # The mutable crate pathname is never forwarded to the linker. Keep the
     # private checked copy alive until the child exits, then remove it.
     with tempfile.TemporaryDirectory(prefix='pump-link-script-') as temporary:
         script = Path(temporary) / 'ordered.ld'
         script.write_bytes(raw)
-        args = lld_args(list(argv[1:]), env, script_path=script, script_bytes=raw)
+        args = lld_args(list(argv[1:]), env, script_path=script, script_bytes=raw, default_bytes=default)
         lld = env['PUMP_LINK_LLD']
         Path(env['PUMP_LINK_RECEIPT']).write_text(json.dumps({
             'script': env['PUMP_LINK_SCRIPT'], 'script_sha256': hashlib.sha256(raw).hexdigest(),
-            'default_script_sha256': sha(DEFAULT), 'lld': lld, 'lld_sha256': sha(lld),
+            'default_script_sha256': hashlib.sha256(default).hexdigest(), 'lld': lld, 'lld_sha256': sha(lld),
             'forwarded': args}, indent=1) + '\n', encoding='utf-8')
         return subprocess.run([lld, *args]).returncode

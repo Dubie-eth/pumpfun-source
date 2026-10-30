@@ -51,6 +51,7 @@ jobs:
             commands: |
               python -I -B tests/test_fastbuild_stage.py
               python -B reconstruction/harness/test_fastbuild_output_race.py
+              python -B reconstruction/harness/test_build_publication_boundaries.py
               python -B reconstruction/harness/test_fastbuild_library_name.py
               python -B reconstruction/harness/test_physical_source_wrapper.py
           - suite: admin-cto-call-report
