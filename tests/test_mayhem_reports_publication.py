@@ -112,4 +112,6 @@ for name in MayhemReportsPublicationTests.NAMES:
   if name in ('mayhem_buy_v2_differential','mayhem_sell_v2_differential','mayhem_pump_swap_differential'):c.ARGS[name]+=['--family','native']
   if name=='mayhem_pump_swap_differential':c.ARGS[name]+=['--instruction','buy_pump_swap']
 
+del c,name
+
 if __name__=='__main__':unittest.main()
