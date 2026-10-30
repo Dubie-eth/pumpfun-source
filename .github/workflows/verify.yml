@@ -149,6 +149,7 @@ jobs:
               python -B tests/test_migration_quote_reports_publication.py
               python -B tests/test_pump_trade_reports_publication.py
               python -B tests/test_pump_exact_quote_report_publication.py
+              python -B tests/test_pump_amm_config_reports_publication.py
               python -B tests/test_pump_amm_trade_reports_publication.py
               python -B scripts/test_validation_report_boundaries.py
               python -B tests/test_create_mayhem_normal_python.py
@@ -182,6 +183,7 @@ jobs:
               python -B scripts/test_mayhem_burn_sequence_optimization.py
               python -B scripts/test_pump_amm_report_encoding.py
               python -B scripts/test_fees_report_encoding.py
+              python -B scripts/test_surfpool_report_encoding.py
               python -B scripts/test_mayhem_report_encoding.py
               python -B scripts/test_mayhem_zero_creator_case.py
               python -B scripts/test_mayhem_synthetic_regression_recount.py
