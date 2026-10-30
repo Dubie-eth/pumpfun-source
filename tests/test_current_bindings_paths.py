@@ -1,11 +1,13 @@
 """Path-boundary regressions for the current binding verifier."""
 import hashlib
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import verify_current_bindings
@@ -33,7 +35,7 @@ class CurrentBindingsPathTests(unittest.TestCase):
             os.mkfifo(root / "input.py")
             script = """
 import importlib.util
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 
 spec = importlib.util.spec_from_file_location("verify_current_bindings", sys.argv[1])
@@ -69,7 +71,6 @@ else:
         self.assertEqual(key, "repro/pump/tokenkeg-two-curve-fortyeight/candidate.so")
         self.assertNotIn("\\", key)
         # The admission accepts exactly this spelling against a tracked set.
-        digest = "0" * 64
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             payload = root / key
@@ -80,6 +81,35 @@ else:
             checked, _ = verify_current_bindings.verify_maps(
                 root, {"candidate": {key: real_digest}}, {key})
             self.assertEqual(checked, 1)
+
+
+    def test_windows_candidate_key_uses_git_separators(self):
+        root = PureWindowsPath('C:/repository')
+        with patch.object(verify_current_bindings, 'ROOT', root):
+            key = verify_current_bindings.tracked_key(root / 'repro/package/candidate.so')
+        self.assertEqual(key, 'repro/package/candidate.so')
+
+    def test_actual_group_builder_uses_the_tracked_candidate_key(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / 'repro/package'; package.mkdir(parents=True)
+            source = {str(i): 'source' for i in range(36)}
+            documents = {
+                'source-harness-sha256.json': {'source': source, 'canonical_harness': {'a':'a','b':'b'},
+                    'static_and_saved_verifiers': {}, 'owned_documentation': {}},
+                'source-sha256.json': source,
+                'scratch-inputs-before.json': {'harness_sha256': {str(i):'h' for i in range(94)},
+                    'repository_fixture_snapshot_sha256': {str(i):'r' for i in range(28)}},
+                'build-helper-sha256.json': {'a':'a','b':'b','c':'c'},
+                'manifest-sha256.json': {'candidate.so': {'sha256':'candidate-digest'}},
+            }
+            for name, document in documents.items():
+                (package / name).write_text(json.dumps(document))
+            with patch.object(verify_current_bindings, 'ROOT', root), \
+                    patch.object(verify_current_bindings, 'tracked_key', wraps=verify_current_bindings.tracked_key) as key:
+                groups = verify_current_bindings.current_pump_groups(package)
+            key.assert_called_once_with(package / 'candidate.so')
+            self.assertEqual(groups['candidate'], {'repro/package/candidate.so':'candidate-digest'})
 
 
 if __name__ == "__main__":
