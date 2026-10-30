@@ -10,6 +10,8 @@ changes retain `patch -p2 --forward`. Rejects are reported and the part is skipp
 (the composition continues). The composed crate is built with fastbuild.py and scored.
 Output: SC/integ/<NAME>/{src, parts/<label>.patch, rejects/, report.json}
 Names must be fresh; an earlier result is never overwritten.
+Part labels must be unique ignoring case so their retained patch names remain
+distinct on case-insensitive filesystems.
 """
 import argparse, ast, json, os, shutil, subprocess, sys, re
 from pathlib import Path
@@ -156,13 +158,15 @@ def preflight(name, base, parts, overrides):
 
     def selections(values, kind):
         result = {}
+        folded = set()
         for value in values:
             if '=' not in value:
                 raise ValueError(f'{kind} must be LABEL=PATH')
             key, path = value.split('=', 1)
             label(key)
-            if key in result or not path:
+            if key.casefold() in folded or not path:
                 raise ValueError(f'duplicate label or empty path in {kind}: {key}')
+            folded.add(key.casefold())
             result[key] = Path(path)
         return result
 

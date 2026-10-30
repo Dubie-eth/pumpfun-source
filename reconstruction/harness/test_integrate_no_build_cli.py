@@ -136,6 +136,46 @@ class IntegrationScratchOverlapTests(unittest.TestCase):
             shutil.copyfile(HERE / name, harness / name)
         return harness / 'integrate.py'
 
+    @unittest.skipUnless(shutil.which('git'), 'requires real Git for the baseline reproduction')
+    def test_case_colliding_labels_preserve_separate_patch_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cli = self.stage_cli(root)
+            base, one, two = (crate(root / name) for name in ('base', 'one', 'two'))
+            (one / 'one.bin').write_bytes(b'')
+            (two / 'two.bin').write_bytes(b'')
+            before = [contents(path) for path in (base, one, two)]
+            result = subprocess.run(
+                [sys.executable, str(cli), '--no-build', '--name', 'trial',
+                 '--base-src', str(base), '--part', 'A=' + str(one), '--part', 'a=' + str(two)],
+                capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn('duplicate label', result.stderr)
+            self.assertFalse((root / 'reconstruction/integ/trial').exists())
+            self.assertEqual([contents(path) for path in (base, one, two)], before)
+
+    @unittest.skipUnless(shutil.which('git'), 'requires real Git patch application')
+    def test_distinct_labels_retain_both_applied_patches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cli = self.stage_cli(root)
+            base, one, two = (crate(root / name) for name in ('base', 'one', 'two'))
+            (one / 'one.bin').write_bytes(b'')
+            (two / 'two.bin').write_bytes(b'')
+            before = [contents(path) for path in (base, one, two)]
+            result = subprocess.run(
+                [sys.executable, str(cli), '--no-build', '--name', 'control',
+                 '--base-src', str(base), '--part', 'A=' + str(one), '--part', 'B=' + str(two)],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = root / 'reconstruction/integ/control'
+            report = json.loads((out / 'report.json').read_text())
+            self.assertEqual([part['status'] for part in report['parts']], ['applied', 'applied'])
+            self.assertIn('one.bin', (out / 'parts/A.patch').read_text())
+            self.assertIn('two.bin', (out / 'parts/B.patch').read_text())
+            self.assertEqual(contents(out / 'src'), {**before[0], 'one.bin': b'', 'two.bin': b''})
+            self.assertEqual([contents(path) for path in (base, one, two)], before)
+
     def test_scratch_overlaps_preserved_in_every_input_role(self):
         cases = [(role, relative) for role in ('base', 'part', 'derived')
                  for relative in ('unit/input', 'unit', '.')]
