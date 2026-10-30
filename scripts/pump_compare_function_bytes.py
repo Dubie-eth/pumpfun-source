@@ -5,6 +5,8 @@ Masks internal direct-call immediates and lddw values that point into an ELF
 section. Other constants, registers, branch offsets and instruction bytes must
 match. Raw equality and the masked operands are reported separately.
 """
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import csv
 import hashlib

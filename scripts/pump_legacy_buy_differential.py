@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Offline legacy buy recovery: normally signed synthetic transactions, captured dependencies."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,base64,hashlib,json,struct,gzip
 import pump_trade_fixture as f
 from pump_amm_reusable_harness import pin_program
