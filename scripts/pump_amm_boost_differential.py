@@ -27,7 +27,7 @@ def boost(candidate=None,overrides=None,fixture=False):
  return {'states':states,'error':str(r.err()) if fail else None,'logs':meta.logs(),'inner':json.loads(meta.to_json())['inner_instructions']}
 
 PUMP=Pubkey.from_string(json.load(open('evidence/upstream/pump.json', encoding='utf-8'))['address']);ATA=Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-p=json.load(open('research/imported-lab/analysis/pump_fun/curve-migrate-v2-signed-surfpool.json'))
+p=json.load(open('research/imported-lab/analysis/pump_fun/curve-migrate-v2-signed-surfpool.json',encoding='utf-8'))
 def run_migration(candidate=None,label='missing_boost',overrides=None):
  row=p[label];tx=Transaction.from_bytes(base64.b64decode(row['transaction_base64']));assert all(tx.verify_with_results())
  vm=LiteSVM().with_transaction_history(0).with_blockhash_check(False).with_log_bytes_limit(None);vm.set_clock(Clock(100,1234567890,0,0,1234567890))

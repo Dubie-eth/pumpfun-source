@@ -69,11 +69,11 @@ def route2(sell=False):
 
 """Synthetic local curve routes executed through the original AMM's actual CPI signer."""
 
-x=json.load(open(ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json'));s=x['steps'][4];keys={k:Pubkey.from_string(v)for k,v in x['accounts'].items()}
+x=json.load(open(ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json',encoding='utf-8'));s=x['steps'][4];keys={k:Pubkey.from_string(v)for k,v in x['accounts'].items()}
 
-x=json.load(open(ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json'));s=x['steps'][4];keys={k:Pubkey.from_string(v)for k,v in x['accounts'].items()}
+x=json.load(open(ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json',encoding='utf-8'));s=x['steps'][4];keys={k:Pubkey.from_string(v)for k,v in x['accounts'].items()}
 
-x=json.load(open(ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json'));s=x['steps'][4];keys={k:Pubkey.from_string(v)for k,v in x['accounts'].items()}
+x=json.load(open(ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json',encoding='utf-8'));s=x['steps'][4];keys={k:Pubkey.from_string(v)for k,v in x['accounts'].items()}
 
 CURVE=keys['curve'];CB=keys['curve_base'];CM=keys['mint'];CQ=Pubkey.find_program_address([bytes(CURVE),bytes(TOKEN),bytes(quote)],ATA)[0];CU=Pubkey.from_bytes(bytes([83])*32)
 
