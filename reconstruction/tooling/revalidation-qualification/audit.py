@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 VERSION = "pump-revalidation-qualification-v1"
 FROZEN_SOURCE = "scripts/revalidate_all.py"
-FROZEN_SHA256 = "ca9f2245dcf0dffb334546bef3d0209d69ae866c1c355d9563bfe18d64a1c70a"
+FROZEN_SHA256 = "87b658821f577b9ef27abea7cf3d5d1aff2d898f46234d6d77d08ed29c01cdf0"
 REPORT_MEMBERS = (
     "README.md",
     "failed.json",

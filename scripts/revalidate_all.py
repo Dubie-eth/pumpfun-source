@@ -168,6 +168,8 @@ def run_verify(packet_dir):
     verify_path = packet_dir / "verify.py"
     if not verify_path.exists():
         return {"status": "no_verify_script", "output": ""}
+    if linked(verify_path) or not stat.S_ISREG(verify_path.lstat().st_mode):
+        return {"status": "fail", "output": "verify.py is not a regular file"}
 
     command = [sys.executable, "-B", str(verify_path)]
     try:
