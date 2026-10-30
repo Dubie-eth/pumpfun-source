@@ -187,6 +187,14 @@ def required_arguments(stderr):
 
 def run_verify(packet_dir):
     """Run the packet's verify.py script."""
+    try:
+        root_is_link = linked(packet_dir)
+    except FileNotFoundError:
+        return {"status": "fail", "output": "packet root is not a real directory"}
+    except OSError as error:
+        return {"status": "fail", "output": "packet root is unreadable: " + str(error)}
+    if root_is_link:
+        return {"status": "fail", "output": "packet root is not a real directory"}
     verify_path = packet_dir / "verify.py"
     try:
         metadata = verify_path.lstat()
@@ -476,7 +484,7 @@ def main():
     start_time = time.time()
 
     for i, packet in enumerate(packets):
-        has_verify = (packet / "verify.py").exists()
+        has_verify = os.path.lexists(packet / "verify.py")
         has_manifest = bool(manifest_paths(packet))
 
         if not has_verify and not has_manifest:

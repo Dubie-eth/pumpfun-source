@@ -7,7 +7,7 @@ import sys
 import types
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVED_SHA256 = '5d00aedbccf78c2a00780ada287d4ae2c2cb649d88da7dfc796c843803c9d3b2'
+ARCHIVED_SHA256 = '08070b3ea6c8e5627a85c8d53bd63fc6fc25b2534f1da9fd82e0adce6a59013f'
 
 
 def load_inventory(root=ROOT):
