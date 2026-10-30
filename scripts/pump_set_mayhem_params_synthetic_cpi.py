@@ -6,8 +6,7 @@ own `sol-vault` PDA. It proves target-body behavior only under that constructed
 caller. It says nothing about whether deployed Mayhem exposes such a route.
 """
 if not __debug__:
-    raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
-
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import base64
 import gzip
