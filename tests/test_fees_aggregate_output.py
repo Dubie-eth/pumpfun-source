@@ -36,6 +36,7 @@ class FeesAggregateOutputTests(unittest.TestCase):
         for _, name in suites:
             (scripts / name).write_text(CHILD)
         for relative in (
+            'programs/pump-fees/unused-source-input.rs',
             'evidence/original/pump_fees/deployed.so',
             'evidence/dependencies/donation_relay/deployed.so',
             'research/fees-query-inputs/quote-selector-cases.json.gz',
@@ -82,7 +83,8 @@ class FeesAggregateOutputTests(unittest.TestCase):
             root = Path(tmp)
             candidate = self.fixture(root)
             for relative in (
-                'evidence/original/pump_fees/deployed.so',
+                'programs/pump-fees/unused-source-input.rs',
+            'evidence/original/pump_fees/deployed.so',
                 'evidence/dependencies/donation_relay/deployed.so',
                 'scripts/fees_admin_differential.py',
                 'research/fees-query-inputs/quote-selector-cases.json.gz',
