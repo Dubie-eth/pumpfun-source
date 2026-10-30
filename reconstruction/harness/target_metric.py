@@ -127,7 +127,12 @@ def main(argv=None):
     if missing:
         ap.error('unknown original windows: ' + ', '.join(missing))
     cand = Cand(a.candidate)
-    rows = [row for start in starts for row in measure_window(windows[start], cand, pattern, a.top, a.slots)]
+    rows = []
+    for start in starts:
+        measured = measure_window(windows[start], cand, pattern, a.top, a.slots)
+        if pattern is None and not measured:
+            ap.error(f'no candidate function for window {start:#x} in the ranked search scope')
+        rows.extend(measured)
     if pattern is not None and not rows:
         ap.error('explicit --sym did not select any candidate function')
     if a.json:
