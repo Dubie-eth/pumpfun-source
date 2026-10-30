@@ -97,6 +97,7 @@ jobs:
               python -B tests/test_mayhem_differential_pinned_image.py
               python -B tests/test_aggregate_pinned_image.py
               python -B tests/test_pump_validators_pinned_image.py
+              python -B tests/test_pump_exact_quote_pinned_image.py
               python -B tests/test_create_mayhem_candidate_pair.py
               python -B tests/test_mayhem_trade_normal_python.py
               python -B tests/test_fees_donation_create_pinned_image.py
@@ -191,6 +192,7 @@ jobs:
               python -B scripts/test_prepare_pump_nested_runtime_publication.py
               python -B scripts/test_prepare_fees_withdraw_runtime_publication.py
               python -B scripts/test_current673_macos_archive_publication.py
+              python -B scripts/test_current673_candidate_download_publication.py
               python -B scripts/test_pump_strict_ordered_logs_output.py
               python -B reconstruction/harness/test_experiment_post_run_errors.py
               python -B reconstruction/harness/test_experiment_root_target.py
@@ -230,6 +232,7 @@ jobs:
               python -B scripts/test_pump_fee_sweep_encoding.py
               python -B scripts/test_pump_creator_collect_encoding.py
               python -B scripts/test_pump_surfpool_optimized_mode.py
+              python -B scripts/test_surfpool_recording_vm.py
           # Packets that pin the digest of a reviewed tool snapshot or of its output. They fail
           # by design when the bound tool changes, until the packet is re-reviewed and re-bound;
           # kept apart so a stale binding does not stop the rest of the evidence suite.
