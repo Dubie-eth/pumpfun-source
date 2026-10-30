@@ -82,8 +82,7 @@ def panic_messages(result):
 
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);a=ap.parse_args()
- publisher=PumpReport(a.output,R,a.candidate,__file__,extra_inputs=[
-  R/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json'])
+ publisher=PumpReport(a.output,R,a.candidate,__file__,extra_inputs=f.REPORT_INPUTS)
  rows=[]
  for c in cases():
   o=run(c);r={'case':c,'original':o}

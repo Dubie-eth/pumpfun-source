@@ -26,3 +26,8 @@ mismatches).
 Limits: no full 44-suite corpus run is repeated here. The aggregate always uses
 fresh temporary outputs, so this protection matters for standalone runs.
 macOS arm64, Python 3.14.3.
+
+Review follow-up: the publisher now also protects the Token Metadata and Mayhem
+program inputs for create, and the complete `pump_trade_fixture.REPORT_INPUTS`
+set for cashback, including capture metadata. The original migration did not
+protect those paths. The proposal hashes name this repaired version.

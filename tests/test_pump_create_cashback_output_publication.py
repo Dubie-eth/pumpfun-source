@@ -1,50 +1,19 @@
-"""The creation and cashback differentials must not replace their own inputs."""
-from pathlib import Path
-import shutil
-import subprocess
-import sys
-import tempfile
+"""Real create/cashback programs preserve every consumed file during publication."""
 import unittest
+from publication_cli_support import PublicationCase
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / 'scripts'
-ORIGINAL = ROOT / 'evidence/original/pump/deployed.so'
-NAMES = ('pump_create_differential.py', 'pump_cashback_differential.py')
+class CreateCashbackPublicationTests(PublicationCase,unittest.TestCase):
+ NAMES=('pump_create_differential','pump_cashback_differential')
+ PROGRAM='evidence/original/pump/deployed.so'
+ COMMON=('evidence/upstream/pump.json',PROGRAM)
+ CREATE=(*COMMON,'research/imported-lab/analysis/pump_fun/config-snapshot.json',
+         'evidence/original/mayhem/deployed.so',*(f'evidence/dependencies/{n}/deployed.so' for n in ('spl_token','spl_token_2022','associated_token','token_metadata')))
+ CASHBACK=(*COMMON,'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json',
+           *(f'evidence/{group}/{name}/{file}' for group,names in [('original',('pump','pump_fees')),('dependencies',('spl_token','spl_token_2022','associated_token'))] for name in names for file in ('capture.json','deployed.so')))
+ DATA=tuple(dict.fromkeys((*CREATE,*CASHBACK)))
+ INPUTS={'pump_create_differential':CREATE,'pump_cashback_differential':CASHBACK}
+ HELPERS={'pump_create_differential':('pump_amm_reusable_harness',), 'pump_cashback_differential':('pump_amm_reusable_harness','pump_trade_fixture')}
+ EXPECTED={'pump_create_differential':87,'pump_cashback_differential':283}
+ LATE_INPUT={'pump_create_differential':'evidence/dependencies/token_metadata/deployed.so','pump_cashback_differential':'evidence/dependencies/spl_token/capture.json'}
 
-
-class PumpReportPublicationTests(unittest.TestCase):
-    def invoke(self, name, candidate, output):
-        return subprocess.run(
-            [sys.executable, '-B', str(SCRIPTS / name),
-             '--candidate', str(candidate), '--output', str(output)],
-            cwd=ROOT, capture_output=True, text=True, timeout=120)
-
-    def fixture(self, root):
-        candidate = root / 'candidate.so'
-        shutil.copyfile(ORIGINAL, candidate)
-        return candidate
-
-    def test_output_aliasing_the_candidate_is_rejected(self):
-        for name in NAMES:
-            with self.subTest(script=name), tempfile.TemporaryDirectory() as temporary:
-                candidate = self.fixture(Path(temporary))
-                before = candidate.read_bytes()
-                result = self.invoke(name, candidate, candidate)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn('report output aliases an input', result.stderr)
-                self.assertEqual(candidate.read_bytes(), before)
-
-    def test_normal_output_is_still_published(self):
-        for name in NAMES:
-            with self.subTest(script=name), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                candidate = self.fixture(root)
-                output = root / 'report.json.gz'
-                result = self.invoke(name, candidate, output)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(output.read_bytes()[:2], b'\x1f\x8b')
-                self.assertEqual(candidate.read_bytes(), ORIGINAL.read_bytes())
-
-
-if __name__ == '__main__':
-    unittest.main()
+if __name__=='__main__':unittest.main()

@@ -86,7 +86,7 @@ class PublicationCase:
 
  def invoke(self,name,mode='bounded',output=None,cwd=None):
   env=dict(os.environ);env.pop('PYTHONOPTIMIZE',None)
-  options={'args':self.ARGS.get(name,[]),'late_input':self.LATE_INPUT or self.PROGRAM}
+  options={'args':self.ARGS.get(name,[]),'late_input':(self.LATE_INPUT.get(name) if isinstance(self.LATE_INPUT,dict) else self.LATE_INPUT) or self.PROGRAM}
   return subprocess.run([sys.executable,'-B','-c',DRIVER,str(self.root),name,mode,str(output or self.output),json.dumps(options)],cwd=cwd or self.root,env=env,text=True,capture_output=True,timeout=300)
 
  def report(self):
@@ -104,7 +104,7 @@ class PublicationCase:
 
  def test_all_input_aliases(self):
   for name in self.NAMES:
-   for relative in (self.PROGRAM,'candidate.so',*self.DATA,*('scripts/'+x+'.py' for x in (name,*(self.HELPERS.get(name,()) if isinstance(self.HELPERS,dict) else self.HELPERS),'pump_differential_output'))):
+   for relative in (self.PROGRAM,'candidate.so',*getattr(self,'INPUTS',{}).get(name,self.DATA),*('scripts/'+x+'.py' for x in (name,*(self.HELPERS.get(name,()) if isinstance(self.HELPERS,dict) else self.HELPERS),'pump_differential_output'))):
     for kind in ('direct','symlink','hardlink'):
      with self.subTest(script=name,input=relative,kind=kind):
       source=self.root/relative;alias=self.root/'alias-output';alias.unlink(missing_ok=True)
@@ -127,7 +127,7 @@ class PublicationCase:
      self.assertEqual(json.loads((self.root/'execution.json').read_bytes())['selected'],2)
      if mode=='late':
       self.assertNotEqual(result.returncode,0);self.assertIn('report output aliases an input',result.stderr)
-      p=self.root/(self.LATE_INPUT or self.PROGRAM);self.assertEqual(p.read_bytes(),self.inputs[p])
+      p=self.root/((self.LATE_INPUT.get(name) if isinstance(self.LATE_INPUT,dict) else self.LATE_INPUT) or self.PROGRAM);self.assertEqual(p.read_bytes(),self.inputs[p])
      elif mode=='failure':
       self.assertNotEqual(result.returncode,0);self.assertIn('controlled fsync failure',result.stderr)
       self.assertEqual(self.output.read_bytes(),b'prior receipt')

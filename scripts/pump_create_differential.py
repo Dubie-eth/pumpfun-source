@@ -75,7 +75,7 @@ def cases():
  return out
 def main():
  p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
- publisher=PumpReport(a.output,ROOT,a.candidate,__file__)
+ publisher=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=[ROOT/'evidence/dependencies/token_metadata/deployed.so',ROOT/'evidence/original/mayhem/deployed.so'])
  rows=[];bad=[]
  for c in cases():
   x=run(c);y=run(c,a.candidate) if a.candidate else None;diff=[k for k in ['before','after','error','events','inner','return'] if y is not None and x[k]!=y[k]];rows.append({'case':c,'original':x,'candidate':y,'diff':diff})
