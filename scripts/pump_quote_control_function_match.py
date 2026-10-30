@@ -39,7 +39,8 @@ def protect_report_output(output, inputs, objdump):
         return
     destination = pathlib.Path(output)
     tool = resolve_objdump(objdump)
-    for value in [*inputs, pathlib.Path(__file__), pathlib.Path(tool)]:
+    for value in [*inputs, pathlib.Path(__file__), pathlib.Path(tool),
+                  pathlib.Path(instruction_boundaries.__code__.co_filename)]:
         source = pathlib.Path(value)
         if (destination.resolve() == source.resolve()
                 or (destination.exists() and source.exists() and destination.samefile(source))):

@@ -131,6 +131,15 @@ class FunctionInstructionBoundaryTests(unittest.TestCase):
             matcher.function_body(image, self.sections, 0x1000, 16)
 
 
+class BoundaryHelperProtectionTests(unittest.TestCase):
+    def test_report_cannot_replace_the_logical_instruction_reader(self):
+        helper = Path(matcher.instruction_boundaries.__code__.co_filename)
+        before = helper.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'aliases an input'):
+            matcher.protect_report_output(helper, [], 'not-executed')
+        self.assertEqual(helper.read_bytes(), before)
+
+
 class SyntheticMainTests(unittest.TestCase):
     def test_main_keeps_json_schema_and_reports_overlapping_raw_match(self):
         calls = [slot(0x85, 1, immediate=immediate) for immediate in (10, 20, 30)]
