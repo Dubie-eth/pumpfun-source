@@ -87,7 +87,8 @@ def execute(binary, instruction, arg, mutation):
 
 
 p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--source-directory',type=pathlib.Path,default=ROOT/'programs/pump');p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
-report_inputs = [path for folder in (ROOT/"evidence", a.source_directory)
+report_roots = (ROOT/"evidence", a.source_directory)
+report_inputs = [report_roots[1]] + [path for folder in report_roots
                  for path in folder.rglob("*") if path.is_file()]
 report_inputs.append(ROOT/"research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json")
 report_output = PumpReport(a.output, ROOT, a.candidate, __file__, extra_inputs=report_inputs)

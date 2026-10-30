@@ -33,9 +33,6 @@ class ValidationReportTests(unittest.TestCase):
                          'research/imported-lab/analysis/pump_fun/config-snapshot.json',
                          'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json']:
             dest=cls.fixture/relative;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/relative,dest)
-        # The checkout has no generated constant-product report. Use a minimal
-        # test-only report; the validators still execute their fixed VM cases.
-        math=cls.fixture/'repro/pump/constant-product-differential.json';math.parent.mkdir(parents=True);math.write_text('{"cases":[]}')
         crate=cls.fixture/'programs/pump';(crate/'src').mkdir(parents=True)
         (crate/'src/lib.rs').write_text('// temporary source receipt fixture\n')
 
@@ -62,6 +59,15 @@ class ValidationReportTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode,0);self.assertIn('aliases',result.stderr)
                     self.assertEqual(protected.read_bytes(),before)
 
+    def test_new_report_cannot_be_created_inside_source_tree(self):
+        for name in SCRIPTS:
+            with self.subTest(script=name):
+                output=self.fixture/'programs/pump'/('output-'+name+'.rs')
+                result=self.invoke(name,ROOT/'evidence/original/pump/deployed.so',output)
+                self.assertNotEqual(result.returncode,0)
+                self.assertIn('aliases',result.stderr)
+                self.assertFalse(output.exists())
+
     def test_nested_report_controls(self):
         for name in SCRIPTS:
             with self.subTest(script=name),tempfile.TemporaryDirectory() as temp:
@@ -70,6 +76,29 @@ class ValidationReportTests(unittest.TestCase):
                 self.assertEqual(result.returncode,0,result.stderr)
                 report=json.loads(output.read_text());self.assertGreater(report['case_count'],0);self.assertEqual(report['mismatches'],[])
                 self.assertEqual(hashlib.sha256(candidate.read_bytes()).hexdigest(),before)
+    def test_publication_failure_preserves_prior_report(self):
+        driver = r'''
+import sys,runpy
+from pathlib import Path
+script=sys.argv.pop(1)
+sys.path.insert(0,str(Path(script).parent))
+import pump_differential_output
+def fail(*args): raise OSError('controlled report failure')
+pump_differential_output.os.replace=fail
+sys.argv[0]=script
+runpy.run_path(script,run_name='__main__')
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary)/'report.json';output.write_bytes(b'previous complete report')
+            script=self.fixture/'scripts/pump_validate_admin.py'
+            result=subprocess.run([sys.executable,'-B','-c',driver,str(script),'--candidate',
+                                   str(ROOT/'evidence/original/pump/deployed.so'),'--output',str(output)],
+                                  capture_output=True,text=True,timeout=60)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('controlled report failure',result.stderr)
+            self.assertEqual(output.read_bytes(),b'previous complete report')
+            self.assertEqual(list(output.parent.glob('.report.json.*')),[])
+
     def test_administrative_mismatch_exit_and_gzip_publication(self):
         for name in SCRIPTS[:2]:
             with self.subTest(script=name),tempfile.TemporaryDirectory() as temp:
