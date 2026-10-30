@@ -55,8 +55,9 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
             '--output', str(output),
         ]
         with mock.patch.object(sys, 'argv', argv), \
-                mock.patch.object(runner, 'subprocess') as process:
-            process.run.side_effect = run_suite
+                mock.patch.object(runner, 'run_compiler') as compiler:
+            compiler.side_effect = (
+                lambda command, **kwargs: (run_suite(command, **kwargs), False))
             return runner.main()
 
     def result(self, candidate, original, name):
