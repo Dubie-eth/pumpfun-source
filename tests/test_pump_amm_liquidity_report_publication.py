@@ -16,12 +16,13 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 NAMES=('pump_amm_liquidity_differential.py',)
-HELPERS=('pump_amm_admin_differential.py','pump_amm_reusable_harness.py','pump_differential_output.py')
+HELPERS=('pump_amm_admin_differential.py','pump_amm_reusable_harness.py','pump_differential_output.py',
+         'pump_amm_trade_v2_differential.py','pump_amm_sweep_differential.py')
 TRADE='research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json'
 CONFIG='research/imported-lab/analysis/pump_fun/config-snapshot.json'
-DATA=(TRADE,CONFIG,'evidence/upstream/pump_amm.json','evidence/original/pump_amm/deployed.so',
+DATA=(TRADE,CONFIG,'evidence/upstream/pump.json','evidence/upstream/pump_amm.json','evidence/original/pump_amm/deployed.so',
       'evidence/original/pump_fees/deployed.so','evidence/dependencies/spl_token/deployed.so',
-      'evidence/dependencies/spl_token_2022/deployed.so')
+      'evidence/dependencies/spl_token_2022/deployed.so','evidence/dependencies/associated_token/deployed.so')
 DRIVER=r'''
 import ast,json,os,runpy,shutil,sys
 from pathlib import Path
@@ -87,13 +88,34 @@ class AmmLiquidityPublicationTests(unittest.TestCase):
  def reset(self):
   for path,raw in self.inputs.items():path.write_bytes(raw)
 
- def invoke(self,name,mode='normal',output=None):
+ def invoke(self,name,mode='normal',output=None,cwd=None):
   env=dict(os.environ);env.pop('PYTHONOPTIMIZE',None)
   return subprocess.run([sys.executable,'-B','-c',DRIVER,str(self.root),name,mode,str(output or self.output)],
-    cwd=self.root,env=env,capture_output=True,text=True,timeout=180)
+    cwd=cwd or self.root,env=env,capture_output=True,text=True,timeout=180)
 
  def control(self):return json.loads((self.root/'executions.json').read_bytes())
  def report(self):return json.loads(self.output.read_bytes())
+
+ def test_actual_external_cwd_fixtures_are_protected(self):
+  caller=self.root/'external-caller'
+  for relative in (TRADE,'evidence/upstream/pump.json'):
+   fixture=caller/relative;fixture.parent.mkdir(parents=True,exist_ok=True)
+   fixture.write_bytes(self.inputs[self.root/relative])
+  for script in (NAMES[0],'pump_amm_trade_v2_differential.py','pump_amm_sweep_differential.py'):
+   targets=(TRADE,'evidence/upstream/pump.json') if 'trade_v2' in script else (TRADE,)
+   for relative in targets:
+    fixture=caller/relative
+    for kind in ('direct','symlink','hardlink'):
+     with self.subTest(script=script,fixture=relative,kind=kind):
+      output=fixture if kind=='direct' else caller/(script+relative.replace('/','-')+kind)
+      if kind=='symlink':output.symlink_to(fixture)
+      if kind=='hardlink':os.link(fixture,output)
+      result=self.invoke(script,output=output,cwd=caller)
+      self.assertNotEqual(result.returncode,0);self.assertIn('report output aliases an input',result.stderr)
+      self.assertEqual(fixture.read_bytes(),self.inputs[self.root/relative]);self.assertEqual(self.control()['pairs'],0)
+   result=self.invoke(script,cwd=caller)
+   self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+   self.assertEqual(self.report()['case_count'],2);self.assertEqual(self.report()['mismatches'],[])
 
  def test_full_liquidity_corpus_publishes_without_mismatches(self):
   summary={}

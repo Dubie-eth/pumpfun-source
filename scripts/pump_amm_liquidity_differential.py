@@ -7,7 +7,8 @@ from pump_amm_admin_differential import *
 from pump_amm_reusable_harness import acquire_harness, pin_program
 from pump_differential_output import PumpReport
 TOKEN=Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');TOKEN22=Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
-f=json.load(open('research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json'));pool=Pubkey.from_string(f['pool']);poolraw=bytearray(base64.b64decode(f['accounts']['pool']['data_base64']));lp=Pubkey.from_bytes(bytes(poolraw[107:139]));supply=struct.unpack_from('<Q',poolraw,203)[0]
+TRADE_FIXTURE_PATH=pathlib.Path('research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json').resolve()
+f=json.load(open(TRADE_FIXTURE_PATH));pool=Pubkey.from_string(f['pool']);poolraw=bytearray(base64.b64decode(f['accounts']['pool']['data_base64']));lp=Pubkey.from_bytes(bytes(poolraw[107:139]));supply=struct.unpack_from('<Q',poolraw,203)[0]
 base=Pubkey.from_string(f['keys']['base_mint']);quote=Pubkey.from_string(f['keys']['quote_mint']);vaultbase=Pubkey.from_string(f['keys']['pool_base_token_account']);vaultquote=Pubkey.from_string(f['keys']['pool_quote_token_account'])
 userbase=Pubkey.from_bytes(bytes([70])*32);userquote=Pubkey.from_bytes(bytes([71])*32);userlp=Pubkey.from_bytes(bytes([72])*32)
 def token(mint,owner,amount,native=False):
@@ -64,7 +65,7 @@ def meta_mutation(index,kind):
  return apply
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[TRADE_FIXTURE_PATH]);rows=[]
  def test(name,label,**kwargs):
   parameters=dict(amount=1000000,maxbase=0 if name=='withdraw' else 2**64-1,maxquote=0 if name=='withdraw' else 2**64-1);parameters.update(kwargs)
   x=run(name,**parameters);y=run(name,candidate=args.candidate,**parameters)
