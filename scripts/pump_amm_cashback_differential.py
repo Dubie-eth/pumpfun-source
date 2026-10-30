@@ -1,3 +1,5 @@
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,struct,json,base64,pathlib,hashlib
 sys.path.insert(0,'scripts')
 from pump_amm_liquidity_differential import *

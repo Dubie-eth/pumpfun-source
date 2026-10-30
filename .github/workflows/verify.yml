@@ -106,6 +106,9 @@ jobs:
               python -B tests/test_fees_social_claim_pinned_image.py
               python -B tests/test_fees_donation_crank_pinned_image.py
               python -B tests/test_fees_differentials_normal_python.py
+              python -B tests/test_amm_differentials_normal_python.py
+              python -B tests/test_pump_differentials_normal_python.py
+              python -B tests/test_pump_probes_normal_python.py
               python -B tests/test_create_mayhem_normal_python.py
               python -B tests/test_two_curve_optimization_guard.py
               python -O -B tests/test_two_curve_optimization_guard.py
@@ -149,6 +152,7 @@ jobs:
               python -B scripts/test_pump_differential_optimized_mode.py
               python -B scripts/test_pump_validate_constant_product_optimization.py
               python -B scripts/test_pump_with_captured_loader_paths.py
+              python -B scripts/test_pump_with_captured_loader_input_hashes.py
               python -B tests/test_fees_external_codec_pinned_image.py
               python -B tests/test_fees_error_messages_pinned_image.py
               python -B scripts/test_pump_validate_parallel.py
@@ -178,6 +182,8 @@ jobs:
               python -B scripts/test_donation_relay_oracle_optimization.py
               python -B tests/test_claim_token_incentives_pinned_image.py
               python -B tests/test_pump_admin_token_incentives_pinned_image.py
+              python -B tests/test_pump_admin_cto_pinned_image.py
+              python -B tests/test_pump_set_mayhem_virtual_params_pinned_image.py
               python -B -X utf8 tests/test_dispatch_idl_encoding.py
               python -B tests/test_local_validation_idl_encoding.py
               python -B tests/test_claim_token_incentives_idl_encoding.py
@@ -191,7 +197,9 @@ jobs:
               python -B reconstruction/harness/test_score_symbol_admission.py
               python -B reconstruction/pump-main/test_ledger_negative_limit.py
               python -B reconstruction/diagnostics/census-portability/test_output_guard.py
+              python -B reconstruction/harness/test_census_argument_constants.py
               python -B reconstruction/harness/test_experiment_declared_name.py
+              python -B reconstruction/harness/test_experiment_executable_snapshot.py
               python -B reconstruction/harness/test_experiment_worktree_source.py
               python -B reconstruction/harness/test_experiment_matrix_overlap.py
               python -B reconstruction/harness/test_bisect_membership.py
@@ -199,6 +207,7 @@ jobs:
               python -B reconstruction/harness/test_minimize_patch_list_encoding.py
               python -B reconstruction/harness/test_treediff.py
               python -B scripts/test_probe_report_mode.py
+              python -B scripts/test_probe_report.py
               python -B scripts/test_probe_report_atomicity.py
               python -B scripts/test_pump_validate_all_retention.py
               python -B scripts/test_prepare_pump_nested_runtime_publication.py

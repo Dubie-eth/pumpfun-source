@@ -22,10 +22,12 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         self.scripts.mkdir()
         self.wrapper = self.scripts / WRAPPER.name
         shutil.copyfile(WRAPPER, self.wrapper)
+        shutil.copyfile(HERE / 'probe_report.py', self.scripts / 'probe_report.py')
         (self.scripts / "pump_captured_loader.py").write_text(
             "from pathlib import Path\n"
             "ROOT = Path(__file__).resolve().parents[1]\n"
             "LOADS = []\n"
+            "INPUT_SHA256 = {}\n"
             "def install():\n"
             "    pass\n",
             encoding="utf-8",
@@ -72,6 +74,14 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         self.assertIn("receipt path aliases protected input", result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertEqual(capture.read_bytes(), before)
+
+    def test_receipt_cannot_replace_its_shared_writer(self):
+        writer = self.scripts / 'probe_report.py'
+        before = writer.read_bytes()
+        result = self.run_wrapper(writer)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('receipt path aliases protected input', result.stderr)
+        self.assertEqual(writer.read_bytes(), before)
 
     def test_receipt_symlink_cannot_replace_bound_input(self):
         account = self.root / "evidence/original/pump/program-account.bin"

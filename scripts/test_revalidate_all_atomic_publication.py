@@ -137,6 +137,25 @@ class RevalidateAllAtomicPublicationTests(unittest.TestCase):
             for path in output.iterdir():
                 self.assertEqual(path.stat().st_mode & 0o777, 0o640, path.name)
 
+    def test_success_does_not_delete_a_recreated_staging_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = self.repository(root)
+            output = root / 'audit'
+            rename = publisher.rename_directory
+            recreated = []
+
+            def publish_then_recreate(source, destination, **kwargs):
+                rename(source, destination, **kwargs)
+                source.mkdir()
+                (source / 'late-writer').write_bytes(b'keep me')
+                recreated.append(source)
+
+            with mock.patch.object(publisher, 'rename_directory', publish_then_recreate):
+                self.invoke(repo, output)
+            self.assertTrue((output / 'manifest.json').is_file())
+            self.assertEqual((recreated[0] / 'late-writer').read_bytes(), b'keep me')
+
 
 if __name__ == '__main__':
     unittest.main()
