@@ -156,4 +156,17 @@ class AmmAdminPublicationTests(unittest.TestCase):
         self.assertEqual(self.executions(),534)
 
 
+    def test_provenance_keys_are_posix_and_sorted(self):
+        # The source_sha256 map keys used str(relative_to(ROOT)) over an
+        # unsorted rglob: backslash-spelled per host and ordered by the
+        # directory scanner, so identical sources produced different receipt
+        # content per platform and per run.
+        result=self.invoke()
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        report=json.loads(self.output.read_bytes())
+        keys=list(report['source_sha256'])
+        self.assertEqual(keys,['programs/pump-amm/src/lib.rs','programs/pump-amm/src/state.rs'])
+        for key in keys:
+            self.assertNotIn('\\',key)
+
 if __name__=='__main__':unittest.main()
