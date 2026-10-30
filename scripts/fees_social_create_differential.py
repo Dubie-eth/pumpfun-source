@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Signed synthetic local probes of original social-fee creation; no source claim."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,pathlib,json,hashlib,base64,argparse
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
