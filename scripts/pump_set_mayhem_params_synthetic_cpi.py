@@ -23,6 +23,7 @@ from solders.litesvm import LiteSVM
 from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
+from pump_amm_reusable_harness import pin_program
 
 ROOT = Path(__file__).resolve().parents[1]
 PUMP = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
@@ -117,6 +118,7 @@ def main():
     p.add_argument("--caller", type=Path, default=ROOT / "repro/pump/mayhem-synthetic/synthetic-caller.so")
     p.add_argument("--output", type=Path, default=ROOT / "repro/pump/mayhem-synthetic/differential.json.gz")
     a = p.parse_args()
+    candidate_path = pin_program(a.candidate) if a.candidate else None
     assert sha(a.target.read_bytes()) == TARGET_SHA256
     fixture = json.loads(gzip.decompress(FIXTURE.read_bytes()))
     assert len(fixture["accounts"]) == 8
@@ -159,13 +161,13 @@ def main():
               "fixture_sha256": sha(FIXTURE.read_bytes()),
               "fixture_slot": fixture["context_slot"], "initial_d": initial_d,
               "cases": target}
-    if a.candidate:
-        candidate = [run(a.candidate, a.caller, fixture, case) for case in cases]
+    if candidate_path:
+        candidate = [run(candidate_path, a.caller, fixture, case) for case in cases]
         keys = ("error", "before", "after", "events", "inner", "return_data")
         matches = [{"case": t["case"], "equal": {key: t[key] == c[key] for key in keys}}
                    for t, c in zip(target, candidate)]
         assert all(all(row["equal"].values()) for row in matches), "candidate diverges from captured target"
-        report["candidate_sha256"] = sha(a.candidate.read_bytes())
+        report["candidate_sha256"] = sha(candidate_path.read_bytes())
         report["candidate_cases"] = candidate
         report["comparison"] = matches
     a.output.parent.mkdir(parents=True, exist_ok=True)
