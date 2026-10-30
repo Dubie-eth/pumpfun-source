@@ -8,14 +8,18 @@ Usage:
     python3 scripts/revalidate_all.py --output research/revalidation-audit-20261028
 """
 import argparse
+import ctypes
+import errno
 import hashlib
 import json
 import os
 from pathlib import PureWindowsPath
+import shutil
 import subprocess
 import stat
 import sys
 import time
+import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -182,89 +186,47 @@ def run_verify(packet_dir):
         return {"status": "error", "output": str(e)}
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    output_dir = Path(args.output)
-
-    research_dir = REPO / "research"
-    packets = sorted([
-        d for d in research_dir.iterdir()
-        if d.is_dir() and not d.name.startswith(".")
-    ])
-
-    # Snapshot inputs before creating an audit beneath research/, and preserve
-    # prior reports by refusing an existing output before running any verifier.
-    output_dir.mkdir(parents=True, exist_ok=False)
-
-    print(f"[revalidate] Found {len(packets)} research packets")
-
-    results = []
-    pass_count = 0
-    fail_count = 0
-    skip_count = 0
-    manifest_only = 0
-    start_time = time.time()
-
-    for i, packet in enumerate(packets):
-        has_verify = (packet / "verify.py").exists()
-        has_manifest = bool(manifest_paths(packet))
-
-        if not has_verify and not has_manifest:
-            results.append({
-                "packet": packet.name,
-                "has_verify": False,
-                "has_manifest": False,
-                "manifest_check": {"status": "skipped"},
-                "verify_check": {"status": "skipped"},
-                "overall": "no_verification",
-            })
-            skip_count += 1
+def temporary_sibling(output_dir, label):
+    while True:
+        staging = output_dir.parent / (
+            f".{output_dir.name}.{label}-{os.getpid()}-{uuid.uuid4().hex}")
+        try:
+            staging.mkdir()
+        except FileExistsError:
             continue
+        return staging
 
-        # Check manifest
-        manifest_result = check_manifest(packet) if has_manifest else {"status": "skipped"}
 
-        # Run verify.py
-        verify_result = run_verify(packet) if has_verify else {"status": "skipped"}
+def rename_directory(source, destination):
+    """Publish a new directory atomically without replacing a late writer."""
+    if os.name == "nt":
+        source.rename(destination)
+        return
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = getattr(library, "renamex_np", None)
+        args = (os.fsencode(source), os.fsencode(destination), 4)
+        types = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+    elif sys.platform.startswith("linux"):
+        rename = getattr(library, "renameat2", None)
+        args = (-100, os.fsencode(source), -100, os.fsencode(destination), 1)
+        types = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                 ctypes.c_char_p, ctypes.c_uint]
+    else:
+        rename = None
+    if rename is None:
+        raise OSError(errno.ENOTSUP,
+                      "atomic audit publication unavailable; use a supported host")
+    rename.argtypes = types
+    rename.restype = ctypes.c_int
+    if rename(*args) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(destination))
 
-        # Determine overall status
-        checks = [result for enabled, result in (
-            (has_manifest, manifest_result), (has_verify, verify_result)
-        ) if enabled]
-        if all(result["status"] == "pass" for result in checks):
-            overall = "pass"
-            pass_count += 1
-        elif any(result["status"] in {
-            "fail", "manifest_parse_error", "timeout", "error"
-        } for result in checks):
-            overall = "fail"
-            fail_count += 1
-        else:
-            overall = "inconclusive"
-            skip_count += 1
 
-        results.append({
-            "packet": packet.name,
-            "has_verify": has_verify,
-            "has_manifest": has_manifest,
-            "manifest_check": manifest_result,
-            "verify_check": verify_result,
-            "overall": overall,
-        })
-
-        if (i + 1) % 50 == 0:
-            elapsed = time.time() - start_time
-            print(f"[revalidate] {i+1}/{len(packets)} "
-                  f"({pass_count} pass, {fail_count} fail, {skip_count} skip) "
-                  f"[{elapsed:.0f}s]")
-
-    elapsed = time.time() - start_time
-    print(f"[revalidate] Done: {len(packets)} packets in {elapsed:.0f}s")
-    print(f"[revalidate] {pass_count} pass, {fail_count} fail, {skip_count} skip/inconclusive")
-
+def write_reports(output_dir, packets, results, pass_count, fail_count,
+                  skip_count, elapsed):
+    """Write all audit artifacts into an unpublished directory."""
     # --- Write outputs ---
 
     # 1. Full results
@@ -388,11 +350,104 @@ if __name__ == "__main__":
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     total_lines = sum(
-        sum(1 for _ in open(output_dir / name))
+        len((output_dir / name).read_text(encoding="utf-8").splitlines())
         for name in os.listdir(output_dir) if (output_dir / name).is_file()
     )
     print(f"[revalidate] wrote {len(manifest)+1} files, ~{total_lines:,} lines")
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    output_dir = Path(args.output)
+
+    research_dir = REPO / "research"
+    packets = sorted([
+        d for d in research_dir.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    ])
+
+    # Snapshot inputs before creating an audit beneath research/, and preserve
+    # prior reports by refusing an existing output before running any verifier.
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists() or output_dir.is_symlink():
+        raise FileExistsError(output_dir)
+
+    print(f"[revalidate] Found {len(packets)} research packets")
+
+    results = []
+    pass_count = 0
+    fail_count = 0
+    skip_count = 0
+    manifest_only = 0
+    start_time = time.time()
+
+    for i, packet in enumerate(packets):
+        has_verify = (packet / "verify.py").exists()
+        has_manifest = bool(manifest_paths(packet))
+
+        if not has_verify and not has_manifest:
+            results.append({
+                "packet": packet.name,
+                "has_verify": False,
+                "has_manifest": False,
+                "manifest_check": {"status": "skipped"},
+                "verify_check": {"status": "skipped"},
+                "overall": "no_verification",
+            })
+            skip_count += 1
+            continue
+
+        # Check manifest
+        manifest_result = check_manifest(packet) if has_manifest else {"status": "skipped"}
+
+        # Run verify.py
+        verify_result = run_verify(packet) if has_verify else {"status": "skipped"}
+
+        # Determine overall status
+        checks = [result for enabled, result in (
+            (has_manifest, manifest_result), (has_verify, verify_result)
+        ) if enabled]
+        if all(result["status"] == "pass" for result in checks):
+            overall = "pass"
+            pass_count += 1
+        elif any(result["status"] in {
+            "fail", "manifest_parse_error", "timeout", "error"
+        } for result in checks):
+            overall = "fail"
+            fail_count += 1
+        else:
+            overall = "inconclusive"
+            skip_count += 1
+
+        results.append({
+            "packet": packet.name,
+            "has_verify": has_verify,
+            "has_manifest": has_manifest,
+            "manifest_check": manifest_result,
+            "verify_check": verify_result,
+            "overall": overall,
+        })
+
+        if (i + 1) % 50 == 0:
+            elapsed = time.time() - start_time
+            print(f"[revalidate] {i+1}/{len(packets)} "
+                  f"({pass_count} pass, {fail_count} fail, {skip_count} skip) "
+                  f"[{elapsed:.0f}s]")
+
+    elapsed = time.time() - start_time
+    print(f"[revalidate] Done: {len(packets)} packets in {elapsed:.0f}s")
+    print(f"[revalidate] {pass_count} pass, {fail_count} fail, {skip_count} skip/inconclusive")
+
+    staging = temporary_sibling(output_dir, "staging")
+    try:
+        write_reports(
+            staging, packets, results, pass_count, fail_count,
+            skip_count, elapsed)
+        rename_directory(staging, output_dir)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
