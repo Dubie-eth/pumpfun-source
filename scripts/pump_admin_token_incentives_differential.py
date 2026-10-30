@@ -18,6 +18,7 @@ import struct
 from pathlib import Path
 
 from pump_amm_reusable_harness import pin_program
+from pump_differential_output import PumpReport
 from solders.account import Account
 from solders.clock import Clock
 from solders.instruction import AccountMeta, Instruction
@@ -295,6 +296,10 @@ def variants():
 def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
          second_build_path=None):
     candidate, build_path, output = map(Path, (candidate, build_path, output))
+    extra_inputs = [build_path]
+    if second_build_path:
+        extra_inputs.append(Path(second_build_path))
+    publisher = PumpReport(output, ROOT, candidate, __file__, extra_inputs=extra_inputs)
     candidate = pin_program(candidate)
     target_image = pin_program(TARGET)
     build_bytes = build_path.read_bytes()
@@ -365,10 +370,9 @@ def main(candidate=CANDIDATE, build_path=BUILD, output=OUTPUT,
         "cases": rows,
         "limits": "The Global account comes from a finalized public capture but its authority is locally replaced by a disposable signer. GlobalVolumeAccumulator, mint and incentive ATA are synthetic canonical states. Cases compare full watched bytes, errors, event logs, inner CPIs and return data; CU and source-log wording are recorded separately. This does not prove live admin key possession, downstream claim scheduling for every clock/mint or full-program byte identity. No broadcast or real funds.",
     }
-    output.parent.mkdir(parents=True, exist_ok=True)
     encoded = (json.dumps(report, separators=(",", ":")) + "\n").encode()
-    output.write_bytes(gzip.compress(encoded, mtime=0) if output.suffix == ".gz"
-                       else encoded)
+    publisher.write(gzip.compress(encoded, mtime=0) if output.suffix == ".gz"
+                    else encoded)
     print(json.dumps(report["summary"], indent=2))
     print([(row["case"], row["target"]["error_code"],
             row["candidate"]["error_code"], row["differing_fields"])
