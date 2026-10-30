@@ -29,6 +29,33 @@ class BuildSourceAdmission(fixtures.ParallelReportPublicationTests):
                 self.assertFalse(output.exists())
                 self.assertFalse(output.with_name(output.name + '.suites').exists())
 
+    def test_new_compiler_input_during_worker_execution_is_rejected(self):
+        added = self.source / 'src/concurrent.rs'
+        self.suite.write_text(self.suite.read_text() +
+            f'Path({str(added)!r}).write_text("pub fn concurrently_added() {{}}")\n')
+        output = self.root / 'changed-inventory.json'
+        with self.assertRaisesRegex(RuntimeError, 'suite failure'):
+            self.run_validator(output)
+        self.assertFalse(output.exists())
+        failure = json.loads(output.with_name(output.name + '.failed.json').read_bytes())
+        self.assertIn('compiler source inventory changed', failure['errors'][0]['error'])
+
+    def test_report_cannot_create_an_input_inside_the_source_directory(self):
+        output = self.source / 'src/generated_report.rs'
+        with self.assertRaisesRegex(ValueError, 'inside the source directory'):
+            self.run_validator(output)
+        self.assertFalse(output.exists())
+
+    def test_success_flags_must_have_exact_types(self):
+        report = json.loads(self.build_comparison.read_text())
+        for key, value in [('returncode', False), ('returncode', 0.0), ('source_unchanged', 1)]:
+            with self.subTest(key=key, value=value):
+                self.build_comparison.write_text(json.dumps(report | {key: value}))
+                output = self.root / 'wrong-type.json'
+                with self.assertRaises(AssertionError):
+                    self.run_validator(output)
+                self.assertFalse(output.exists())
+
     def test_workspace_inputs_follow_the_existing_manifest_contract(self):
         (self.source / 'Cargo.toml').write_text('[package]\nname="fixture"\nversion="0.1.0"\n')
         (self.root / 'Cargo.toml').write_text('[workspace]\nmembers=["source"]\n')
@@ -87,6 +114,23 @@ class BuildSourceAdmission(fixtures.ParallelReportPublicationTests):
 
 
 class ManifestTraversal(unittest.TestCase):
+    def test_empty_linked_idl_root_is_rejected_before_input_reads(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            crate = root / 'programs/pump'
+            (crate / 'src').mkdir(parents=True)
+            elsewhere = root / 'elsewhere'; elsewhere.mkdir()
+            try:
+                (root / 'idls').symlink_to(elsewhere, target_is_directory=True)
+            except OSError as error:
+                if getattr(error, 'winerror', None) == 1314:
+                    self.skipTest('symlink privilege unavailable')
+                raise
+            with patch.object(Path, 'read_bytes', side_effect=AssertionError('read linked tree')):
+                with self.assertRaisesRegex(ValueError, 'symlinked directory'):
+                    guard.strict_manifest(crate, root, root)
+
     def test_unreadable_required_subtree_cannot_silently_disappear(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

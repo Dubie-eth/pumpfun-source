@@ -74,6 +74,8 @@ def _no_linked_directories(top, *, optional=False):
     the compiler still reads them through the link.
     """
     top = Path(top)
+    if _is_symlink_or_reparse(top):
+        raise ValueError('symlinked directory or reparse point under compiler inputs: ' + str(top))
     if optional:
         try:
             top.lstat()
