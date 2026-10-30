@@ -67,6 +67,23 @@ def program_inputs(root):
             for name in program_names(root)]
 
 
+def capture_inputs(root):
+    """Keep every selected contract, then dependencies not already selected.
+
+    ``capture_directory`` already routes ``donation_relay`` to
+    ``evidence/dependencies``, so the dependency sweep below re-finds it. The dependency sweep is
+    deduplicated by resolved path (not by name); selector entries are preserved
+    even when they alias one file. A genuine name collision still reaches
+    ``validate_program_names``.
+    """
+    inputs = program_inputs(root)
+    selected = {path.resolve() for _, path in inputs}
+    inputs += [(path.parent.name, path)
+               for path in sorted((root / 'evidence/dependencies').glob('*/deployed.so'))
+               if path.resolve() not in selected]
+    return inputs
+
+
 def sections(data):
     if data[:7] != b'\x7fELF\x02\x01\x01':
         raise ValueError('expected ELF64 little endian')
@@ -174,8 +191,7 @@ def main():
     # partial directory without manifest.json that blocks the next run.
     staging = Path(tempfile.mkdtemp(prefix='.' + output.name + '.', dir=output.parent))
     try:
-        inputs = program_inputs(ROOT)
-        inputs += [(p.parent.name, p) for p in sorted((ROOT / 'evidence/dependencies').glob('*/deployed.so'))]
+        inputs = capture_inputs(ROOT)
         validate_program_names([{'name': name} for name, _ in inputs])
         with tool_snapshot(tool) as (executable, tool_digest):
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
