@@ -10,6 +10,10 @@ changes retain `patch -p2 --forward`. Rejects are reported and the part is skipp
 (the composition continues). The composed crate is built with fastbuild.py and scored.
 Output: SC/integ/<NAME>/{src, parts/<label>.patch, rejects/, report.json}
 Names must be fresh; an earlier result is never overwritten.
+Part labels must be unique ignoring case so their retained patch names remain
+distinct on case-insensitive filesystems. Labels and composition names exclude
+trailing dots and reserved Windows device names. --base-of labels match the
+declared --part spelling exactly.
 """
 import argparse, ast, json, os, shutil, subprocess, sys, re
 from pathlib import Path
@@ -62,6 +66,9 @@ def make_patch(base: Path, part: Path, out: Path, tmp: Path):
              for root in (tmp / 'a/pump', tmp / 'b/pump')]
     mode_change = any(modes[0].get(name, False) != modes[1].get(name, False)
                       for name in modes[0].keys() | modes[1].keys())
+    directories = [{p.relative_to(root) for p in root.rglob('*') if p.is_dir()}
+                   for root in (tmp / 'a/pump', tmp / 'b/pump')]
+    type_change = bool(trees[0].keys() & directories[1] or trees[1].keys() & directories[0])
     if mode_change:
         # Git represents executable files using the owner bit. Source identity
         # considers any execute bit, including group/other-only helpers.
@@ -83,7 +90,7 @@ def make_patch(base: Path, part: Path, out: Path, tmp: Path):
                                                 output=result.stdout, stderr=result.stderr)
         return result
 
-    d = run_diff(git_diff if empty_change or mode_change else ['diff', '-ruN', 'a/pump', 'b/pump'])
+    d = run_diff(git_diff if empty_change or mode_change or type_change else ['diff', '-ruN', 'a/pump', 'b/pump'])
     # diff -r only names binary changes, and patch skips that line without an error.
     if any(line.startswith(b'Binary files ') for line in d.stdout.splitlines()):
         d = run_diff(git_diff)
@@ -152,17 +159,24 @@ def preflight(name, base, parts, overrides):
     def label(value):
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', value) or value in ('.', '..'):
             raise ValueError(f'invalid composition name or label: {value!r}')
+        reserved = {'CON', 'PRN', 'AUX', 'NUL'} | {
+            f'{prefix}{number}' for prefix in ('COM', 'LPT') for number in range(1, 10)
+        }
+        if value.endswith('.') or value.split('.', 1)[0].upper() in reserved:
+            raise ValueError(f'nonportable composition name or label: {value!r}')
         return value
 
     def selections(values, kind):
         result = {}
+        folded = set()
         for value in values:
             if '=' not in value:
                 raise ValueError(f'{kind} must be LABEL=PATH')
             key, path = value.split('=', 1)
             label(key)
-            if key in result or not path:
+            if key.casefold() in folded or not path:
                 raise ValueError(f'duplicate label or empty path in {kind}: {key}')
+            folded.add(key.casefold())
             result[key] = Path(path)
         return result
 
