@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Build recovered two-crate quote-selection code; compare unmodified object bytes."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,hashlib,json,pathlib,subprocess
 from elftools.elf.elffile import ELFFile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
