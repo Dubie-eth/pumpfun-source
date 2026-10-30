@@ -29,3 +29,21 @@ Required checks on the proposed tree: `python3 -E -X utf8 scripts/test_tooling.p
 verified). macOS arm64, Python 3.14.3. No fixture, capture or comparison field
 changes; the three-sequence scope claim is unchanged and remains unexercised
 here.
+
+## Review qualification
+
+The empty-family regression now invokes the actual CLI with a missing candidate
+and checks that refusal occurs before candidate access or output creation. The
+two status-branch unit tests still substitute receipt rows; they do not execute
+a VM.
+
+An independent review also reran the three historical eligible families from
+commit `69a61eec1` using the actual VM entrypoint. A captured-image self-comparison
+completed all 12 signed transactions with no mismatches and exit 0. The retained
+historical reconstructed candidate completed the same transactions, with only
+second-burn source-location log differences in all three cases. This runner now
+exits 1 for those raw differences, while `verify_mayhem_burn_sequence.py` still
+accepts them under its explicit log-normalization policy. The raw runner status
+must not be described as the independent verifier's semantic acceptance status.
+The historical inputs were recovered only for review; no old package or binary
+is added to the repository by this change.

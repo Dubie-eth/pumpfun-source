@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """The burn-sequence receipt must not report success for zero cases or a mismatch."""
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -48,8 +50,17 @@ class BurnSequenceStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.fixture(root, [])
-            with self.assertRaisesRegex(SystemExit, 'no eligible families'):
-                self.invoke(root, root / 'fixtures')
+            env = dict(os.environ)
+            env.pop('PYTHONOPTIMIZE', None)
+            # This is the actual entrypoint: no run(), VM, or argument mocks.
+            completed = subprocess.run([
+                sys.executable, '-B', str(ROOT / 'scripts/mayhem_burn_sequence.py'),
+                '--candidate', str(root / 'missing-candidate.so'),
+                '--fixtures', str(root / 'fixtures'), '--output', str(root / 'receipts'),
+            ], cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
+            self.assertIn('no eligible families', completed.stderr)
+            self.assertNotIn('FileNotFoundError', completed.stderr)
             self.assertFalse((root / 'receipts').exists())
 
     def test_matching_receipts_exit_zero(self):
