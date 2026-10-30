@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic local fee-tier splice tests with actual admin signatures."""
 from fees_config_differential import *
+from pump_differential_output import PumpReport
 def cases():
  out=[];rng=random.Random(774)
  for name in ['upsert_fee_tiers','upsert_stable_fee_tiers']:
@@ -24,10 +25,10 @@ def cases():
    add('random-'+str(i),offset,new,old_normal=[(j*20,(1,2,3)) for j in range(old_count)],old_stable=[(j*20,(4,5,6)) for j in range(old_count)],allocation=8192)
  return out
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();o=ConfigFixture(ROOT/'evidence/original/pump_fees/deployed.so');b=ConfigFixture(a.candidate) if a.candidate else None;rows=[];bad=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();publisher=PumpReport(a.output,ROOT,a.candidate,__file__);o=ConfigFixture(ROOT/'evidence/original/pump_fees/deployed.so');b=ConfigFixture(a.candidate) if a.candidate else None;rows=[];bad=[]
  for c in cases():
   x=o.run(c);y=b.run(c) if b else None;match=all(x[k]==y[k] for k in ['error','data_hex','lamports','owner','balance_deltas','events','inner_instructions']) if b else None;rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(c['name'])
- report={'scope':'Two fee-tier upsert handlers, normally signed local synthetic state, state/errors/events/inner instructions. Not complete byte identity or security assessment.','original_sha256':o.program_sha256,'candidate_sha256':b.program_sha256 if b else None,'case_count':len(rows),'mismatches':bad,'cases':rows};a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(report,separators=(',',':'))+'\n',encoding='utf-8',newline='\n');print(json.dumps({'case_count':len(rows),'mismatches':bad[:20]}))
+ report={'scope':'Two fee-tier upsert handlers, normally signed local synthetic state, state/errors/events/inner instructions. Not complete byte identity or security assessment.','original_sha256':o.program_sha256,'candidate_sha256':b.program_sha256 if b else None,'case_count':len(rows),'mismatches':bad,'cases':rows};publisher.write((json.dumps(report,separators=(',',':'))+'\n').encode('utf-8'));print(json.dumps({'case_count':len(rows),'mismatches':bad[:20]}))
  if bad:raise SystemExit(1)
 if __name__=='__main__':main()
