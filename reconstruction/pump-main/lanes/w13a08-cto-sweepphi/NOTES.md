@@ -1,6 +1,9 @@
 # w13a08-cto-sweepphi (wave 13)
 
-## Landable on main 4394685 (0.49071): curve stores in the original's order (hr2)
+## Landable: curve stores in the original's order (hr2)
+
+On main cb298d5c (#2907, 0.49101 / 3,280): hr2 = 27,400 B, **0.49131**, 3,280 slots, 0 / 0 losses, sha `3b87f921556f0d99`, differential 363/0.
+First measured on main 4394685:
 
 | build | bytes | ratio | slots_diff | normalized / raw | losses |
 | --- | ---: | ---: | ---: | --- | --- |
