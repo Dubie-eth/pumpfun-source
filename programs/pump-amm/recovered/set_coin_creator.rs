@@ -9,6 +9,13 @@
 //! `tests/test_pump_amm_set_coin_creator_captured.py` runs the same inputs on
 //! `evidence/original/pump_amm/deployed.so`; agreement there is matching
 //! behaviour on those inputs, not a byte-identity claim.
+//!
+//! Resource-sensitive outcomes require an independently calibrated metadata
+//! heap budget supplied by the caller. Account count, duplicate account keys
+//! and caller/runtime layout can change that budget. This model accounts for
+//! the three string allocations but does not simulate creator-Vec allocation;
+//! creator-list cases are supported only when that allocation fits. It is not
+//! a general heap model or a proof for arbitrary account configurations.
 
 /// Anchor and program error numbers.
 pub const INSTRUCTION_FALLBACK_NOT_FOUND: u32 = 101;
@@ -49,11 +56,6 @@ pub const POOL_TAIL: [(usize, usize); 9] =
 pub const CURVE_LEN: usize = 83;
 pub const CURVE_CREATOR: usize = 49;
 pub const CURVE_BOOLS: [usize; 3] = [48, 81, 82];
-/// Heap bytes left when the metadata's `name` is allocated, measured on the
-/// captured program. Each string is allocated at its declared length before
-/// it is read, so a declared length above what is left aborts the program
-/// even when the account is too short to hold it.
-pub const HEAP_FREE_AT_NAME: usize = 31_406;
 
 /// Account-level facts that need a PDA derivation or the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +80,9 @@ pub struct Accounts {
     pub event_seeds_ok: bool,
     /// `program` is the executable PumpSwap program, so the `emit_cpi!` self-call lands.
     pub program_ok: bool,
+    /// Independently admitted free bytes before metadata string allocation.
+    /// This is context-specific, not inferred from account count alone.
+    pub metadata_heap_free: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,11 +176,11 @@ impl Reader<'_> {
 /// Metaplex `Metadata` read through `edition_nonce`; everything after it is
 /// read leniently and cannot fail. Returns the creators' addresses, if the
 /// list is present.
-fn read_metadata(data: &[u8]) -> Result<Option<Vec<[u8; 32]>>, Outcome> {
+fn read_metadata(data: &[u8], heap_free: usize) -> Result<Option<Vec<[u8; 32]>>, Outcome> {
     if data.first() != Some(&METADATA_V1) {
         return Err(Outcome::BorshIoError);
     }
-    let mut r = Reader { data, at: 1, heap: HEAP_FREE_AT_NAME };
+    let mut r = Reader { data, at: 1, heap: heap_free };
     r.take(64)?; // update authority, mint
     for _ in 0..3 {
         r.string()?; // name, symbol, uri
@@ -217,7 +222,8 @@ fn read_curve(data: &[u8]) -> Result<[u8; 32], u32> {
 
 /// `payload_len` is the instruction data length (the discriminator is checked
 /// by the caller); the keys are the accounts' addresses and `timestamp` the
-/// clock's `unix_timestamp`.
+/// clock's `unix_timestamp`. `accounts.metadata_heap_free` is a caller-admitted
+/// context fact; creator-list allocation must fit (see module-level limits).
 #[allow(clippy::too_many_arguments)]
 pub fn set_coin_creator(
     payload_len: usize,
@@ -250,7 +256,7 @@ pub fn set_coin_creator(
     if !accounts.metadata_owner_ok {
         return Outcome::Error(ACCOUNT_OWNED_BY_WRONG_PROGRAM);
     }
-    let creators = match read_metadata(metadata_data) {
+    let creators = match read_metadata(metadata_data, accounts.metadata_heap_free) {
         Ok(creators) => creators,
         Err(outcome) => return outcome,
     };

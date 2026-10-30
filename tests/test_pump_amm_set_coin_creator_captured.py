@@ -5,7 +5,9 @@ curve and instruction, runs it on `evidence/original/pump_amm/deployed.so` in
 LiteSVM, and feeds the same bytes to
 `programs/pump-amm/recovered/set_coin_creator_host.rs`. The host gets the raw
 account bytes; owners and PDA matches are worked out here from the accounts
-actually loaded. The error (custom code or runtime error), the committed pool
+actually loaded. The host also receives a target-calibrated metadata heap
+budget for this fixture's account layout. That budget is a context assumption,
+not an account-count-only law or proof for arbitrary transactions. The error (custom code or runtime error), the committed pool
 bytes, the logged event and the same bytes in the `emit_cpi!` self-call must
 agree, and nothing else may move. This is matching behaviour on these inputs only, not a
 byte-identity claim. `scripts/pump_amm_creator_reassignment_differential.py`
@@ -13,6 +15,7 @@ compares candidate builds with the captured program; this test pins the
 captured outcomes to a model instead and does not read `research/`.
 """
 from pathlib import Path
+from unittest import mock
 import base64
 import hashlib
 import random
@@ -61,6 +64,14 @@ STRAY_METADATA = Pubkey.from_bytes(bytes([78]) * 32)
 STRAY_CURVE = Pubkey.from_bytes(bytes([79]) * 32)
 NOW = 1_761_800_000
 ACCOUNTS = ('pool', 'metadata', 'bonding_curve', 'event_authority', 'program')
+
+# Calibrated once using declared-name allocation thresholds. Counts <=5 use
+# prefixes of ACCOUNTS; higher counts append duplicate PAYER metas. Distinct
+# additional account keys are a different context and require new calibration.
+# Subsequent string and near-boundary controls validate the admitted budgets.
+FIXTURE_METADATA_HEAP = {0: 0, 1: 0, 2: 31766, 3: 31646, 4: 31526, 5: 31406,
+                         6: 31286, 7: 31238, 8: 31190, 9: 31142, 10: 31094,
+                         11: 31046, 12: 30998}
 
 
 def metadata_address(mint):
@@ -146,7 +157,11 @@ def setup(c):
     accounts = {pool_key: Account(10**9, pool, c.get('pool_owner', AMM)),
                 metadata_key: Account(10**9, metadata_bytes(c), c.get('metadata_owner', METAPLEX)),
                 curve_key: Account(10**9, curve_bytes(c), c.get('curve_owner', PUMP))}
-    metas = [AccountMeta(keys[n], False, n == 'pool' and not c.get('readonly')) for n in ACCOUNTS][:c.get('count', 5)]
+    metas = [AccountMeta(keys[n], False, n == 'pool' and not c.get('readonly')) for n in ACCOUNTS]
+    count = c.get('count', 5)
+    if count > len(metas):
+        metas.extend(AccountMeta(PAYER.pubkey(), False, False) for _ in range(count - len(metas)))
+    metas = metas[:count]
     data = (DISCRIMINATOR + bytes.fromhex(c.get('trailing', '')))[:c.get('payload', 8 + len(c.get('trailing', '')) // 2)]
     return keys, accounts, metas, data
 
@@ -165,22 +180,28 @@ def run_captured(c):
     watched = list(accounts) + [PAYER.pubkey()]
     before = {k: vm.get_account(k) for k in watched}
     tx = Transaction.new_signed_with_payer([Instruction(AMM, data, metas)], PAYER.pubkey(), [PAYER], vm.latest_blockhash())
+    if not all(tx.verify_with_results()):
+        raise ValueError('fixture transaction signature verification failed')
     result = vm.send_transaction(tx)
     failed = isinstance(result, FailedTransactionMetadata)
     meta = result.meta() if failed else result
     events = [base64.b64decode(l[len('Program data: '):]) for l in meta.logs() if l.startswith('Program data: ')]
+    after = {k: vm.get_account(k) for k in watched}
+    pool_key = keys['pool']
+    unchanged = all(
+        (after[k].lamports, after[k].owner, after[k].executable, after[k].rent_epoch)
+        == (before[k].lamports, before[k].owner, before[k].executable, before[k].rent_epoch)
+        and (not failed and k == pool_key or bytes(after[k].data) == bytes(before[k].data))
+        for k in watched if k != PAYER.pubkey())
     if failed:
         text = str(result.err())
         custom = re.search(r'InstructionErrorCustom\((\d+)\)', text)
         error = int(custom.group(1)) if custom else re.search(r'Fieldless\((\w+)\)', text).group(1)
-        return {'error': error, 'events': events}
-    after = {k: vm.get_account(k) for k in watched}
+        return {'error': error, 'events': events, 'unchanged': unchanged}
     cpi = [bytes(ix.instruction().data) for group in meta.inner_instructions() for ix in group]
     pool_key = keys['pool']
     return {'error': None, 'events': events, 'cpi': cpi, 'pool': bytes(after[pool_key].data),
-            'unchanged': all(after[k].lamports == before[k].lamports and after[k].owner == before[k].owner
-                             and (k == pool_key or bytes(after[k].data) == bytes(before[k].data))
-                             for k in watched if k != PAYER.pubkey())}
+            'unchanged': unchanged}
 
 
 def host_line(c):
@@ -202,7 +223,7 @@ def host_line(c):
     return ','.join([str(len(data)), str(len(metas)), ''.join('1' if f else '0' for f in flags), pool_data.hex(),
                      bytes(accounts[keys['metadata']].data).hex(), bytes(accounts[keys['bonding_curve']].data).hex(),
                      bytes(keys['pool']).hex(), bytes(keys['metadata']).hex(), bytes(keys['bonding_curve']).hex(),
-                     str(NOW)])
+                     str(NOW), str(FIXTURE_METADATA_HEAP[len(metas)])])
 
 
 def name_length(n):
@@ -347,7 +368,8 @@ def random_cases():
 class PumpAmmSetCoinCreatorCapturedTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        assert hashlib.sha256(AMM_ELF.read_bytes()).hexdigest() == AMM_SHA256
+        if hashlib.sha256(AMM_ELF.read_bytes()).hexdigest() != AMM_SHA256:
+            raise ValueError('captured AMM hash mismatch')
         cls.tmp = tempfile.TemporaryDirectory()
         host = Path(cls.tmp.name) / 'set-coin-creator-host'
         subprocess.run(['rustc', '--edition=2021', '-O', '-D', 'warnings', str(HOST_SOURCE), '-o', str(host)],
@@ -366,6 +388,7 @@ class PumpAmmSetCoinCreatorCapturedTests(unittest.TestCase):
         return answers
 
     def assert_matches(self, answer, captured):
+        self.assertTrue(captured['unchanged'])
         if answer.startswith('error:'):
             code = answer[6:]
             self.assertEqual(captured['error'], int(code) if code.isdigit() else code)
@@ -396,6 +419,34 @@ class PumpAmmSetCoinCreatorCapturedTests(unittest.TestCase):
     def test_fixed_cases_match_captured_program(self):
         self.run_cases(fixed_cases())
 
+    def test_extra_account_case_supplies_a_sixth_meta(self):
+        case = {'count': 6}
+        self.assertEqual(len(setup(case)[2]), 6)
+        self.assert_matches(self.host_answers([case])[0], run_captured(case))
+
+    def test_calibrated_heap_contexts_and_unseen_string_boundaries(self):
+        cases = []
+        for count in range(2, 13):
+            budget = FIXTURE_METADATA_HEAP[count]
+            for delta in (-2, 2):
+                cases.append(dict(name_length(budget + delta), count=count))
+        # These independent controls consume real name/symbol allocations and
+        # then test URI lengths that were not used in the name calibration.
+        for count in (6, 8, 12):
+            remaining = FIXTURE_METADATA_HEAP[count] - 31 - 11
+            for delta in (-2, 2):
+                cases.append({'count': count, 'name': b'a' * 31, 'symbol': b'b' * 11,
+                              'metadata_patches': [(115, struct.pack('<I', remaining + delta))]})
+        self.run_cases(cases)
+
+    def test_captured_image_identity_is_required(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            wrong = Path(temporary) / 'wrong.so'
+            wrong.write_bytes(AMM_ELF.read_bytes() + b'wrong capture')
+            with mock.patch.dict(globals(), AMM_ELF=wrong):
+                with self.assertRaisesRegex(ValueError, 'captured AMM hash mismatch'):
+                    type(self).setUpClass()
+
     def test_seeded_random_cases_match_captured_program(self):
         self.run_cases(random_cases())
 
@@ -408,6 +459,8 @@ class PumpAmmSetCoinCreatorCapturedTests(unittest.TestCase):
         for c, answer in zip(samples, self.host_answers(samples)):
             captured = run_captured(c)
             self.assert_matches(answer, captured)
+            with self.assertRaises(AssertionError):
+                self.assert_matches(answer, dict(captured, unchanged=False))
             if answer.startswith('ok,'):
                 _, pool, event = answer.split(',')
                 tampered = ['ok,' + flip(pool, 211) + ',' + event, 'ok,' + flip(pool, 290) + ',' + event,

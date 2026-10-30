@@ -1,7 +1,7 @@
 //! stdin/stdout driver for `set_coin_creator.rs`, used by
 //! `tests/test_pump_amm_set_coin_creator_captured.py`. One case per line:
 //! `<payload_len>,<count>,<flags>,<pool_hex>,<metadata_hex>,<curve_hex>,
-//! <pool_key_hex>,<metadata_key_hex>,<curve_key_hex>,<timestamp>` where
+//! <pool_key_hex>,<metadata_key_hex>,<curve_key_hex>,<timestamp>,<metadata_heap_free>` where
 //! `<flags>` is nine `0`/`1` digits in `Accounts` field order after `count`.
 //! Answers are `error:<code>`, `error:InvalidAccountData`,
 //! `error:BorshIoError`, `error:ProgramFailedToComplete`,
@@ -43,6 +43,7 @@ fn main() {
             curve_seeds_ok: bit(6),
             event_seeds_ok: bit(7),
             program_ok: bit(8),
+            metadata_heap_free: f[10].parse().unwrap(),
         };
         let answer = match set_coin_creator(
             f[0].parse().unwrap(),
