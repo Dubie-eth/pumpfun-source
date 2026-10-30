@@ -10,13 +10,14 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent / "disassemble.py"
 FAKE_OBJDUMP = """#!{python}
+import os
 import sys
 if sys.argv[1] == "--version":
     print("fake objdump 1.0")
-elif "{fail}" and "{fail}" in sys.argv[-1]:
+elif "{fail}" and os.path.basename(os.getcwd()) == "{fail}":
     sys.exit(3)
 else:
-    print("disassembly of " + sys.argv[-1].split("/")[-2])
+    print("disassembly of " + os.path.basename(os.getcwd()) + " from " + sys.argv[-1])
 """
 
 
@@ -39,6 +40,10 @@ class DisassemblePublicationTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(sorted(json.loads((output / "manifest.json").read_text())["outputs"]),
                              ["mayhem", "pump", "pump_amm", "pump_fees"])
+            # Each program is disassembled from its own input directory under the
+            # bare snapshot name, so objdump's file heading stays deterministic.
+            self.assertEqual((output / "pump.asm").read_text(),
+                             "disassembly of pump from deployed.so\n")
 
     def test_missing_objdump_leaves_no_output(self):
         with tempfile.TemporaryDirectory() as temporary:
