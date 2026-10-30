@@ -7,7 +7,7 @@ and through `programs/pump/recovered/v2_token_quote_host.rs`. Quotes: wSOL
 with and without a `TransferFeeConfig`. State is synthetic: Global, curve, mints,
 token accounts and a pump_fees-owned FeeConfig at its canonical address.
 
-A case passes when the captured program and the model agree on the error, or on
+A case passes when the captured program and the model agree on the error and committed-state rollback (apart from the transaction fee), or on
 the lamport movements, every quote and base token balance, the Token-2022
 withheld amounts, the stored curve and accumulator bytes and the full TradeEvent
 and CompleteEvent bytes in the log and in the `emit_cpi!` self-call. This pins
@@ -23,6 +23,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from solders.account import Account
 from solders.clock import Clock
@@ -48,6 +49,53 @@ ELF_SHA256 = {
     ATA_ELF: '6804554e69fd3a58caa191dc4a58f4c67223d30ca28ab8987f39fc18d2f7374d',
 }
 HOST_SOURCE = ROOT / 'programs/pump/recovered/v2_token_quote_host.rs'
+
+_PROGRAM_BYTES = None
+
+
+def admit_program_images(expected):
+    images = {}
+    for path, digest in expected.items():
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != digest:
+            raise ValueError(f'captured program hash mismatch: {path}')
+        images[path] = raw
+    return images
+
+
+def program_images():
+    global _PROGRAM_BYTES
+    if _PROGRAM_BYTES is None:
+        _PROGRAM_BYTES = admit_program_images(ELF_SHA256)
+    return _PROGRAM_BYTES
+
+
+def parse_model_output(text, count):
+    lines = text.splitlines()
+    if len(lines) != count:
+        raise ValueError(f'model returned {len(lines)} answers for {count} cases')
+    answers = []
+    for line in lines:
+        if line.startswith('error:'):
+            answers.append(('error', int(line[6:])))
+        elif line in ('panic', 'invalid-account-data'):
+            answers.append(('error', line))
+        elif line.startswith('ok '):
+            fields = [word.split('=', 1) for word in line.split()[1:]]
+            if any(len(field) != 2 for field in fields) or len({field[0] for field in fields}) != len(fields):
+                raise ValueError('malformed or duplicate model answer field')
+            answers.append(('ok', {key: int(value) for key, value in fields}))
+        else:
+            raise ValueError('unknown model answer: ' + line)
+    return answers
+
+
+def rollback_differences(before, after):
+    expected = dict(before)
+    payer = before[USER.pubkey()]
+    if payer is not None:
+        expected[USER.pubkey()] = (payer[0] - TX_FEE, *payer[1:])
+    return [] if after == expected else ['failed transaction changed state beyond transaction fee']
 
 IDL = json.loads((ROOT / 'evidence/upstream/pump.json').read_text(encoding='utf-8'))
 IX = {ix['name']: ix for ix in IDL['instructions']}
@@ -142,7 +190,8 @@ def fee_config_bytes(c):
         return struct.pack('<I', len(rows)) + b''.join(t.to_bytes(16, 'little') + struct.pack('<QQQ', 0, p, cr) for t, p, cr in rows)
     data = (ACCOUNT_DISC['FeeConfig'] + bytes([FEE_BUMP]) + bytes(32) + struct.pack('<QQQ', 0, *c['flat'])
             + tiers(c['tiers']) + tiers(c['stable']) + struct.pack('<QQQ', *c['exotic']))
-    assert len(data) <= c['fee_len'], 'fee_len shorter than the serialized FeeConfig'
+    if len(data) > c['fee_len']:
+        raise ValueError('fee_len shorter than the serialized FeeConfig')
     return data.ljust(c['fee_len'], b'\0')
 
 
@@ -228,15 +277,7 @@ def host_binary():
 def model(cases):
     text = ''.join(host_line(c) + '\n' for c in cases)
     out = subprocess.run([str(host_binary())], input=text, capture_output=True, text=True, check=True).stdout.splitlines()
-    answers = []
-    for line in out:
-        if line.startswith('error:'):
-            answers.append(('error', int(line[6:])))
-        elif line in ('panic', 'invalid-account-data'):
-            answers.append(('error', line))
-        else:
-            answers.append(('ok', {k: int(v) for k, v in (kv.split('=') for kv in line.split()[1:])}))
-    return answers
+    return parse_model_output('\n'.join(out), len(cases))
 
 
 def roles(c):
@@ -263,7 +304,7 @@ def fresh_vm():
     if _VM is None:
         _VM = LiteSVM().with_sigverify(True).with_transaction_history(0)
         for key, path in ((PUMP, PUMP_ELF), (FEES, FEES_ELF), (TOKEN, TOKEN_ELF), (TOKEN22, TOKEN22_ELF), (ATA, ATA_ELF)):
-            _VM.add_program_from_file(key, path)
+            _VM.add_program(key, program_images()[path])
         _VM.set_clock(Clock(100, TIMESTAMP, EPOCH, EPOCH, TIMESTAMP))
     for key in _TOUCHED:
         _VM.set_account(key, Account(0, b'', SYSTEM))
@@ -389,7 +430,7 @@ def check(case, got, answer):
     if kind == 'error':
         if got['error'] != m:
             bad.append(f"error {got['error']!r} != {m}")
-        return bad
+        return bad + rollback_differences(got['before'], got['after'])
     if got['error'] is not None:
         return [f"captured failed with {got['error']!r}"]
     r, b, a = got['roles'], got['before'], got['after']
@@ -660,13 +701,12 @@ def random_cases(n=240, seed=20261030):
 class V2TokenQuoteCaptured(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        for path, digest in ELF_SHA256.items():
-            assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, path
+        program_images()
 
     def run_all(self, labelled):
         answers = model([c for _, c in labelled])
         results = []
-        for (label, c), answer in zip(labelled, answers):
+        for (label, c), answer in zip(labelled, answers, strict=True):
             got = run_captured(c)
             with self.subTest(label):
                 self.assertEqual(check(c, got, answer), [], label)
@@ -702,6 +742,50 @@ class V2TokenQuoteCaptured(unittest.TestCase):
                 bent[field] += 1
                 self.assertNotEqual(check(c, got, ('ok', bent)), [], field)
             self.assertNotEqual(check(c, got, ('error', 6024)), [])
+
+
+    def test_model_response_count_and_format_are_strict(self):
+        case = default_case()
+        raw = subprocess.run([str(host_binary())], input=host_line(case) + '\n', capture_output=True,
+                             text=True, check=True).stdout
+        self.assertEqual(len(parse_model_output(raw, 1)), 1)
+        for output in ('', raw + raw, 'unexpected field=1\n', 'ok field=1 field=2\n'):
+            with self.subTest(output=output):
+                with self.assertRaises(ValueError):
+                    parse_model_output(output, 1)
+        with patch.dict(globals(), {'model': lambda cases: []}):
+            with self.assertRaises(ValueError):
+                self.run_all([('missing-response', case)])
+
+    def test_captured_bytes_remain_pinned_after_path_replacement(self):
+        with tempfile.TemporaryDirectory(prefix='pinned-v2-model-') as temporary:
+            image = Path(temporary) / 'pump.so'
+            image.write_bytes(PUMP_ELF.read_bytes())
+            expected = {path: digest for path, digest in ELF_SHA256.items() if path != PUMP_ELF}
+            expected[image] = ELF_SHA256[PUMP_ELF]
+            images = admit_program_images(expected)
+            image.write_bytes(b'replaced after admission')
+            with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+                admit_program_images(expected)
+            changes = {'PUMP_ELF': image, '_PROGRAM_BYTES': images, '_VM': None}
+            if '_TOUCHED' in globals():
+                changes['_TOUCHED'] = set()
+            with patch.dict(globals(), changes):
+                case = default_case()
+                self.assertEqual(check(case, run_captured(case), model([case])[0]), [])
+
+    def test_error_checker_rejects_committed_state_mutation(self):
+        case = default_case(complete=1)
+        answer = model([case])[0]
+        self.assertEqual(answer, ('error', 6005))
+        got = run_captured(case)
+        self.assertEqual(check(case, got, answer), [])
+        changed = dict(got)
+        changed['after'] = dict(got['after'])
+        lamports, data, owner = changed['after'][CURVE]
+        changed['after'][CURVE] = (lamports, bytes([data[0] ^ 1]) + data[1:], owner)
+        self.assertNotEqual(check(case, changed, answer), [])
+
 
 
 if __name__ == '__main__':
