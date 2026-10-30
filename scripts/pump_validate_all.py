@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Run the published 44-suite bounded Pump corpus against one compiled ELF."""
+"""Run the published 44-suite bounded Pump corpus against one compiled ELF.
+
+Publish the complete retained-suite directory atomically, then link the report.
+If a late report destination prevents the second publication, keep the complete
+suite directory and staged report for recovery. The two paths are not a single
+filesystem transaction.
+"""
 if not __debug__:
     raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
@@ -126,14 +132,13 @@ def main():
     for destination in (args.output, retained):
         if destination.exists() or destination.is_symlink():
             raise FileExistsError(destination)
-    retained_staging = Path(tempfile.mkdtemp(
-        prefix='.' + retained.name + '.staging-', dir=retained.parent))
-    descriptor, report_name = tempfile.mkstemp(
-        prefix='.' + args.output.name + '.staging-', dir=args.output.parent)
-    os.close(descriptor)
-    report_staging = Path(report_name)
-    published_retained = False
+    from deep_disassembly import rename_directory, temporary_sibling
+    retained_staging = report_directory = None
+    published_retained = preserve_recovery = False
     try:
+        retained_staging = temporary_sibling(retained, 'staging')
+        report_directory = temporary_sibling(args.output, 'staging')
+        report_staging = report_directory / 'report.json'
         with tempfile.TemporaryDirectory(prefix='pump-differential-') as tmp:
             for name, filename in SUITES:
                 script = ROOT / filename if filename.startswith(('repro/', 'research/')) else ROOT / 'scripts' / filename
@@ -188,20 +193,22 @@ def main():
         raw = (json.dumps(report, separators=(',', ':')) + '\n').encode()
         report_staging.write_bytes(
             gzip.compress(raw, mtime=0) if args.output.suffix == '.gz' else raw)
-        from deep_disassembly import rename_directory
         rename_directory(retained_staging, retained)
         published_retained = True
         try:
             os.link(report_staging, args.output)
-        except BaseException:
-            shutil.rmtree(retained, ignore_errors=True)
-            published_retained = False
+        except BaseException as error:
+            # The complete suite directory is already public. A late writer
+            # may have added files: retain it and the complete report for
+            # recovery instead of deleting a directory we no longer own.
+            preserve_recovery = True
+            error.add_note(f'Complete suites retained at {retained}; report retained at {report_staging}')
             raise
     finally:
-        shutil.rmtree(retained_staging, ignore_errors=True)
-        report_staging.unlink(missing_ok=True)
-        if published_retained and not args.output.exists():
-            shutil.rmtree(retained, ignore_errors=True)
+        if retained_staging is not None and not published_retained:
+            shutil.rmtree(retained_staging, ignore_errors=True)
+        if report_directory is not None and not preserve_recovery:
+            shutil.rmtree(report_directory, ignore_errors=True)
     print(json.dumps({'cases': report['case_count'], 'diagnostic_log_cases': diagnostics['log_bearing_cases'], 'mismatches': len(report['mismatches'])}))
     return bool(report['mismatches'])
 

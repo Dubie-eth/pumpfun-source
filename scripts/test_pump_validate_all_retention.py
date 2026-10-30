@@ -1,6 +1,7 @@
 """The aggregate Pump corpus must not publish a partial retained suite set."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -11,6 +12,7 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import pump_validate_all as runner
+import deep_disassembly as publisher
 
 
 def sha(path):
@@ -181,6 +183,90 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
                 list(retained.parent.glob('.' + retained.name + '.staging-*')),
                 [],
             )
+
+    def complete_suites(self, candidate, original):
+        def run(command, **_kwargs):
+            path = Path(command[command.index('--output') + 1])
+            path.write_text(json.dumps(self.result(candidate, original, path.stem)))
+            return mock.Mock(returncode=0)
+        return run
+
+    def test_late_report_collision_preserves_complete_recovery_and_new_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / 'candidate.so'
+            candidate.write_bytes(b'candidate')
+            original = runner.ROOT / 'evidence/original/pump/deployed.so'
+            output = root / 'aggregate/report.json'
+            retained = output.parent / (output.name + '.suites')
+            link = os.link
+            def late_writer(source, destination):
+                (retained / 'late-user-file').write_bytes(b'late evidence')
+                output.write_bytes(b'other writer report')
+                return link(source, destination)
+            with mock.patch.object(runner.os, 'link', late_writer):
+                with self.assertRaises(FileExistsError):
+                    self.invoke(output, candidate, original, self.complete_suites(candidate, original))
+            self.assertEqual(output.read_bytes(), b'other writer report')
+            self.assertEqual((retained / 'late-user-file').read_bytes(), b'late evidence')
+            self.assertEqual(len(list(retained.glob('*.json.gz'))), len(self.suites))
+            reports = list(output.parent.glob('.report.json.staging-*/report.json'))
+            self.assertEqual(len(reports), 1)
+            self.assertEqual(set(json.loads(reports[0].read_bytes())['suites']), set(self.expected))
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX permission check')
+    def test_complete_outputs_keep_normal_umask_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / 'candidate.so'
+            candidate.write_bytes(b'candidate')
+            original = runner.ROOT / 'evidence/original/pump/deployed.so'
+            output = root / 'aggregate/report.json'
+            previous = os.umask(0o027)
+            try:
+                self.invoke(output, candidate, original, self.complete_suites(candidate, original))
+            finally:
+                os.umask(previous)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o640)
+            self.assertEqual((output.parent / (output.name + '.suites')).stat().st_mode & 0o777, 0o750)
+
+    def test_late_retained_destination_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / 'candidate.so'
+            candidate.write_bytes(b'candidate')
+            original = runner.ROOT / 'evidence/original/pump/deployed.so'
+            output = root / 'aggregate/report.json'
+            retained = output.parent / (output.name + '.suites')
+            rename = publisher.rename_directory
+            def late_writer(source, destination, **kwargs):
+                retained.mkdir()
+                (retained / 'late-user-file').write_bytes(b'late evidence')
+                return rename(source, destination, **kwargs)
+            with mock.patch.object(publisher, 'rename_directory', late_writer):
+                with self.assertRaises(FileExistsError):
+                    self.invoke(output, candidate, original, self.complete_suites(candidate, original))
+            self.assertEqual((retained / 'late-user-file').read_bytes(), b'late evidence')
+            self.assertFalse(output.exists())
+            self.assertEqual(list(output.parent.glob('.report.json.staging-*')), [])
+
+    def test_input_aliases_are_rejected_before_running_suites(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / 'candidate.so'
+            candidate.write_bytes(b'candidate')
+            original = runner.ROOT / 'evidence/original/pump/deployed.so'
+            hardlink = root / 'hardlink.json'
+            os.link(candidate, hardlink)
+            symlink = root / 'symlink.json'
+            symlink.symlink_to(candidate)
+            for output in (candidate, hardlink, symlink):
+                with self.subTest(output=output.name), self.assertRaisesRegex(
+                        ValueError, 'output aliases a bound input'):
+                    self.invoke(output, candidate, original,
+                                lambda *_a, **_k: self.fail('suite launched for an input alias'))
+                self.assertEqual(candidate.read_bytes(), b'candidate')
+                self.assertFalse((root / (output.name + '.suites')).exists())
 
 
 if __name__ == '__main__':
