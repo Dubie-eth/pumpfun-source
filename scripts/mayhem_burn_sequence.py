@@ -123,8 +123,11 @@ def run(binary,family,manifest,index,side,outdir):
 def main():
     global ROOT
     p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--candidate',type=Path,required=True);p.add_argument('--fixtures',type=Path,required=True);a=p.parse_args();ROOT=a.fixtures.resolve()
-    a.output.mkdir(parents=True,exist_ok=False)
     manifest_path=ROOT/'fixture-manifest.json';manifest=json.loads(manifest_path.read_text())
+    # A manifest that selects no family would publish an empty comparison that
+    # looks like a clean run; refuse before creating any output.
+    if not manifest['eligible_families']:raise SystemExit('fixture manifest selects no eligible families: '+str(manifest_path))
+    a.output.mkdir(parents=True,exist_ok=False)
     original=REPO/'evidence/original/mayhem/deployed.so'
     candidate=a.candidate.resolve()
     inputs={'fixtures:fixture-manifest.json':sha(manifest_path.read_bytes()),
@@ -167,5 +170,6 @@ def main():
          'cases':cases}
     (a.output/'comparison.json').write_text(json.dumps(out,indent=2)+'\n')
     print(json.dumps({'case_count':len(cases),'mismatches':out['mismatches'],'inputs_unchanged':True}))
+    raise SystemExit(bool(out['mismatches']))
 
 if __name__=='__main__':main()
