@@ -134,6 +134,7 @@ jobs:
               python -B tests/test_build_partial_normal_python.py
               python -B tests/test_checkpoint_verifiers_normal_python.py
               python -B tests/test_pump_output_parents.py
+              python -B tests/test_pump_amm_buyback_report_publication.py
               python -B tests/test_remaining_output_parents.py
               python -B tests/test_pump_admin_token_incentives_report_publication.py
               python -B tests/test_pump_admin_cto_report_publication.py
