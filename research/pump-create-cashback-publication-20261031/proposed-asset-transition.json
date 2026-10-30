@@ -1,0 +1,19 @@
+{
+  "scope": "Proposed maintained-script asset transition that routes two standalone Pump differential receipts through the shared PumpReport publisher; captures, suites and prior receipts remain unchanged.",
+  "base": "8cf3c5f8a7912b36ced352e49ac8538ff864a4c2",
+  "files": {
+    "scripts/pump_create_differential.py": {
+      "before_sha256": "5fabc077e4508e9157a67d40bb04b82c54d28b71ff65529bf985c242adfeed8b",
+      "proposed_sha256": "d783c028c2fa824d06cc2161aa5eeeb4d685d18ea43f1fe3250d18bb7583f2a3"
+    },
+    "scripts/pump_cashback_differential.py": {
+      "before_sha256": "8c49b6a1ff380097d659ed312e5a7404b9d2e64bce7805783e04ef33d792ed3d",
+      "proposed_sha256": "fb0cb5a8f4d02717b8908493c1a0e121f337f9a095cc16ec388f4817052e7a73"
+    }
+  },
+  "script_set_changed": false,
+  "program_source_changed": false,
+  "capture_bytes_changed": false,
+  "new_test": "tests/test_pump_create_cashback_output_publication.py",
+  "existing_ci_discovery": "contract-tests: python -B -m unittest discover -s tests -v"
+}
