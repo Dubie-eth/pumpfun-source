@@ -143,12 +143,29 @@ class TokenkegCheckpointOptimizationTests(unittest.TestCase):
         line = next(l for l in completed.stdout.splitlines() if l.startswith("KEYS "))
         keys = json.loads(line[5:])
         self.assertEqual(keys["report"], "pkg/report.json")
-        # The repository_inputs key is built from the module's own file, which
-        # the stubbed ROOT in this driver cannot host; pin its expression.
-        source = (SCRIPTS / "pump_tokenkeg_checkpoint_differential.py").read_text(encoding="utf-8")
-        self.assertIn("result['repository_inputs'][Path(__file__).relative_to(ROOT).as_posix()]",
-                      source)
-        self.assertNotIn("str(Path(__file__).relative_to(ROOT))", source)
+
+
+
+    def test_repository_key_uses_actual_windows_path_rendering(self):
+        driver = DRIVER.replace(
+            "v.portable_binding(candidate, report_path)\nprint('OK')\n",
+            "from pathlib import PureWindowsPath\n"
+            "v.ROOT = PureWindowsPath('C:/repo')\n"
+            "v.__file__ = 'C:/repo/scripts/pump_tokenkeg_checkpoint_differential.py'\n"
+            "v.Path = PureWindowsPath\n"
+            "v.sha = lambda path: 'bound-sha'\n"
+            "result = v.bindings(candidate, report_path)\n"
+            "print('KEYS ' + json.dumps(result['repository_inputs']))\n",
+        )
+        env = dict(os.environ, PYTHONPATH=str(SCRIPTS) + os.pathsep + os.environ.get('PYTHONPATH', ''))
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                completed = subprocess.run([sys.executable, *mode, '-c', driver, 'none', str(self.root)],
+                    capture_output=True, text=True, env=env, timeout=30)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                line = next(line for line in completed.stdout.splitlines() if line.startswith('KEYS '))
+                self.assertEqual(json.loads(line[5:]), {'scripts/pump_tokenkeg_checkpoint_differential.py': 'bound-sha'})
+
 
 
 if __name__ == "__main__":
