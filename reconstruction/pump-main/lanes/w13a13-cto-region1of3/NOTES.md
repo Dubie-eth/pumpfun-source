@@ -1,76 +1,37 @@
-# w13a13-cto-region1of3: admin_cto::execute (0x22a10), region 1 of 3
+# admin_cto: earlier argument copy and event flags
 
-Target: `0x22a10` `admin_cto::execute` (`programs/pump/src/creator/admin_cto.rs`), pinned at 27,400 B.
-Angle: split the ORIGINAL window into 3 equal byte ranges and own range 1 (orig offsets `0x0000..0x23ad`:
-prologue, holder_key/shared/quote_locked, CtoState, the whole validate block, prepare_bonding_curve, the 410
-`require!`, and the first sweep blocks up to the 648/719 error blocks).
-Bases: main cb298d5 (0.49101), main 9eb6c00 (0.49131 / 3,280 slots). Ledger keys `0x22a10-w13-<sha7>-region1-*-v1`.
+The borrowed `new` tuple is bound before the function-scope `CtoState` literal.
+Both operations read plain values without side effects. The event reads the
+holder and cashback flags from the local variables that were stored into the
+curve earlier in the instruction. There is no intervening curve-field mutation
+or reload, so the emitted values are unchanged. All 24 macro sites retain their
+original line numbers.
 
-## Oracle: `tools/regcon.py` (region split of the real metric)
+## Verified measurements
 
-`regcon.py <unstripped.so>...` recomputes target_metric's difflib ratio on admin_cto (same normalized tokens) and
-splits the matched tokens by the ORIGINAL instruction's region. The three shares sum to the ratio, so any trial's
-gain or loss can be attributed to a region. `--frame` masks r10 offsets (and the `add64 rX,-imm` frame addresses),
-`--regs` masks registers, `--jumps` masks jump offsets (all three: a placement-free structure score).
+The reviewed branch includes main `4d529362b74a2051a5a164b7e251cb90eb9cccf5`,
+whose full Pump source inventory matches the verified #2921 build:
+`acc7d171b7b95e86658ed1403884b354746028559b267e0ed9bf3d0cda57393e`.
+A fresh identity build produced:
 
-```
-python3 reconstruction/pump-main/lanes/w13a13-cto-region1of3/tools/regcon.py <so>... [--frame] [--regs] [--jumps]
-```
+| Measure | Baseline | Candidate |
+| --- | ---: | ---: |
+| admin_cto bytes | 27,400 | 27,400 |
+| Sequence diagnostic ratio | 0.50929 | 0.51228 |
+| Differing normalized 8-byte slots | 3,325 | 3,334 |
+| Raw / normalized matched windows | 1,034 / 1,034 | 1,034 / 1,034 |
 
-| build | bytes | ratio | R1 matched /1085 | R2 /1137 | R3 /1117 | R1 frame-masked | R1 fully masked |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| main 9eb6c00 | 27,400 | 0.49131 | 532 | 377 | 731 | 609 | 697 |
-| r1 (w13a03 entry copy) on 9eb6c00 | 27,424 | 0.50337 | 537 | 451 | 693 | 541 | 697 |
-| P2m (w13a10 best P+hk_after_shared+p_ev_both_curve, + #2906) | 27,400 | 0.50899 | 512 | 493 | 694 | 519 | |
-| P2m + `args` before CtoState (r1 order) | 27,384 | 0.51214 | 518 | 505 | 686 | | |
-| HM+TAKE306 (w13a04/w13a06 per-site holder tests) | 27,024 | 0.44729 | 420 | 393 | 670 | | **720** |
+The sequence ratio improves while the positional mismatch count increases.
+The official 1,035-window inventory has no missing or resized windows and no
+lost raw or normalized matches. This partial-window change does not increase
+the matched-window completion percentage or establish whole-ELF identity.
 
-Findings:
-- Every recent gain (r1 entry copy, pfclimb's P2m) is in **region 2**; region 1 is flat or worse.
-- `hk_after_shared` (holder_key after `shared`) costs region-1 *structure*: the find_program_address chunk drops
-  1.00 -> 0.65 and memcmp#1 0.98 -> 0.55 (chunks2), R1 532 -> 512. The original computes holder_key first
-  (its first call at orig +0x0f8), so hk_after_shared is a frame effect paid for with wrong code order.
-- The per-site holder-test form (HM) is the most faithful region-1 structure (fully masked R1 697 -> 720) but loses
-  112 exact R1 tokens to frame/registers and 376 B of size.
+All 363 signed admin_cto differential cases matched the captured program with
+genuine dependency CPIs. This is bounded runtime evidence, not all-input proof.
 
-## Region-1 map (original order of the error blocks in region 1, by `line!()` immediate)
+Source inventory: `6ec93b9004c2374f087c98d93a6d5bc3c211ef133999b84a0e995b8b080a3761`.
+Unstripped ELF: `89dc0ae69faf3fd63f2691b76f35a6bcfe144988598454eff1bc0dc3a8fe088c`.
+Runtime ELF: `2b3bc21e534a0180f6cb838c9cb087b4c7eda4a51da7a1f4d66c4bf613084853`.
 
-| | order |
-| --- | --- |
-| original | 289 298 306 296 326 312 307 330 338 334 410 719 648 |
-| main 9eb6c00 | 298 289 296 326 306 312 307 330 338 410 334 719 648 |
-
-Region-1 statements and what the original does there (orig offsets):
-
-| orig | statement | original | ours |
-| --- | --- | --- | --- |
-| 0x000-0x0f8 | arg spills, `mint`, holder_key PDA | spills r4 -0x928, r3 -0x918, r1 -0x8f0, r2 -0x938; mint at -0x6c0; FPA is the first call | r1-order entry copy gives r4 -0x928 / r2 -0x938 only when holder_key is computed first |
-| 0x100-0x278 | `shared` (creator==sharing key, owner, !empty) | sharing key copied into the FPA result temp slot -0x2d0 (stack-colored) | same code; hk_after_shared moves this block before the FPA |
-| 0x280-0x2b8 | curve bools | cashback 0xa3, holder_reward 0xa5, mayhem 0xa2 loaded **before** global_quote | loaded after global_quote (literal-order genes reproduce the load order but lose ratio: ledger `*literal*`) |
-| 0x2b8-0x438 | global_quote | quote_mint copy descending, memcmps | same |
-| 0x440-0x4d0 | CtoState stores | creator copied **ascending** from `data+8` after the global loads | creator copied descending first |
-| 0x4d8-0x538 | entry copy of `new` | tag, [1,8), [8,16), [16,24), [24,33) pieces | lazy (w13a03/w13a07) |
-| 0x540-0x5d0 | sharing key temp, holder_key copy to -0x518 | holder_key by-value copy before the mayhem test | none (validate takes &holder_key; by-value forms are in the ledger, all worse) |
-| 0x5d8-0x750 | 284/289/298 tests | one `holder&1` i1 (r8), then `new` tag `&1` from the copy | `(h&0xfd)==0` |
-| 0xd78-0xe58 | after 312: cashback, shared override | `target=st.creator` copied **inside** the non-holder arm before the fee checks (orig chunk 0x0f20) | override after validate (OVMK collapses / costs) |
-| 0x1858-0x1a48 | sharing payload / tuple phi copies | 7/9 B payload pieces from the copy, target + payload into the block result slots | |
-| 0x1a50-0x1c58 | prepare_bonding_curve, 410 require | | |
-
-## Landable step 1 (base main 8f050a2 = #2921, 0.50929 / 3,325 slots)
-
-| build | bytes | ratio | slots | norm/raw | R1 | R2 | R3 |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |
-| main 8f050a2 | 27,400 | 0.50929 | 3,325 | 1034/1034 | 512 | 493 | 695 |
-| q0: `let args=&(new,);` before the CtoState literal | 27,384 | 0.51393 | | 1034/347 | | | |
-| **q_evboth: q0 + event `is_holder_reward:holder,is_cashback_coin:cashback`** | **27,400** | **0.51228** | 3,334 | 1034/1034, 0 losses | 516 | 505 | 689 |
-
-Runtime differential: 363/363 cases match. Unstripped sha 89dc0ae69faf3fd6.
-
-Mechanism: #2921 binds the referenced entry copy `args=&(new,)` after `st` (x_g8). Binding it before the CtoState
-literal (w13a03's r1 placement) is -16 B and +0.0046; the event fields read back from the locals instead of the curve
-(the reverse of #2921's p_ev_both_curve) repay exactly +16 B. Same semantics: the curve fields were just stored from
-those locals.
-
-Other size companions measured on q0 (ledger `0x22a10-w13-8f050a2-region1-r1ord-*`): sweep gate `if/else` 0.38094
-(collapse), `let rent=&Rent::get()?` 27,368, `reset` inline 27,392, only `is_holder_reward` 27,392, only
-`is_cashback_coin` 27,400 / 0.51049, holder_key before shared 27,416 / 0.50943.
+Validation used `reconstruction/harness/fastbuild.py` (identity recipe), `score.py`,
+`compare_scores.py`, `target_metric.py` and `scripts/pump_admin_cto_differential.py`.
