@@ -4,8 +4,10 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import sys
 import types
+import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = 'scripts/reconstruction_roadmap.py'
@@ -55,13 +57,37 @@ def generate(root, output):
     module.__file__ = str(root / SOURCE)
     exec(compile(raw, module.__file__, 'exec'), module.__dict__)
     module.trace_handler_attribution = trace_handler_attribution
-    module.generate_roadmap(output)
-    bindings = {SOURCE: hashlib.sha256(raw).hexdigest(),
-                'adapter_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
-    (output / 'attribution-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
-    manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(output.iterdir())
-                if p.is_file() and p.name != 'manifest.json'}
-    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+    # Stage beside the destination and publish by rename, so a write failure
+    # never leaves a partial packet at the destination: the destination check
+    # above would otherwise block a retry at the same path, and the partial
+    # directory would masquerade as a result although it has no manifest.
+    # The stage is an ordinary mkdir, so it keeps the caller's umask.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = None
+    for _ in range(8):
+        candidate = output.parent / ('.' + output.name + '.staging-' + uuid.uuid4().hex)
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        stage = candidate
+        break
+    if stage is None:
+        raise FileExistsError('could not allocate a staging directory')
+    try:
+        module.generate_roadmap(stage)
+        bindings = {SOURCE: hashlib.sha256(raw).hexdigest(),
+                    'adapter_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+        (stage / 'attribution-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
+        manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(stage.iterdir())
+                    if p.is_file() and p.name != 'manifest.json'}
+        (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+        if output.exists():
+            raise ValueError('output already exists; retain prior packets')
+        stage.rename(output)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
 
 
 if __name__ == '__main__':
