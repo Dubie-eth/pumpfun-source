@@ -108,9 +108,9 @@ def retain(build):
             # Pin the gzip header mtime: the archive is hashed into the
             # manifest, and a wall-clock header made identical inputs hash
             # differently per run.
-            with open(EVIDENCE / 'compiled-source.tar.gz', 'wb') as raw_archive, tarfile.open(
-                    fileobj=gzip.GzipFile(filename='', fileobj=raw_archive, mode='wb', mtime=0),
-                    mode='w') as archive:
+            with open(EVIDENCE / 'compiled-source.tar.gz', 'wb') as raw_archive, gzip.GzipFile(
+                    filename='', fileobj=raw_archive, mode='wb', mtime=0) as compressed, tarfile.open(
+                    fileobj=compressed, mode='w') as archive:
                 for path in sorted((build / 'source').rglob('*')):
                     if path.is_file():
                         archive.add(path, arcname=path.relative_to(build / 'source'), recursive=False)
