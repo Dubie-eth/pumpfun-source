@@ -221,6 +221,7 @@ jobs:
               python -B scripts/test_revalidate_all_publication.py
               python -B scripts/test_revalidate_all_atomic_publication.py
               python -B reconstruction/diagnostics/manifest-admission/test_run.py
+              python -B reconstruction/diagnostics/manifest-admission/test_check_packet_root_link.py
               python -B scripts/test_donation_relay_oracle_optimization.py
               python -B tests/test_claim_token_incentives_pinned_image.py
               python -B tests/test_pump_admin_token_incentives_pinned_image.py
