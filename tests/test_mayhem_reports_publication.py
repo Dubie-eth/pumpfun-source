@@ -67,6 +67,18 @@ class MayhemReportsPublicationTests(PublicationCase,unittest.TestCase):
      self.assertEqual(self.report()['case_count'],2);self.assertEqual(self.report()['mismatches'],[])
     finally:self.ARGS[name]=old
 
+ def test_late_external_case_alias_preserves_input(self):
+  name='mayhem_buy_differential';old_args=self.ARGS[name]
+  with tempfile.TemporaryDirectory(prefix='mayhem-late-case-') as temporary:
+   case=Path(temporary)/'cases.json';shutil.copyfile(self.root/self.CASES[name],case);raw=case.read_bytes()
+   self.ARGS[name]=['--cases',str(case)];self.LATE_INPUT=str(case)
+   try:
+    result=self.invoke(name,'late')
+    self.assertNotEqual(result.returncode,0);self.assertIn('report output aliases an input',result.stderr)
+    self.assertEqual(case.read_bytes(),raw)
+    self.assertEqual(json.loads((self.root/'execution.json').read_bytes())['selected'],2)
+   finally:self.ARGS[name]=old_args
+
  def test_legacy_default_retained_case_path(self):
   name='mayhem_sell_differential';old=self.ARGS[name];self.ARGS[name]=[]
   try:
