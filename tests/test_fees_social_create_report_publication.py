@@ -1,77 +1,49 @@
-"""AST + PumpReport mechanism controls for the Fees social create report publication.
-
-The social create differential needs solders to run its VM cases, which this
-environment lacks, so these controls verify the publication wiring
-statically and exercise PumpReport's alias/staging guarantees directly,
-mirroring the Fees buyback publication test's approach.
-"""
-import ast
-import sys
-import tempfile
+"""Unmodified full social-create corpus and bounded real-VM publication controls."""
+import hashlib
+import shutil
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+import publication_cli_support as support
+from publication_cli_support import PublicationCase, ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'scripts/fees_social_create_differential.py'
-sys.path.insert(0, str(ROOT / 'scripts'))
-import pump_differential_output as publication
-from pump_differential_output import PumpReport
-
-
-class FeesSocialCreateReportPublicationTests(unittest.TestCase):
-    def test_script_publishes_through_pump_report(self):
-        src = SCRIPT.read_text(encoding='utf-8')
-        tree = ast.parse(src)
-        self.assertIn('from pump_differential_output import PumpReport', src)
-        self.assertNotIn('.write_text(', src)
-        self.assertIn('publisher.write(', src)
-        main = next(n for n in tree.body
-                    if isinstance(n, ast.FunctionDef) and n.name == 'main')
-        calls = [n for n in ast.walk(main)
-                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                 and n.func.id == 'PumpReport']
-        self.assertEqual(len(calls), 1)
-        loop = next(n for n in ast.walk(main)
-                    if isinstance(n, ast.For))
-        # The publisher is constructed before any case runs, so an aliased
-        # output is rejected before the VM work starts.
-        self.assertLess(calls[0].lineno, loop.lineno)
-
-    def test_alias_outputs_rejected(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            candidate = root / 'candidate.so'
-            candidate.write_bytes(b'candidate')
-            fixture = root / 'fixture.json'
-            fixture.write_bytes(b'{}')
-            with self.assertRaises(ValueError):
-                PumpReport(candidate, root, candidate, __file__)
-            with self.assertRaises(ValueError):
-                PumpReport(fixture, root, candidate, __file__,
-                           extra_inputs=[fixture])
-
-    def test_staged_write_preserves_prior_report_on_fsync_failure(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            output = root / 'reports' / 'output.json'
-            report = PumpReport(output, root, None, __file__)
-            report.write(b'first report\n')
-            self.assertEqual(output.read_bytes(), b'first report\n')
-            original_fsync = publication.os.fsync
-
-            def fail(fd):
-                raise OSError('injected fsync failure')
-
-            publication.os.fsync = fail
-            try:
-                with self.assertRaises(OSError):
-                    report.write(b'second report\n')
-            finally:
-                publication.os.fsync = original_fsync
-            self.assertEqual(output.read_bytes(), b'first report\n')
-            self.assertEqual([p for p in output.parent.iterdir()
-                              if p.name.startswith('.output')], [])
+# main constructs its case list locally. Expose that exact construction only
+# in the bounded child interpreter, without modifying files or any VM result.
+# Full mode executes the original production main and all 588 cases.
+ADAPTER = r'''
+if mode!='full':
+ import ast,copy
+ tree=ast.parse(Path(module.__file__).read_text(encoding='utf-8'))
+ main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+ def assigns(node,name):return isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id==name for t in node.targets)
+ start=next(i for i,n in enumerate(main.body) if assigns(n,'cases'))
+ end=next(i for i,n in enumerate(main.body[start:],start) if assigns(n,'rows'))
+ factory=ast.FunctionDef(name='cases',args=ast.arguments(posonlyargs=[],args=[],kwonlyargs=[],kw_defaults=[],defaults=[]),body=copy.deepcopy(main.body[start:end])+[ast.Return(value=ast.Name(id='cases',ctx=ast.Load()))],decorator_list=[])
+ main.body[start:end]=ast.parse("cases = globals()['cases']()").body
+ exec(compile(ast.fix_missing_locations(ast.Module(body=[factory,main],type_ignores=[])),module.__file__,'exec'),module.__dict__)
+'''
 
 
-if __name__ == '__main__':
-    unittest.main()
+class FeesSocialCreateReportPublicationTests(PublicationCase, unittest.TestCase):
+    NAMES=('fees_social_create_differential',)
+    DATA=('evidence/upstream/pump_fees.json','evidence/original/pump_fees/deployed.so')
+    HELPERS=('fees_admin_differential',)
+    PROGRAM='evidence/original/pump_fees/deployed.so'
+    EXPECTED={'fees_social_create_differential':588}
+
+    def invoke(self,name,mode='bounded',output=None):
+        needle='module=importlib.import_module(name)'
+        self.assertIn(needle,support.DRIVER)
+        driver=support.DRIVER.replace(needle,needle+'\n'+ADAPTER)
+        with patch.object(support,'DRIVER',driver):
+            return super().invoke(name,mode,output)
+
+    def test_wrong_real_image_preserves_failed_report(self):
+        shutil.copyfile(ROOT/'evidence/original/mayhem/deployed.so',self.root/'candidate.so')
+        result=self.invoke(self.NAMES[0])
+        self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+        report=self.report();self.assertEqual(len(report['cases']),2)
+        self.assertTrue(report['mismatches'])
+        self.assertEqual(report['candidate_sha256'],hashlib.sha256((self.root/'candidate.so').read_bytes()).hexdigest())
+
+
+if __name__=='__main__':unittest.main()
