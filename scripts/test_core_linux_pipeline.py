@@ -195,7 +195,38 @@ class PipelineTests(unittest.TestCase):
             expected[name]=hashlib.sha256(payload).hexdigest()
         one=self.root/'one';two=self.root/'two';one.mkdir();two.mkdir()
         h.snapshot_source(source,expected,one);time.sleep(1.1);h.snapshot_source(source,expected,two)
-        self.assertEqual((one/'source-snapshot.tar.gz').read_bytes(),(two/'source-snapshot.tar.gz').read_bytes())
+        archive=(one/'source-snapshot.tar.gz').read_bytes()
+        self.assertEqual(archive,(two/'source-snapshot.tar.gz').read_bytes())
+        self.assertEqual(int.from_bytes(archive[4:8],'little'),0)
+        self.assertEqual(archive[3] & 8,0)  # no output filename in gzip header
+        self.assertTrue(gzip.decompress(archive))  # also checks footer CRC/size
         self.assertEqual((one/'source-before.json').read_bytes(),(two/'source-before.json').read_bytes())
+
+    def test_snapshot_preserves_tar_metadata_source_bytes_and_hashes(self):
+        payloads={'Cargo.toml':b'[workspace]\n', 'src/lib.rs':b'pub fn f(){}\n',
+                  'scripts/build.sh':b'#!/bin/sh\nexit 0\n', 'src/\u03bc.rs':b'// unicode path\n'}
+        expected={}
+        for name,payload in payloads.items():
+            path=self.source/name;path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(payload);path.chmod(0o755 if name.endswith('.sh') else 0o644)
+            os.utime(path,(1700000000,1700000000))
+            expected[name]=hashlib.sha256(payload).hexdigest()
+        before=h.source_hashes(self.source,expected)
+        # Compare against the original tar writer's uncompressed payload; only
+        # the gzip wrapper metadata is intended to change.
+        reference=self.root/'reference.tar.gz'
+        with tarfile.open(reference,'w:gz') as tar:
+            for name in sorted(expected):tar.add(self.source/name,arcname=name,recursive=False)
+        h.snapshot_source(self.source,expected,self.evidence)
+        actual=gzip.decompress((self.evidence/'source-snapshot.tar.gz').read_bytes())
+        self.assertEqual(actual,gzip.decompress(reference.read_bytes()))
+        with tarfile.open(fileobj=io.BytesIO(actual),mode='r:') as tar:
+            self.assertEqual(tar.getnames(),sorted(payloads))
+            for member in tar.getmembers():
+                self.assertTrue(member.isfile())
+                self.assertEqual(tar.extractfile(member).read(),payloads[member.name])
+                self.assertEqual(member.mode,0o755 if member.name.endswith('.sh') else 0o644)
+        self.assertEqual(json.loads((self.evidence/'source-before.json').read_bytes()),expected)
+        self.assertEqual(h.source_hashes(self.source,expected),before)
 
 if __name__=='__main__':unittest.main(verbosity=2)

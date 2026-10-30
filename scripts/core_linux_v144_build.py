@@ -367,9 +367,9 @@ def snapshot_source(source, expected, evidence):
     write_json(evidence / "source-before.json", actual)
     # Pin the gzip header mtime: the snapshot is retained evidence, and a
     # wall-clock header made identical inputs archive differently per run.
-    with open(evidence / "source-snapshot.tar.gz", "wb") as raw_archive, tarfile.open(
-            fileobj=gzip.GzipFile(filename="", fileobj=raw_archive, mode="wb", mtime=0),
-            mode="w") as tar:
+    with open(evidence / "source-snapshot.tar.gz", "wb") as raw_archive, gzip.GzipFile(
+            filename="", fileobj=raw_archive, mode="wb", mtime=0) as compressed, tarfile.open(
+            fileobj=compressed, mode="w") as tar:
         for name in sorted(expected):
             tar.add(source / name, arcname=name, recursive=False)
 
