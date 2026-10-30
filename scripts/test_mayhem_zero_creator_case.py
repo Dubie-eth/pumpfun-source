@@ -37,20 +37,42 @@ class MayhemZeroCreatorTests(unittest.TestCase):
             return original(instructions, payer, signers, blockhash)
 
         with mock.patch.object(harness.Transaction, 'new_signed_with_payer', side_effect=spy):
-            harness.run(case)
-        self.assertTrue(payloads)
-        return payloads[-1]
+            result = harness.run(case)
+        self.assertEqual(len(payloads), 1)
+        return payloads[0], result
 
     def test_zero_creator_case_transmits_the_zero_key(self):
         case = {'case': 'zero-creator-is-rejected',
                 'creator': '11111111111111111111111111111111',
                 'is_mayhem_mode': True}
-        self.assertEqual(creator_field(self.run_case_capturing_payload(case)), bytes(32))
+        payload, result = self.run_case_capturing_payload(case)
+        self.assertEqual(creator_field(payload), bytes(32))
+        self.assertIn('InstructionErrorCustom(6030)', result['error'])
+        # A rejected signed transaction still charges the fee payer.
+        payer = str(harness.USER.pubkey())
+        for key, before in result['before'].items():
+            after = result['after'][key]
+            if key == payer:
+                self.assertLess(after['lamports'], before['lamports'])
+                self.assertEqual({k: v for k, v in before.items() if k != 'lamports'},
+                                 {k: v for k, v in after.items() if k != 'lamports'})
+            else:
+                self.assertEqual(before, after)
 
     def test_default_case_still_transmits_the_paying_user(self):
-        payload = self.run_case_capturing_payload({'case': 'probe'})
+        payload, result = self.run_case_capturing_payload({'case': 'probe'})
+        self.assertIsNone(result['error'])
         self.assertNotEqual(creator_field(payload), bytes(32))
         self.assertEqual(creator_field(payload), bytes(harness.USER.pubkey()))
+
+
+    def test_nonzero_case_creator_is_transmitted(self):
+        creator = harness.OTHER.pubkey()
+        payload, result = self.run_case_capturing_payload({
+            'case': 'custom-creator', 'creator': str(creator),
+        })
+        self.assertEqual(creator_field(payload), bytes(creator))
+        self.assertIsNone(result['error'])
 
 
 if __name__ == '__main__':
