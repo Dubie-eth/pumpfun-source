@@ -74,27 +74,38 @@ gate, `is_cashback_coin:a.bonding_curve.is_cashback_coin` in the event (`h_ev_cb
 w12a14-cto-hillclimb). 27,400 B / **0.49071** / slots 3,313, 1034/1034, zero losses, unstripped sha256
 `48d5a9c99d2fd34f...`, differential 363/363.
 
-## Composite 3 (this PR, on main cb298d5c8 = #2907): entry copy of `new` + event flags from the curve + reset
+## Composite 3: borrowed argument copy and cached sharing flag
 
-Main moved to cb298d5c8 (#2907 w13a10-cto-pfclimb-2: event `is_holder_reward` from the curve, `st.cashback&&!holder`;
-0.49101). The new gene is w13a03-cto-entrycopy's `g8`: `let args=&(new,);` bound after the `CtoState` literal
-and `Some(args.0)` in the shared non-holder arm. The borrowed tuple keeps an entry copy of `new` in the frame
-(the original copies all of `new`'s SROA pieces at entry, orig 0x4d8-0x538). Alone it is +16 B
-(C1 + g8 27,416 / 0.49296; 085e5df + g8 27,432 / 0.50569); the size companions are the two event/reset genes:
+This candidate moves the `CtoState` binding out of the inner tuple scope and
+borrows `new` as `let args=&(new,);`. The shared non-holder arm uses `args.0`,
+which equals the same immutable `Copy` value previously read directly. It also
+caches `sharing_update.is_some()` before the pool signer seeds for use in the event.
 
-| variant (bytes / ratio) | bytes | ratio |
+Compared with the verified #2906 baseline, this composite returns the cashback
+boolean operands and the independent curve-field access order to their earlier
+forms. The event still reads the updated holder and cashback fields from the
+curve. These changes preserve values, validation and CPI order; all 24 macro
+sites retain their original line numbers.
+
+A fresh identity build was compared against main
+`e9e426998ed4c214223879cb54bb2e3384f25449`, whose full Pump source inventory
+matches the verified #2906 build (`d44d67269eb5ab2aaa962a2497a6552bb53254a6bb33bd0015f5d8103b62a4c0`).
+
+| Measure | #2906 baseline | Composite 3 |
 | --- | ---: | ---: |
-| C1 (main 4394685) + g8 | 27,416 | 0.49296 |
-| + `is_holder_reward` from the curve (#2907's gene) | 27,408 | 0.49334 |
-| **+ that + `reset` before the pool seeds (P1, this PR)** | **27,400** | **0.49431** |
-| C1 + g8 + `reset` + `if let` sharing CPI | 27,408 | 0.49334 |
-| C1 + g8 + event cashback local | 27,432 | 0.50150 |
-| 085e5df + g8 | 27,432 | 0.50569 |
-| 085e5df + g8 + `is_holder_reward` from the curve | 27,432 | 0.50599 |
-| 085e5df + g8 + Result gate | 27,440 | 0.50262 |
+| admin_cto bytes | 27,400 | 27,400 |
+| Sequence diagnostic ratio | 0.49131 | 0.49431 |
+| Differing normalized instruction slots | 3,280 | 3,306 |
+| Raw / normalized matched windows | 1,034 / 1,034 | 1,034 / 1,034 |
 
-P1: 27,400 B / **0.49431** / slots 3,306, 1034/1034 normalized and raw, zero losses against cb298d5c8, differential
-363/363, unstripped sha256 `46ba0c60c7b4dd11...`. P1 keeps `!holder&&st.cashback` (main's `st.cashback&&!holder` is
-measured separately as P1c).
+The sequence ratio improves while the positional mismatch count increases.
+The official 1,035-window inventory has no missing or resized windows and no
+lost raw or normalized matches. This partial-window improvement does not
+increase the matched-window completion percentage or establish whole-ELF identity.
 
-The 085e5df + g8 family (0.505-0.506 at 27,432 B) is the next target: it needs -32 B.
+All 363 signed admin_cto differential cases matched the captured program with
+genuine dependency CPIs. This is bounded runtime evidence, not all-input proof.
+
+Source inventory: `976a6bf25dd46c867047081de1bc0a0ff758ff0e3dc0a7192d200f7ce1d1e430`.
+Unstripped ELF: `46ba0c60c7b4dd11f7a67f01b81ff7e305b700dd2e1f459fccd07ddca58b3d2c`.
+Runtime ELF: `95f21f881dbf6c3be67819735a291eceaa934314b4e43b2427cda21228420302`.
