@@ -5,6 +5,7 @@ from pathlib import Path
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,17 +57,21 @@ class BuildNormalPythonTests(unittest.TestCase):
                     flags=flags,
                     optimize=env.get("PYTHONOPTIMIZE"),
                 ):
-                    result = subprocess.run(
-                        [sys.executable, *flags, str(script), "--help"],
-                        cwd=ROOT,
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    self.assertEqual(result.returncode, 1)
-                    self.assertIn("Normal Python is required", result.stderr)
-                    self.assertNotIn("ModuleNotFoundError", result.stderr)
+                    with tempfile.TemporaryDirectory() as temporary:
+                        output = Path(temporary) / "output-must-not-be-created"
+                        result = subprocess.run(
+                            [sys.executable, *flags, str(script), "--toolchain",
+                             str(Path(temporary) / "absent-toolchain"), "--output", str(output)],
+                            cwd=ROOT,
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        self.assertEqual(result.returncode, 1)
+                        self.assertIn("Normal Python is required", result.stderr)
+                        self.assertNotIn("ModuleNotFoundError", result.stderr)
+                        self.assertFalse(output.exists(), "optimized invocation must not start the build")
 
     def test_normal_python_reaches_argument_parsers(self):
         environment = dict(os.environ)
