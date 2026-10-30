@@ -139,7 +139,7 @@ def main():
     args = parser.parse_args()
     try:
         return run_pair(args.base.resolve(), args.candidate.resolve(), args.out.resolve(), args.sdk.resolve(), args.hybrid.resolve(), timeout=args.timeout)
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(2, f'build/score gate failed: {error}\n')
 
 
