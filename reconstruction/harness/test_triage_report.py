@@ -134,5 +134,33 @@ class TriageReportTests(unittest.TestCase):
             self.assertEqual(path.read_text(), '[]')
 
 
+class TriageReportBytesTests(unittest.TestCase):
+    def test_report_bytes_do_not_follow_the_host_line_ending(self):
+        # The report writer used bare write_text: locale codec and
+        # newline=None, so a Windows triage.json carried CRLF where the
+        # Linux CI writes LF for identical inputs.
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            cand = tmp / 'cand.so'; cand.write_bytes(b'ELF')
+            out = tmp / 'triage.json'
+            triage.sections = lambda blob: {'.text': {'addr': 0x1000, 'offset': 0, 'size': 4}}
+            triage.score = lambda p: {0x1000: {'normalized': False}}
+            triage.function_symbols = lambda blob: [(0x1000, 4, 'candidate-0')]
+            triage.original_windows = lambda: [{'start': 0x1000, 'bytes': 4, 'raw': b'abcd'}]
+            triage.sites = lambda blob, secs, start, raw: []
+            triage.normalize = lambda raw, addr, secs: raw
+            triage.body = lambda blob, secs, addr, size: b'abcd'
+            triage.demangle = lambda name: name
+            argv = sys.argv
+            sys.argv = ['triage.py', '--cand', str(cand), '--json', str(out)]
+            try:
+                with mock.patch('os.linesep', '\r\n'), contextlib.redirect_stdout(io.StringIO()):
+                    triage.main()
+            finally:
+                sys.argv = argv
+            self.assertNotIn(b'\r', out.read_bytes())
+
+
 if __name__ == '__main__':
     unittest.main()
