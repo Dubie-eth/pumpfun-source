@@ -61,6 +61,7 @@ class PhysicalSourceWrapperTests(unittest.TestCase):
             for wrapper in WRAPPERS:
                 for label, extra_argv, extra_env in (
                     ('-O', ['-O'], {}),
+                    ('-OO', ['-OO'], {}),
                     ('PYTHONOPTIMIZE', [], {'PYTHONOPTIMIZE': '1'}),
                 ):
                     with self.subTest(wrapper=wrapper.name, mode=label):
@@ -93,7 +94,7 @@ class PhysicalSourceWrapperTests(unittest.TestCase):
                     env = dict(os.environ,
                                PUMP_LOGICAL_REGISTRY_SRC=str(root / 'registry'))
                     result = subprocess.run(
-                        [sys.executable, str(wrapper), str(compiler), str(link)],
+                        [sys.executable, str(wrapper), sys.executable, str(compiler), str(link)],
                         env=env, text=True, capture_output=True,
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
