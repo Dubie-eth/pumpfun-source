@@ -109,6 +109,22 @@ def join_line_continuations(command):
     return ''.join(result)
 
 
+def python_option(option):
+    """Return (inline mode, separate value) for one Python option token."""
+    if option == '-':
+        return True, False
+    if option.startswith('--'):
+        return False, option == '--check-hash-based-pycs'
+    for consumed, flag in enumerate(option[1:], 2):
+        if flag in ('c', 'm'):
+            return True, False
+        if flag in ('W', 'X'):
+            # The remainder belongs to this option's value, not more flags:
+            # -IWmodule must not be mistaken for inline module mode.
+            return False, consumed == len(option)
+    return False, False
+
+
 def command_start(tokens):
     """Return the interpreter index after shell assignments and env options."""
     return command_context(tokens, '.')[0]
@@ -196,13 +212,15 @@ def references(name, source):
                         if option == '--':
                             index += 1
                             break
-                        if (python and (option in ('-c', '-m', '-') or option.startswith(('-c', '-m')))
-                                or not python and not option.startswith('--') and 'c' in option[1:]):
+                        if python:
+                            inline, takes_value = python_option(option)
+                        else:
+                            inline = not option.startswith('--') and 'c' in option[1:]
+                            takes_value = (option in ('--rcfile', '--init-file') or
+                                           not option.startswith('--') and option[-1:] in ('o', 'O'))
+                        if inline:
                             index = len(tokens)
                             break
-                        takes_value = (option in ('-X', '-W', '--check-hash-based-pycs') if python else
-                                       option in ('--rcfile', '--init-file') or
-                                       not option.startswith('--') and option[-1:] in ('o', 'O'))
                         index += 2 if takes_value else 1
                     if index >= len(tokens):
                         continue
