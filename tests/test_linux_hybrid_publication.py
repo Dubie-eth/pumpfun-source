@@ -33,12 +33,7 @@ class LinuxHybridPublication(fixtures.LinuxToolchainTests):
         marker.write_bytes(b'working installation')
         # Make replacement necessary without touching the admitted SDK.
         (self.hybrid / 'rust/bin/rustc').write_bytes(b'old compiler')
-        rename = Path.rename
-        def fail_stage(path, destination):
-            if path.name.startswith(self.hybrid.name + '.stage.'):
-                raise OSError('injected stage publication failure')
-            return rename(path, destination)
-        with patch.object(Path, 'rename', fail_stage), self.assertRaisesRegex(OSError, 'publication failure'):
+        with patch.object(bootstrap, 'rename_toolchain', side_effect=OSError('injected stage publication failure')), self.assertRaisesRegex(OSError, 'publication failure'):
             bootstrap.assemble_linux()
         self.assertEqual(marker.read_bytes(), b'working installation')
         self.assertEqual(list(self.hybrid.parent.glob('*.stage.*')), [])
@@ -90,6 +85,51 @@ class LinuxHybridPublication(fixtures.LinuxToolchainTests):
         self.assertTrue(bootstrap.hybrid_ok_linux())
         self.assertEqual(list(self.hybrid.parent.glob('*.stage.*')), [])
         self.assertEqual(list(self.hybrid.parent.glob('*.backup.*')), [])
+
+    def test_late_empty_installation_is_not_replaced(self):
+        copy = bootstrap.shutil.copy2
+        inserted = []
+        def copy_and_add_late(source, destination, *args, **kwargs):
+            result = copy(source, destination, *args, **kwargs)
+            if Path(source) == self.sdk / 'version.md':
+                self.hybrid.mkdir()
+                inserted.append(True)
+            return result
+        with patch.object(bootstrap.shutil, 'copy2', copy_and_add_late):
+            with self.assertRaises(FileExistsError):bootstrap.assemble_linux()
+        self.assertEqual(inserted,[True])
+        self.assertEqual(list(self.hybrid.iterdir()),[])
+        self.assertEqual(list(self.hybrid.parent.glob('*.stage.*')),[])
+
+    def test_replacement_has_no_missing_canonical_window(self):
+        bootstrap.assemble_linux()
+        (self.hybrid / 'rust/bin/rustc').write_bytes(b'stale compiler')
+        rename = Path.rename
+        missing = []
+        def observe(path, destination):
+            result = rename(path, destination)
+            if not self.hybrid.exists():missing.append(str(path))
+            return result
+        with patch.object(Path,'rename',observe):bootstrap.assemble_linux()
+        self.assertEqual(missing,[])
+        self.assertTrue(bootstrap.hybrid_ok_linux())
+
+    def test_backup_retention_failure_keeps_new_and_previous_installations(self):
+        bootstrap.assemble_linux()
+        (self.hybrid/'old-marker').write_bytes(b'previous installation')
+        (self.hybrid/'rust/bin/rustc').write_bytes(b'old compiler')
+        publish=bootstrap.rename_toolchain
+        def fail_backup(source,destination,**kwargs):
+            if '.backup.' in destination.name:raise OSError('backup retention failed')
+            return publish(source,destination,**kwargs)
+        with patch.object(bootstrap,'rename_toolchain',fail_backup):
+            with self.assertRaisesRegex(OSError,'backup retention failed'):
+                bootstrap.assemble_linux()
+        self.assertTrue(bootstrap.hybrid_ok_linux())
+        retained=list(self.hybrid.parent.glob('*.stage.*'))
+        self.assertEqual(len(retained),1)
+        self.assertEqual((retained[0]/'old-marker').read_bytes(),b'previous installation')
+        self.assertEqual((retained[0]/'rust/bin/rustc').read_bytes(),b'old compiler')
 
 
 if __name__ == '__main__':

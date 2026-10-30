@@ -129,7 +129,11 @@ def check_sdk_linux(mode):
 
 
 def assemble_linux():
-    """Serialize the complete admission/replacement sequence across worktrees."""
+    """Serialize admission/publication; retain replaced installations as .backup.*.
+
+    Replacements use atomic exchange. Old trees are never recursively deleted;
+    remove retained backups explicitly once no longer needed for recovery.
+    """
     HYBRID.parent.mkdir(parents=True, exist_ok=True)
     with (HYBRID.parent / (HYBRID.name + '.lock')).open('a+b') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -137,6 +141,15 @@ def assemble_linux():
             return False
         _assemble_linux_locked()
         return True
+
+
+def rename_toolchain(source, destination, *, exchange=False):
+    """Reuse the repository's native no-replace/exchange implementation."""
+    scripts = str(REPO / 'scripts')
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from deep_disassembly import rename_directory
+    return rename_directory(source, destination, exchange=exchange)
 
 
 def _assemble_linux_locked():
@@ -148,6 +161,7 @@ def _assemble_linux_locked():
     libraries are published from the tracked, manifest-pinned copy.
     """
     HYBRID.parent.mkdir(parents=True, exist_ok=True)
+    replace_existing = HYBRID.exists() or HYBRID.is_symlink()
     stage = Path(tempfile.mkdtemp(prefix=HYBRID.name + '.stage.', dir=HYBRID.parent))
     try:
         (stage / 'rust/bin').mkdir(parents=True)
@@ -165,30 +179,32 @@ def _assemble_linux_locked():
         # The official archive ships an empty lib/self-contained directory, which git cannot track.
         (stage / 'rust/lib/rustlib/sbpf-solana-solana/lib/self-contained').mkdir(exist_ok=True)
         shutil.copy2(SDK / 'version.md', stage / 'version.md')
-        if HYBRID.exists() or HYBRID.is_symlink():
+        if not hybrid_ok_linux(stage):
+            raise ValueError('staged identity toolchain did not verify')
+        if replace_existing:
+            # Swap without removing the canonical installation even briefly.
+            # Retain the old tree, including any concurrent additions, for recovery.
+            rename_toolchain(stage, HYBRID, exchange=True)
+            previous, stage = stage, None
             backup = Path(tempfile.mkdtemp(prefix=HYBRID.name + '.backup.', dir=HYBRID.parent))
             backup.rmdir()
-            HYBRID.rename(backup)
             try:
-                stage.rename(HYBRID)
-            except BaseException:
-                # Keep the previous installation at its canonical path. If
-                # recovery itself fails, leave the backup intact for recovery.
-                backup.rename(HYBRID)
+                rename_toolchain(previous, backup)
+            except BaseException as error:
+                error.add_note('Previous toolchain retained at: ' + str(previous))
                 raise
-            if backup.is_symlink():
-                backup.unlink()
-            else:
-                shutil.rmtree(backup, ignore_errors=True)
+            print(f'previous identity toolchain retained at {backup}')
         else:
-            stage.rename(HYBRID)
+            rename_toolchain(stage, HYBRID)
+            stage = None
     finally:
-        if stage.exists():
+        if stage is not None and stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
 
 
-def hybrid_ok_linux():
-    rust = HYBRID / 'rust'
+def hybrid_ok_linux(root=None):
+    root = HYBRID if root is None else Path(root)
+    rust = root / 'rust'
     rustc = rust / 'bin/rustc'
     if not rustc.is_file() or sha(rustc) != sha(SDK / 'rust/bin/rustc'):
         return False
@@ -204,7 +220,7 @@ def hybrid_ok_linux():
     host = rust / 'lib/rustlib' / LINUX_HOST_TRIPLE
     if not host.is_symlink() or host.resolve() != (SDK / 'rust/lib/rustlib' / LINUX_HOST_TRIPLE).resolve():
         return False
-    return not check_linux_libs(HYBRID)
+    return not check_linux_libs(root)
 
 
 def check_linux_libs(root):
@@ -240,7 +256,7 @@ def hybrid_ok():
     host = rust / 'lib/rustlib/aarch64-apple-darwin'
     if not host.is_symlink() or host.resolve() != (SDK / 'rust/lib/rustlib/aarch64-apple-darwin').resolve():
         return False
-    return not check_linux_libs(HYBRID)
+    return not check_linux_libs(root)
 
 
 def publish_dependency_cache(source, template):

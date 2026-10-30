@@ -19,6 +19,7 @@ jobs:
           - suite: linux-bootstrap-host-libraries
             commands: |
               python -B reconstruction/toolchain/test_bootstrap_linux.py
+              python -B tests/test_linux_hybrid_publication.py
           - suite: byte-comparison-input-preservation
             commands: |
               sudo apt-get update
