@@ -5,6 +5,8 @@ from pump_differential_output import PumpReport
 import pump_trade_fixture as f
 from pump_amm_reusable_harness import pin_program
 p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path,required=True);p.add_argument('--source-directory',type=f.pathlib.Path,default=f.R/'programs/pump');p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args()
+if not any(p.is_file() and 'target' not in p.parts and (p.suffix=='.rs' or p.name in ['Cargo.toml','Cargo.lock']) for p in a.source_directory.rglob('*')):
+ raise SystemExit('no Rust/Cargo inputs under '+str(a.source_directory))
 report_roots = (f.R/"evidence", a.source_directory)
 report_inputs = [report_roots[1]] + [path for folder in report_roots
                  for path in folder.rglob("*") if path.is_file()]

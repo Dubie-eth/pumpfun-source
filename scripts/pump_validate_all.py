@@ -181,6 +181,8 @@ def main():
     source_paths = [path for path in args.source_directory.rglob('*')
                     if path.is_file() and 'target' not in path.relative_to(args.source_directory).parts
                     and (path.suffix == '.rs' or path.name in ('Cargo.toml', 'Cargo.lock'))]
+    if not source_paths:
+        raise SystemExit(f'no Rust/Cargo inputs under {args.source_directory}')
     protect_inputs([args.output, *(retained / (name + '.json.gz') for name, _ in SUITES)],
                    [candidate_input, candidate, original, runner, *build_inputs,
                     ROOT / 'scripts/pump_diagnostic_audit.py',

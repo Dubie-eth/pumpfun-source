@@ -87,6 +87,8 @@ def execute(binary, instruction, arg, mutation):
 
 
 p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--source-directory',type=pathlib.Path,default=ROOT/'programs/pump');p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+if not any(p.is_file() and 'target' not in p.parts and (p.suffix=='.rs' or p.name in ['Cargo.toml','Cargo.lock']) for p in a.source_directory.rglob('*')):
+ raise SystemExit('no Rust/Cargo inputs under '+str(a.source_directory))
 report_roots = (ROOT/"evidence", a.source_directory)
 report_inputs = [report_roots[1]] + [path for folder in report_roots
                  for path in folder.rglob("*") if path.is_file()]

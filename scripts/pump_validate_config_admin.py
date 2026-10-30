@@ -72,6 +72,8 @@ def execute(binary, instruction, arg, mutation):
 
 
 p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--source-directory',type=pathlib.Path,default=ROOT/'programs/pump');p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();report_output=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=(a.source_directory,));a.candidate=pin_program(a.candidate)
+if not any(p.is_file() and 'target' not in p.parts and (p.suffix=='.rs' or p.name in ['Cargo.toml','Cargo.lock']) for p in a.source_directory.rglob('*')):
+ raise SystemExit('no Rust/Cargo inputs under '+str(a.source_directory))
 import struct,gzip
 original=ROOT/'evidence/original/pump/deployed.so';u=lambda n:struct.pack('<Q',n)
 arguments={
