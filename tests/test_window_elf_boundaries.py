@@ -79,6 +79,16 @@ class WindowElfBoundaries(unittest.TestCase):
             self.read(data)
 
 
+    def test_relocation_must_fit_its_file_backed_section(self):
+        with self.assertRaisesRegex(ValueError, 'relocation.*section'):
+            self.read(image(EXIT*2, relocations=[(12, 8)]))
+
+    def test_text_relocation_must_target_a_logical_instruction(self):
+        text = struct.pack('<BBhi', 0x18, 0, 0, 0) + bytes(8) + EXIT
+        for offset, kind in ((4, 8), (8, 8), (4, 10)):
+            with self.subTest(offset=offset, kind=kind), self.assertRaisesRegex(ValueError, 'relocation.*instruction'):
+                self.read(image(text, relocations=[(offset, kind)]))
+
     def test_retained_reference_and_candidate_results_are_unchanged(self):
         root = Path(__file__).resolve().parents[1]
         expected = EXPECTED_READER_RESULTS

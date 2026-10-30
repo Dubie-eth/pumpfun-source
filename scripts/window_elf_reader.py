@@ -77,8 +77,12 @@ class Elf:
                 raise ValueError('invalid relocation table')
             for pos in range(section[4], section[4] + section[5], 16):
                 address, info = struct.unpack_from('<QQ', b, pos)
-                at = self.file_offset(address)
+                at = self.file_offset(address, 8)
                 typ, symbol = info & 0xffffffff, self.symbols.get(info >> 32, '')
+                if self.lo <= at < self.hi and typ in (8, 10):
+                    expected_opcode = 0x18 if typ == 8 else 0x85
+                    if at not in instructions or b[at] != expected_opcode:
+                        raise ValueError('text relocation does not target a logical instruction')
                 self.relocations[at] = {'type': typ, 'symbol': symbol}
                 if typ == 8:
                     if at in instructions and b[at] == 0x18:
@@ -115,12 +119,12 @@ class Elf:
             return self.lo + address - self.text[3]
         return None
 
-    def file_offset(self, address):
+    def file_offset(self, address, size=1):
         for section in self.raw:
             if (section[2] & 2 and section[1] != 8 and
-                    section[3] <= address < section[3] + section[5]):
+                    section[3] <= address and address + size <= section[3] + section[5]):
                 return section[4] + address - section[3]
-        raise ValueError(f'relocation address is not in a file-backed section: {address:#x}')
+        raise ValueError(f'relocation extent is not in a file-backed section: {address:#x}+{size}')
 
     def pattern(self, start, size):
         return [{'offset': at - start, **r} for at, r in sorted(self.relocations.items())
