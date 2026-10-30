@@ -310,6 +310,7 @@ jobs:
               python -B scripts/test_build_quote_fees_binding.py
               python -I -B tests/test_manifest_nested_target.py
               python scripts/test_core_linux_v144_retention.py
+              python -B scripts/test_core_linux_pipeline.py
               # Two of three tests: the third compares against a frozen helper that was removed with repro/;
               # see .github/retired-workflows/2026-10-29-verify-matrix.md.
               python scripts/test_reconstruction_build_selection.py ResearchSelectionTests.test_default_does_not_select_header_incompatible_older_family ResearchSelectionTests.test_explicit_experiment_and_argument_boundaries_are_preserved
