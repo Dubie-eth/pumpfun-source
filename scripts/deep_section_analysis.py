@@ -505,6 +505,8 @@ def recover_anchor_idl(elf):
             if b[at] in (0x61, 0x69, 0x71, 0x79):  # ldx variants
                 off = struct.unpack_from("<h", b, at + 2)[0]
                 src = (b[at + 1] >> 4) & 0xF
+                if src == 10:  # frame pointer: stack slots, not a struct base
+                    continue
                 size_map = {0x61: 4, 0x69: 2, 0x71: 1, 0x79: 8}
                 loads.append({
                     "offset": at - start,
