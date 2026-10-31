@@ -38,7 +38,7 @@ def audit(report,candidate_sha256,expected_pairs=None):
     if name not in ['original','candidate']:walk(item,path+[str(name)])
   elif isinstance(value,list):
    for index,item in enumerate(value):walk(item,path+[str(index)])
- walk(report['suites'],[]);require(pairs==expected,'Report pair/log coverage differs')
+ require(isinstance(report['suites'],dict),'Report suites must be a mapping');walk(report['suites'],[]);require(pairs==expected,'Report pair/log coverage differs')
  return {'scope':__doc__,'candidate_sha256':candidate_sha256,'original_sha256':ORIGINAL,'case_pairs':pairs,'strict_ordered_log_mismatch_cases':len(mismatches),'source_normalization':None,'excluded_log_category':'Only complete runtime compute-meter lines matching UNITS; all other log text/order preserved.','mismatches':mismatches,'new_execution_or_signature_coverage_claimed':False}
 def main():
  p=argparse.ArgumentParser();p.add_argument('--report',type=Path,required=True);p.add_argument('--candidate',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--expected-pairs',type=int);a=p.parse_args()

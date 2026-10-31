@@ -103,6 +103,8 @@ def messages(lines):
 
 def audit(suites):
     """Audit available pairs, rejecting a log source present on only one side."""
+    if not isinstance(suites, dict):
+        raise ValueError('report suites must be a mapping')
     mismatches, coverage = [], Counter()
 
     def walk(value, path):
