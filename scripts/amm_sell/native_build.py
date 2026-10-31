@@ -209,8 +209,9 @@ def build(lane, build_id, source_root=None, sell=None, patch=None, extra_root_fl
         if sell is not None:
             shutil.copyfile(sell, sell_path)
         if patch is not None:
-            subprocess.run(['patch', '-p1', '-d', str(ws), '-i', str(Path(patch).absolute())], check=True,
-                           stdout=subprocess.DEVNULL)
+            with (staging / 'build.log').open('wb') as log:
+                subprocess.run(['patch', '-p1', '-d', str(ws), '-i', str(Path(patch).absolute())], check=True,
+                               stdout=log, stderr=subprocess.STDOUT)
         shutil.copyfile(sell_path, staging / 'sell.rs')
         # Restored files can carry old mtimes; force both local crates to recompile.
         now = time.time()
