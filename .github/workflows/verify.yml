@@ -179,6 +179,7 @@ jobs:
               python -B scripts/test_admin_cto_optimization.py
               python -B scripts/test_build_token_dependency_optimization.py
               python -B scripts/test_revalidate_empty_manifest.py
+              python -B scripts/test_revalidate_duplicate_manifest_keys.py
               python -B tests/test_packet_temporary_names.py
               python -B tests/test_generated_packet_census.py
               python -B scripts/test_revalidate_all_manifest_records.py
