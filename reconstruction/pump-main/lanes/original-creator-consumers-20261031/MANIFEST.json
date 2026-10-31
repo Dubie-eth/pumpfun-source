@@ -14,8 +14,8 @@
       "sha256": "5bddce1e11adec62857446d6bb46c91bdcefffea0f0f38da2aa89f9ef489a396"
     },
     "PREMISES.md": {
-      "bytes": 3947,
-      "sha256": "1d94e792678d7aa9a8b80de9874f2879d9681b4447ffc5113116c10b63612626"
+      "bytes": 4592,
+      "sha256": "0ec40a44072e1204a4cda6b9a67c7ab5b986772222502e85c7f40449c43f351f"
     },
     "REPLAY-CORRECTION.json": {
       "bytes": 1020,
@@ -38,8 +38,8 @@
       "sha256": "12093fc1ab453ee6e84a94a031b520584b4aa3215bcd32a1faaf4c7097b9b96c"
     },
     "UNCHANGED-EXECUTABLE-INPUTS.json": {
-      "bytes": 1272,
-      "sha256": "ae6723af471a8d061a644968748364220eeb2b1098dd74e6a3e587a04d39598a"
+      "bytes": 1400,
+      "sha256": "c3c1b90197f67fcefa10c4b942182afcd0f0f412d66f1ddaf0c32e8469d7f136"
     },
     "UPSTREAM3524.json": {
       "bytes": 25795,
@@ -248,6 +248,14 @@
     "verify.py": {
       "bytes": 21861,
       "sha256": "72205e242e9ea28d48ca7f6da6b2efb052e50390cb8d830da6168ab15da30a11"
+    },
+    "preservation/pre-premise-reference-packaging/UNCHANGED-EXECUTABLE-INPUTS.json": {
+      "bytes": 1272,
+      "sha256": "ae6723af471a8d061a644968748364220eeb2b1098dd74e6a3e587a04d39598a"
+    },
+    "preservation/pre-premise-reference-packaging/PREMISES.md": {
+      "bytes": 3947,
+      "sha256": "1d94e792678d7aa9a8b80de9874f2879d9681b4447ffc5113116c10b63612626"
     }
   },
   "testedCommit": "07f2430f112c3ed97bb44cc92fb591cc6f953f48",
@@ -256,5 +264,12 @@
   "requiredChecks": {
     "captures": 9,
     "toolingTests": 228
+  },
+  "documentationRefresh": {
+    "baseHead": "5ab681ea59992e3e40a6b52df986259cfcb6e1e5",
+    "scope": "Label the old static pretest metadata as historical and pin the actual tested corrective version.",
+    "newExecutions": 0,
+    "replayInputsChanged": false,
+    "priorManifestSHA256": "536fa496493979084c7ff972cd04536c2fbd0356e4211851f5932f2983e0abb5"
   }
 }
