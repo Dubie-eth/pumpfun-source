@@ -1930,6 +1930,42 @@ class EvidenceProgramBindingTests(unittest.TestCase):
             self.run_gate()
 
 
+class EvidenceLoaderBindingTests(unittest.TestCase):
+    """The loader branch comes from the folder, not from the capture's own `loader` field."""
+    setUp = EvidenceProgramBindingTests.setUp
+    run_gate = EvidenceProgramBindingTests.run_gate
+
+    def edit(self, folder, **changes):
+        path = self.tmp / folder / 'capture.json'
+        record = json.loads(path.read_text())
+        for key, value in changes.items():
+            if value is None:
+                record.pop(key, None)
+            else:
+                record[key] = value
+        path.write_text(json.dumps(record))
+
+    def test_legacy_capture_refiled_under_an_upgradeable_program_is_rejected(self):
+        # The associated_token payload is self-consistent as a legacy capture; only the
+        # program id changes. This used to print "9 captures verified".
+        pump = self.tmp / 'evidence/original/pump'
+        shutil.rmtree(pump)
+        shutil.copytree(self.tmp / 'evidence/dependencies/associated_token', pump)
+        self.edit('evidence/original/pump', program='6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P')
+        with self.assertRaisesRegex(verify_evidence.EvidenceError, "evidence/original/pump: capture loader 'legacy-v2'"):
+            self.run_gate()
+
+    def test_unknown_loader_value_is_rejected(self):
+        self.edit('evidence/original/pump_fees', loader='upgradeable-v2')
+        with self.assertRaisesRegex(verify_evidence.EvidenceError, "evidence/original/pump_fees: capture loader 'upgradeable-v2'"):
+            self.run_gate()
+
+    def test_legacy_capture_without_its_loader_is_rejected(self):
+        self.edit('evidence/dependencies/associated_token', loader=None)
+        with self.assertRaisesRegex(verify_evidence.EvidenceError, "evidence/dependencies/associated_token: capture loader None, expected 'legacy-v2'"):
+            self.run_gate()
+
+
 class ProgramDataAuthorityTagTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
