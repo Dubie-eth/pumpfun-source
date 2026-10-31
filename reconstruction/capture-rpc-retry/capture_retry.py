@@ -23,6 +23,27 @@ replacement = """            check(isinstance(result, dict), 'RPC response must 
 if text.count(anchor) != 1:
     raise ValueError('reviewed RPC envelope substitution is not unique')
 text = text.replace(anchor, replacement)
+metadata_checks = {
+    "after,p2=account(url,key,before['context']['slot']); check(p==p2)":
+        "after,p2=account(url,key,before['context']['slot']); check(p==p2); check(account_metadata_matches(after, before, True), 'deployment account metadata changed during capture')",
+    "    after,p2=account(url,key,data['context']['slot'])":
+        "    after,p2=account(url,key,data['context']['slot'])\n    check(account_metadata_matches(after, before, True), 'deployment account metadata changed during capture')",
+    "    check(p==p2 and base64.b64decode(meta['value']['data'][0])==d[:45], 'deployment changed during capture')":
+        "    check(account_metadata_matches(meta, data, False), 'programdata account metadata changed during capture')\n    check(p==p2 and base64.b64decode(meta['value']['data'][0])==d[:45], 'deployment changed during capture')",
+}
+for anchor, replacement in metadata_checks.items():
+    if text.count(anchor) != 1:
+        raise ValueError('reviewed account metadata substitution is not unique')
+    text = text.replace(anchor, replacement)
+
+
+def account_metadata_matches(current, previous, executable):
+    value = current.get('value') if isinstance(current, dict) else None
+    return (isinstance(value, dict) and value.get('owner') == previous['value']['owner']
+            and value.get('executable') is executable)
+
+
+module.account_metadata_matches = account_metadata_matches
 exec(compile(text, str(source_path), 'exec', optimize=0), module.__dict__)
 capture = module.capture
 
