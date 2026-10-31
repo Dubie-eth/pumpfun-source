@@ -33,6 +33,12 @@ _archived_rpc = module.rpc
 def contextual_rpc(url, method, params):
     result = _archived_rpc(url, method, params)
     if method == 'getAccountInfo':
+        value = result.get('value') if isinstance(result, dict) else None
+        if value is not None:
+            data = value.get('data') if isinstance(value, dict) else None
+            if (not isinstance(data, list) or len(data) != 2
+                    or not isinstance(data[0], str) or data[1] != 'base64'):
+                raise ValueError('account response requires a base64 data tuple')
         context = result.get('context') if isinstance(result, dict) else None
         slot = context.get('slot') if isinstance(context, dict) else None
         if type(slot) is not int or slot < 0:
