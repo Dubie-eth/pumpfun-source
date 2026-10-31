@@ -89,6 +89,10 @@ def input_hashes(inputs):
     return result
 
 
+def input_execute_bits(inputs):
+    return {path: Path(path).stat().st_mode & 0o111 for path in inputs}
+
+
 def identity(source, command, inputs, timeout, *, environment=None):
     if not isinstance(command, list):
         raise ValueError('command must be a nonempty argv array')
@@ -107,9 +111,10 @@ def identity(source, command, inputs, timeout, *, environment=None):
     inputs = list(inputs)
     declared_paths = {os.path.abspath(value): str(Path(value).resolve(strict=True))
                       for value in inputs}
+    hashes = input_hashes([executable, *inputs])
     return {'schema': 'experiment-input-v1', 'source': manifest(source), 'command': command,
             'executable': str(executable), 'invocation': os.path.abspath(declared),
-            'inputs': input_hashes([executable, *inputs]), 'timeout': timeout,
+            'inputs': hashes, 'input_execute_bits': input_execute_bits(hashes), 'timeout': timeout,
             'declared_input_paths': declared_paths,
             'environment_sha256': digest(json.dumps(environment, sort_keys=True).encode()),
             'runner_sha256': LOADED_RUNNER_SHA256}
@@ -117,6 +122,7 @@ def identity(source, command, inputs, timeout, *, environment=None):
 
 def admitted_inputs_match(admission):
     return (input_hashes(admission['inputs']) == admission['inputs']
+            and input_execute_bits(admission['inputs']) == admission['input_execute_bits']
             and all(str(Path(path).resolve(strict=True)) == target
                     for path, target in admission['declared_input_paths'].items()))
 
@@ -174,13 +180,14 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
     destination.mkdir(parents=True, exist_ok=True)
     with (destination / '.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        # Refresh source and declared file contents after waiting. Keep the admitted
+        # Refresh source and declared file contents/modes after waiting. Keep the admitted
         # executable and alias targets: re-resolving them could silently run a
         # different command. Their original bindings are rechecked before launch.
-        admission = dict(admission, source=manifest(source), inputs={
-            **admission['inputs'],
-            **input_hashes(path for path in admission['inputs']
-                           if path != admission['executable'])})
+        refresh = [path for path in admission['inputs'] if path != admission['executable']]
+        admission = dict(admission, source=manifest(source),
+                         inputs={**admission['inputs'], **input_hashes(refresh)},
+                         input_execute_bits={**admission['input_execute_bits'],
+                                             **input_execute_bits(refresh)})
         key = digest(json.dumps(admission, sort_keys=True).encode())
         receipt_path = destination / 'latest.json'
         if receipt_path.exists():
