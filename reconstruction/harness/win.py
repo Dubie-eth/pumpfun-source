@@ -137,11 +137,15 @@ ORIG = resolve_original(BASE / 'original.so').read_bytes(); ORIG_SECS = sections
 
 def best_candidates(w, cand, top=3):
     og = opgrams(w['raw'])
+    original_total = sum(og.values())
     scored = []
     for (s, n, name) in cand.funcs:
         if not (0.4 * w['bytes'] <= n <= 2.5 * w['bytes']):
             continue
-        cg = cand.grams(s, n); inter = sum((og & cg).values()); uni = sum((og | cg).values()) or 1
+        cg = cand.grams(s, n)
+        smaller, larger = (og, cg) if len(og) <= len(cg) else (cg, og)
+        inter = sum(min(count, larger.get(gram, 0)) for gram, count in smaller.items())
+        uni = original_total + sum(cg.values()) - inter or 1
         scored.append((inter / uni, s, n, name))
     scored.sort(reverse=True)
     res = []
