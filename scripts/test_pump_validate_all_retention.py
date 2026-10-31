@@ -34,6 +34,9 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
         self.patches = [
             mock.patch.object(runner, 'SUITES', self.suites),
             mock.patch.object(runner, 'EXPECTED_CASES', self.expected),
+            mock.patch.object(runner, 'CASE_COMPARE_KEYS', {
+                **runner.CASE_COMPARE_KEYS, 'first': ('error',), 'second': ('error',),
+            }),
             mock.patch.object(runner, 'pin_program', side_effect=lambda path: path),
             mock.patch.object(
                 runner, 'audit_diagnostics',
@@ -104,7 +107,8 @@ class PumpValidateAllRetentionTests(unittest.TestCase):
             'candidate_sha256': sha(candidate),
             'case_count': count,
             'cases': [
-                {'original': {}, 'candidate': {}, 'different_fields': []}
+                {'original': dict.fromkeys(runner.CASE_COMPARE_KEYS[name]),
+                 'candidate': dict.fromkeys(runner.CASE_COMPARE_KEYS[name]), 'different_fields': []}
             ] * count,
             'mismatches': [],
         }
