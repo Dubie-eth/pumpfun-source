@@ -40,7 +40,8 @@ class LanePatchLogTests(unittest.TestCase):
             native.build(self.lane, 'rejected', source_root=self.source, patch=change)
         log = self.lane / 'out/rejected/build.log'
         self.assertTrue(log.is_file(), 'the failed attempt kept no log of the rejected patch')
-        self.assertIn('FAILED', log.read_text())
+        self.assertIn('hunk', log.read_text().lower())
+        self.assertIn('failed', log.read_text().lower())
 
     def test_applied_patch_still_reaches_the_compiler(self):
         sell = self.source / native.SELL_REL

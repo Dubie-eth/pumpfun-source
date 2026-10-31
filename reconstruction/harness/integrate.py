@@ -210,7 +210,7 @@ def git_patch_command(source):
     # outside that prefix. Anchor at the root and prepend the owned output tree.
     found = subprocess.run(['git', '-C', str(source), 'rev-parse', '--show-toplevel'],
                            capture_output=True, text=True)
-    root = Path(found.stdout.rstrip('\r\n')).resolve() if found.returncode == 0 else source
+    root = Path(found.stdout.rstrip('\r\n')).resolve() if found.returncode == 0 else source.resolve()
     directory = source.resolve().relative_to(root).as_posix()
     command = ['git', '-c', 'core.autocrlf=false', 'apply', '--no-index',
                '--whitespace=nowarn', '-p2']
