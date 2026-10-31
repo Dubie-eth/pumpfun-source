@@ -44,6 +44,10 @@ def account_metadata_matches(current, previous, executable):
 
 
 module.account_metadata_matches = account_metadata_matches
+slot_anchor = "    slot=struct.unpack_from('<Q',d,4)[0]; payload=d[45:]; check(payload[:4]==b'\\x7fELF')"
+if text.count(slot_anchor) != 1:
+    raise ValueError('reviewed deployment-slot substitution is not unique')
+text = text.replace(slot_anchor, slot_anchor + "\n    check(slot <= before['context']['slot'], 'deployment slot is newer than initial capture context')")
 exec(compile(text, str(source_path), 'exec', optimize=0), module.__dict__)
 capture = module.capture
 
