@@ -43,7 +43,10 @@ def rule(name):
 
 def check_script(text, default=None):
     """Return {output section: selector count}; raise ValueError if `text` is not admitted."""
-    default = DEFAULT.read_text() if default is None else default
+    default = DEFAULT.read_text(encoding='utf-8') if default is None else default
+    # Line endings are linker whitespace. Compare their LF view without
+    # rewriting the pinned bytes passed to lld or recorded in the receipt.
+    text, default = text.replace('\r\n', '\n'), default.replace('\r\n', '\n')
     counts, rest, pieces = {}, text, []
     for name in SECTIONS:
         if default.count(rule(name)) != 1:
@@ -134,7 +137,7 @@ def rustc_main(argv, env):
 
 def lld_args(args, env, *, script_path=None, script_bytes=None, default_bytes=None):
     """Linker arguments with the default script replaced; raises unless exactly one default script."""
-    default = (DEFAULT.read_bytes() if default_bytes is None else default_bytes).decode('utf-8')
+    default = (DEFAULT.read_bytes() if default_bytes is None else default_bytes).decode('utf-8').replace('\r\n', '\n')
     raw = Path(env['PUMP_LINK_SCRIPT']).read_bytes() if script_bytes is None else script_bytes
     script = env['PUMP_LINK_SCRIPT'] if script_path is None else str(script_path)
     if hashlib.sha256(raw).hexdigest() != env['PUMP_LINK_SCRIPT_SHA256']:
