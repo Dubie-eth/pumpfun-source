@@ -31,7 +31,7 @@ def write_idls(root):
         (upstream / f'{name}.json').write_text(json.dumps({
             'address': f'{name}-address', 'metadata': {'name': name},
             'instructions': [{'name': 'ix', 'accounts': [{'name': 'system_program', 'address': '11111111111111111111111111111111'}]}],
-        }))
+        }), encoding='utf-8')
 
 
 def run_with_glob_order(reverse):

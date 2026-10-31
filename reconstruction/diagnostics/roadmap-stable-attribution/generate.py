@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SOURCE = 'scripts/reconstruction_roadmap.py'
 REVIEWED = 'a5174827043a35b76916afef10acb4ab25294bbec15eb55ae67a158ede521f85'
 READER = 'scripts/window_elf_reader.py'
-REVIEWED_READER = 'df1c2b1369e996146f05bd9f9714b112a013550fa25d1206f6b29e3ef079dd74'
+REVIEWED_READER = 'b00c2c491dce839aba97b19fd9007da5eaa99902968d88e8c44bb071bb0c9c1c'
 
 
 def trace_handler_attribution(elf, entries, forward, reverse):

@@ -4,7 +4,7 @@ from pathlib import Path
 import types
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_SHA256 = 'd332969152829dc75dc855dc93f3132b9d6674b9765aee3be3bfe0f5c4453a5d'
+SOURCE_SHA256 = 'f9fe433b33480cf95bd4310d5ce6f6eb97996817d56ad770ccceb24df0dd8f9f'
 source_path = ROOT / 'scripts/capture.py'
 raw = source_path.read_bytes()
 if hashlib.sha256(raw).hexdigest() != SOURCE_SHA256:
