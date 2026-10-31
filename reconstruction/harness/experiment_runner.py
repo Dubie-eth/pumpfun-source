@@ -154,7 +154,7 @@ def artifacts(attempt):
         raise ValueError('retained output must be a real directory')
     result = {}
     for path in [attempt / 'stdout.log', attempt / 'stderr.log', *sorted(output_paths(output))]:
-        if linked_source(path): raise ValueError('linked output files are unsupported')
+        if linked_source(path): raise ValueError('output symlinks and other linked output files are unsupported')
         if path.is_file():
             result[path.relative_to(attempt).as_posix()] = {
                 'sha256': digest(path.read_bytes()),
