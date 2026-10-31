@@ -282,7 +282,8 @@ def execute(work):
         result['canonicalOutputHashesEqual'] = result['outputs'] == recipe['expectedOutputs']
     validate_staged(work)
     # Replace only this new launcher's own interim result, never a retained measurement.
-    (work / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
+    (work / 'result.json').write_text(json.dumps(result, indent=2) + '\n',
+                                       encoding='utf-8', newline='\n')
     return result
 
 
@@ -334,7 +335,9 @@ def prepare_registry(archives, out):
                 p.parent.mkdir(parents=True, exist_ok=True)
                 with tar.extractfile(m) as src, p.open('xb') as dst: shutil.copyfileobj(src, dst)
                 p.chmod(m.mode & 0o7777); files[rel.as_posix()] = digest(p)
-        (source / '.cargo-checksum.json').write_text(json.dumps({'files': files, 'package': row['checksum']}, separators=(',', ':')))
+        (source / '.cargo-checksum.json').write_text(
+            json.dumps({'files': files, 'package': row['checksum']}, separators=(',', ':')),
+            encoding='utf-8', newline='\n')
         (source / '.cargo-ok').write_bytes(b'{"v":1}')
     for name, data in tar_members(PACKAGE / 'registry-index.tar.gz').items():
         p = out / 'index' / namespace / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(data)
