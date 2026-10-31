@@ -118,12 +118,27 @@ def configure(crate, rustc, receipt):
 def rustc_args(argv, env):
     """Command for the next wrapper; adds the linker hook only to the root cdylib compilation."""
     rustc, args = argv[1], list(argv[2:])
-    name = args[args.index('--crate-name') + 1] if '--crate-name' in args else None
-    kinds = [args[i + 1] for i, value in enumerate(args[:-1]) if value == '--crate-type']
+    options = args[:args.index('--')] if '--' in args else args
+    def values(flag):
+        result = []
+        for index, value in enumerate(options):
+            if value == flag:
+                if index + 1 == len(options):
+                    raise ValueError(flag + ' requires a value')
+                result.append(options[index + 1])
+            elif value.startswith(flag + '='):
+                result.append(value[len(flag) + 1:])
+        return result
+    names = values('--crate-name')
+    name = names[0] if names else None
+    kinds = [kind for value in values('--crate-type') for kind in value.split(',')]
     if name == env['PUMP_LINK_ROOT_CRATE'] and 'cdylib' in kinds:
-        if any(a.startswith(('linker=', '-Clinker=')) for a in args):
+        codegen = values('--codegen') + values('-C')
+        codegen += [value[2:] for value in options if value.startswith('-C') and len(value) > 2 and not value.startswith('-C=')]
+        if any(value.partition('=')[0] == 'linker' for value in codegen):
             raise ValueError('root crate already sets a linker')
-        args += ['-C', 'linker=' + str(H / 'pump_link_lld.sh')]
+        position = args.index('--') if '--' in args else len(args)
+        args[position:position] = ['-C', 'linker=' + str(H / 'pump_link_lld.sh')]
     return [sys.executable, env['PUMP_LINK_NEXT_WRAPPER'], rustc, *args]
 
 
