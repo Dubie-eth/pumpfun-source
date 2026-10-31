@@ -352,7 +352,7 @@ def main():
                 scripts[filename] = before
                 (retained_staging / (name + '.json.gz')).write_bytes(
                     gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
-        assert sum(s['case_count'] for s in suites.values()) == 10468
+        assert sum(s['case_count'] for s in suites.values()) == sum(EXPECTED_CASES.values())
         diagnostics = audit_diagnostics(suites)
         report = {
             'scope': 'Published 44-suite bounded Pump differential corpus. Per-suite limits remain in receipts; not full source recovery or binary identity.',
