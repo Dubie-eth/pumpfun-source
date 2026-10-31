@@ -68,7 +68,8 @@ def main():
                    'panic=abort', '-C', 'overflow-checks=yes', remap,
                    str(frozen_source), '-o', str(obj)]
         result = subprocess.run(command, text=True, capture_output=True)
-        (args.output / 'build.log').write_text(result.stdout + result.stderr, encoding='utf-8')
+        (args.output / 'build.log').write_text(result.stdout + result.stderr,
+                                               encoding='utf-8', newline='\n')
         result.check_returncode()
         unchanged(frozen_source, source_hash, 'source snapshot')
         unchanged(frozen_rustc, compiler_hash, 'compiler snapshot')
