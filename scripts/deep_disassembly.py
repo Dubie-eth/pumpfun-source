@@ -642,12 +642,13 @@ def rename_directory(source, destination, *, exchange=False):
     if os.name == "nt" and not exchange:
         source.rename(destination)
         return
-    library = ctypes.CDLL(None, use_errno=True)
     if sys.platform == "darwin":
+        library = ctypes.CDLL(None, use_errno=True)
         rename = getattr(library, "renamex_np", None)
         args = (os.fsencode(source), os.fsencode(destination), 2 if exchange else 4)
         types = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
     elif sys.platform.startswith("linux"):
+        library = ctypes.CDLL(None, use_errno=True)
         rename = getattr(library, "renameat2", None)
         args = (-100, os.fsencode(source), -100, os.fsencode(destination), 2 if exchange else 1)
         types = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
