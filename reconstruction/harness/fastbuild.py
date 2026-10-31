@@ -308,6 +308,7 @@ def _build_locked(src: Path, work: Path, out: Path, quiet=False, recipe=None, ti
         sys.stderr.write('STACK OVERFLOW RISK (runtime-invalid build):\n  ' + '\n  '.join(stack) + '\n')
     if stack:
         return {'ok': False, 'runtime_valid': False, 'stack_warnings': stack,
+                'source_sha256': source_inputs['sha256'],
                 'recipe': recipe, 'triple': triple, 'seconds': round(dt, 1),
                 'log': str(out / 'build.log')}
     if link_record:
