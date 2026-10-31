@@ -35,7 +35,20 @@ NOTE_KINDS = ('finding', 'dead-end', 'idea', 'target', 'prior')
 def entries():
     if not LOG.exists():
         return []
-    return [json.loads(line) for line in LOG.read_text().splitlines() if line.strip()]
+    rows = []
+    for number, line in enumerate(LOG.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if isinstance(row, dict):
+            rows.append(row)
+        else:
+            # A write cut short keeps every other attempt queryable.
+            print(f'{LOG.name}:{number}: skipping malformed entry', file=sys.stderr)
+    return rows
 
 
 def short(e):
