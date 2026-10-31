@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Signed offline Surfpool direct Pump creator-distribution comparisons with captured CPI programs."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,base64,hashlib,json,socket,struct,subprocess,sys,time,urllib.request
 from pathlib import Path
 from solders.hash import Hash
@@ -11,6 +13,7 @@ from types import SimpleNamespace
 from solders.compute_budget import set_compute_unit_limit
 f=SimpleNamespace(Pubkey=fixture.f.Pubkey,PAYER=fixture.user,AUTH=fixture.user,OTHER=fixture.user,set_compute_unit_limit=set_compute_unit_limit)
 for attr,name,folder in [('PUMP','pump','original'),('PROGRAM','pump_fees','original'),('AMM','pump_amm','original'),('TOKEN','spl_token','dependencies'),('TOKEN22','spl_token_2022','dependencies'),('ATA','associated_token','dependencies')]:setattr(f,attr,f.Pubkey.from_string(json.loads((ROOT/f'evidence/{folder}/{name}/capture.json').read_text())['program']))
+COMPUTE=f.Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 PORT=20201
 sha=lambda data:hashlib.sha256(data).hexdigest()
 class RecordingVM:
@@ -68,6 +71,10 @@ def run(binary,cases,surfpool,output):
     def writable(i):return i<h.num_required_signatures-h.num_readonly_signed_accounts if i<h.num_required_signatures else i<len(keys)-h.num_readonly_unsigned_accounts
     instructions=[Instruction(keys[ix.program_id_index],bytes(ix.data),[AccountMeta(keys[n],n<h.num_required_signatures,writable(n)) for n in ix.accounts]) for ix in msg.instructions]
     # Distinct compute budgets avoid transaction deduplication for repeated payloads.
+    # The recorded fixture leads with a compute-budget instruction; replacing a
+    # different first instruction would silently drop a real program call.
+    if not instructions or instructions[0].program_id!=COMPUTE:
+     raise ValueError(('first recorded instruction is not compute-budget',row['name']))
     instructions[0]=f.set_compute_unit_limit(1400000-len(rows))
     signers=[f.PAYER];assert keys[:h.num_required_signatures]==[f.PAYER.pubkey()]
     tx=Transaction.new_signed_with_payer(instructions,f.PAYER.pubkey(),signers,Hash.from_string(rpc('getLatestBlockhash')['value']['blockhash']));assert all(tx.verify_with_results());encoded=base64.b64encode(bytes(tx)).decode()
@@ -88,7 +95,7 @@ def run(binary,cases,surfpool,output):
 def layouts():
  out={}
  for name in ['pump','pump_amm','pump_fees']:
-  idl=json.loads((ROOT/f'evidence/upstream/{name}.json').read_text());types={t['name']:t for t in idl['types']}
+  idl=json.loads((ROOT/f'evidence/upstream/{name}.json').read_text(encoding='utf-8'));types={t['name']:t for t in idl['types']}
   for e in idl['events']:
    offset=8
    for field in types[e['name']]['type']['fields']:
@@ -98,7 +105,12 @@ def layouts():
     offset+={'pubkey':32,'u64':8,'i64':8,'bool':1,'u8':1,'u16':2,'u32':4}[t]
  return out
 def normalize_event(data,offsets):
- data=bytearray(data);key=bytes(data[:8]);assert key in offsets,('unknown event',key.hex());off=offsets[key];data[off:off+8]=bytes(8);return bytes(data)
+ data=bytearray(data);key=bytes(data[:8])
+ if key not in offsets:raise ValueError(('unknown event',key.hex()))
+ off=offsets[key]
+ if len(data)<off+8:raise ValueError(('truncated event',key.hex(),len(data)))
+ data[off:off+8]=bytes(8)
+ return bytes(data)
 def decode58(s):
  alphabet='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';n=0
  for c in s:n=n*58+alphabet.index(c)
@@ -127,8 +139,8 @@ def main():
  for port in [PORT,PORT+1]:
   with socket.socket() as s:s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('127.0.0.1',port))
  a.output.mkdir(parents=True,exist_ok=False);original=a.output/'original.so';candidate=a.output/'candidate.so';original.write_bytes((ROOT/'evidence/original/pump/deployed.so').read_bytes());candidate.write_bytes(a.candidate.read_bytes())
- paths=[Path(__file__),Path(fixture.__file__),Path(fixture.f.__file__),ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json']+[ROOT/f'evidence/original/{n}/deployed.so' for n in ['pump','pump_fees','pump_amm']]+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']]+[ROOT/f'evidence/upstream/{n}.json' for n in ['pump','pump_fees','pump_amm']];hashes={str(p.relative_to(ROOT)):sha(p.read_bytes()) for p in paths};cases=selected();prepared=[prepare(c) for c in cases];(a.output/'fixtures.json').write_text(json.dumps(prepared,indent=2)+'\n')
- x=run(original,prepared,a.surfpool,a.output);y=run(candidate,prepared,a.surfpool,a.output);(a.output/'raw-transactions.json').write_text(json.dumps({'original':x,'candidate':y},indent=2)+'\n');offsets=layouts();bad=[i for i,(l,r) in enumerate(zip(x,y)) if normalized(l,offsets)!=normalized(r,offsets)]
+ paths=[Path(__file__),Path(fixture.__file__),Path(fixture.f.__file__),ROOT/'research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json']+[ROOT/f'evidence/original/{n}/deployed.so' for n in ['pump','pump_fees','pump_amm']]+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']]+[ROOT/f'evidence/upstream/{n}.json' for n in ['pump','pump_fees','pump_amm']];hashes={str(p.relative_to(ROOT)):sha(p.read_bytes()) for p in paths};cases=selected();prepared=[prepare(c) for c in cases];(a.output/'fixtures.json').write_text(json.dumps(prepared,indent=2)+'\n',encoding='utf-8',newline='\n')
+ x=run(original,prepared,a.surfpool,a.output);y=run(candidate,prepared,a.surfpool,a.output);(a.output/'raw-transactions.json').write_text(json.dumps({'original':x,'candidate':y},indent=2)+'\n',encoding='utf-8',newline='\n');offsets=layouts();bad=[i for i,(l,r) in enumerate(zip(x,y)) if normalized(l,offsets)!=normalized(r,offsets)]
  def expected(v):
   if v is None:return None
   m=re.fullmatch(r'TransactionErrorInstructionError\(\((\d+), Tagged\(InstructionErrorCustom\((\d+)\)\)\)\)',v)
@@ -138,6 +150,6 @@ def main():
   return {'InstructionError':[int(m[1]),m[2]]}
  unexpected=[i for i,(r,p) in enumerate(zip(x,prepared)) if r['error']!=expected(p['litesvm_error'])]
  assert all(sha((ROOT/p).read_bytes())==h for p,h in hashes.items());assert sha(a.candidate.read_bytes())==sha(candidate.read_bytes())
- report={'scope':'Configured creator fee across three partial v3 handlers, SOL and synthetic USDC. Ordinary verified signed offline Surfpool transactions with actual captured dependency CPI. Exact state/errors/inner/returns/events comparison except known event timestamps. Other quote routes and full identity not established.','candidate_sha256':sha(candidate.read_bytes()),'original_sha256':sha(original.read_bytes()),'provenance':hashes,'surfpool_sha256':sha(a.surfpool.read_bytes()),'cases':len(cases),'signed_transactions':len(x)+len(y),'mismatches':bad,'unexpected_original_errors':unexpected,'original':x,'candidate':y};(a.output/'pump-v3-configured-fee-transactions.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({k:report[k] for k in ['cases','signed_transactions','mismatches','unexpected_original_errors']},indent=2))
+ report={'scope':'Configured creator fee across three partial v3 handlers, SOL and synthetic USDC. Ordinary verified signed offline Surfpool transactions with actual captured dependency CPI. Exact state/errors/inner/returns/events comparison except known event timestamps. Other quote routes and full identity not established.','candidate_sha256':sha(candidate.read_bytes()),'original_sha256':sha(original.read_bytes()),'provenance':hashes,'surfpool_sha256':sha(a.surfpool.read_bytes()),'cases':len(cases),'signed_transactions':len(x)+len(y),'mismatches':bad,'unexpected_original_errors':unexpected,'original':x,'candidate':y};(a.output/'pump-v3-configured-fee-transactions.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8',newline='\n');print(json.dumps({k:report[k] for k in ['cases','signed_transactions','mismatches','unexpected_original_errors']},indent=2))
  if bad or unexpected:raise SystemExit(1)
 if __name__=='__main__':main()

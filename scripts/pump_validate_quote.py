@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Compare the partial regular-SOL sell-v3 SBF path with the captured original."""
+"""Compare the partial USDC-quote buy/sell-v3 SBF paths with the captured original."""
 import argparse, hashlib, json, struct
+from pump_differential_output import PumpReport
 import pump_trade_fixture as f
+from pump_amm_reusable_harness import pin_program
 p=argparse.ArgumentParser();p.add_argument('--candidate',type=f.pathlib.Path,required=True);p.add_argument('--source-directory',type=f.pathlib.Path,default=f.R/'programs/pump');p.add_argument('--output',type=f.pathlib.Path,required=True);a=p.parse_args()
+source_paths = [path for path in sorted(a.source_directory.rglob('*'))
+                if path.is_file() and 'target' not in path.relative_to(a.source_directory).parts
+                and (path.suffix == '.rs' or path.name in ('Cargo.toml', 'Cargo.lock'))]
+if not source_paths:
+ raise SystemExit('no Rust/Cargo inputs under '+str(a.source_directory))
+report_roots = (f.R/"evidence", a.source_directory)
+report_inputs = [report_roots[1]] + [path for folder in report_roots
+                 for path in folder.rglob("*") if path.is_file()]
+report_inputs.append(f.R/"research/imported-lab/analysis/pump_fun/curve-fresh-trades-v3-signed-surfpool.json")
+report_output = PumpReport(a.output, f.R, a.candidate, __file__, extra_inputs=report_inputs)
+a.candidate=pin_program(a.candidate)
 program=f.Pubkey.from_string(f.x['program']);user=f.Keypair.from_seed(bytes([231])*32)
 initial={key:f.vm.get_account(key) for key in f.msg.account_keys}
 curve=f.Pubkey.from_string(f.x['accounts']['curve']);global_key=f.Pubkey.from_string(f.x['accounts']['global']);fee_key=f.Pubkey.from_string(f.x['accounts']['fee_config'])
-math=json.loads((f.R/'repro/pump/constant-product-differential.json').read_text())['cases']
 base_in,base_out=struct.unpack_from('<QQ',initial[curve].data,8)
-cases=[{'amount':c['amount_in'],'min_output':0,'reserve_in':c['reserve_in'],'reserve_out':c['reserve_out']} for c in math]
-for amount,minimum,mutation in [(0,0,'none'),(500000000,10**12,'none'),(10**9+1,0,'none'),(500000000,0,'complete'),(500000000,0,'creator_zero'),(500000000,0,'wrong_buyback'),(500000000,0,'empty_tiers'),(500000000,0,'global_discriminator'),(500000000,0,'fee_owner'),(500000000,0,'curve_readonly'),(500000000,0,'base_user_wrong_owner')]:
-    cases.append({'amount':amount,'min_output':minimum,'reserve_in':base_in,'reserve_out':base_out,'mutation':mutation})
-for pb,cb in [(0,0),(95,0),(0,30),(100,100),(3000,3000),(10000,0),(0,10000),(6000,6000),(10001,0)]:
-    for bb in [0,1,5000,9999,10000]:cases.append({'amount':10**9,'min_output':0,'reserve_in':base_in,'reserve_out':base_out,'fees':[pb,cb,bb]})
 
 def run(binary,c):
     vm=f.LiteSVM().with_transaction_history(0)
@@ -103,9 +110,9 @@ for c in cases:
  rows.append({'case':c,'different_fields':different,'original':o,'candidate':n})
 fails=[i for i,r in enumerate(rows) if r['different_fields']]
 sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
-sources={str(p.relative_to(a.source_directory)):sha(p) for p in sorted(a.source_directory.rglob('*')) if p.is_file() and 'target' not in p.parts and (p.suffix=='.rs' or p.name in ['Cargo.toml','Cargo.lock'])}
+sources={str(p.relative_to(a.source_directory)):sha(p) for p in source_paths}
 report={'scope':'Partial USDC-quote buy_v3/sell_v3 reconstruction: local synthetic quote mint/token accounts layered on saved Pump fixture, not captured real USDC account state. Tests SPL Token and Token2022 ownership variants without extensions, fees, flags and account guards. Compares all nonexecutecutable account state, errors, raw events and full inner instructions. Other quote routes and complete program byte identity remain unproven.','candidate_sha256':sha(a.candidate),'original_sha256':sha(f.R/'evidence/original/pump/deployed.so'),'source_sha256':sources,'cases':rows,'case_count':len(rows),'mismatches':fails}
-payload=(json.dumps(report,indent=2)+'\n').encode();a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_bytes(__import__('gzip').compress(payload,mtime=0) if a.output.suffix=='.gz' else payload)
+payload=(json.dumps(report,indent=2)+'\n').encode();report_output.write(__import__('gzip').compress(payload,mtime=0) if a.output.suffix=='.gz' else payload)
 print(len(rows),fails)
 for i in fails:print(i,rows[i]['case'],rows[i]['different_fields'],rows[i]['original']['error'],rows[i]['candidate']['error'])
 

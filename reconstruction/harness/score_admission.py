@@ -27,7 +27,7 @@ def sections(blob):
         if h[1] != 8 and h[4] + h[5] > len(blob): raise ValueError('truncated section payload: ' + name)
         if h[3] + h[5] > 1 << 64: raise ValueError('section address overflow')
         if name == '.text' and h[1] != 1: raise ValueError('.text must be file-backed PROGBITS')
-        result[name] = {'addr': h[3], 'offset': h[4], 'size': h[5]}
+        result[name] = {'addr': h[3], 'offset': h[4], 'size': h[5], 'type': h[1]}
     if '.text' not in result: raise ValueError('missing .text section')
     return result
 
@@ -45,6 +45,8 @@ def baseline(path):
     if not isinstance(document, dict) or not isinstance(document.get('windows'), (dict, list)):
         raise ValueError('baseline requires a windows object or list')
     windows = document['windows']; result = {}
+    if not windows:
+        raise ValueError('baseline must contain nonempty windows; use --no-baseline for initial scoring')
     rows = windows.items() if isinstance(windows, dict) else ((row.get('start'), row) if isinstance(row, dict) else (None, row) for row in windows)
     for address, row in rows:
         if isinstance(address, bool) or not isinstance(address, (str, int)) or not isinstance(row, dict): raise ValueError('invalid baseline window')
@@ -53,7 +55,9 @@ def baseline(path):
         if start < 0 or start in result or type(size) is not int or size <= 0: raise ValueError('invalid/duplicate baseline range')
         if isinstance(windows, list):
             matches = row.get('normalized_matches')
-            if not isinstance(matches, list): raise ValueError('normalized_matches must be a list')
+            if (not isinstance(matches, list) or
+                    any(not isinstance(name, str) or not name for name in matches)):
+                raise ValueError('normalized_matches must contain nonempty symbol names')
             normalized, raw = bool(matches), row.get('raw_match')
         else: normalized, raw = row.get('normalized'), row.get('raw')
         if type(normalized) is not bool or type(raw) is not bool or (raw and not normalized): raise ValueError('invalid baseline membership flags')

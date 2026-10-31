@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from solders.transaction_metadata import FailedTransactionMetadata
 ROOT = Path(__file__).resolve().parents[1]
 ELF = ROOT / "evidence/original/pump/deployed.so"
 ELF_SHA256 = "7a19affaa2c6187e04a5fe0ea298cee81fa5eb8c24cfcc30d85f615e89f7b02d"
-IDL = json.loads((ROOT / "evidence/upstream/pump.json").read_text())
+IDL = json.loads((ROOT / "evidence/upstream/pump.json").read_text(encoding='utf-8'))
 PROGRAM = Pubkey.from_string(IDL["address"])
 DISC = {item["name"]: bytes(item["discriminator"]) for item in IDL["instructions"]}
 GLOBAL_DISC = bytes([167, 232, 232, 177, 200, 108, 114, 127])
@@ -299,19 +300,20 @@ class GlobalAdminCapturedTests(unittest.TestCase):
         digest = hashlib.sha256(ELF.read_bytes()).hexdigest()
         if digest != ELF_SHA256:
             raise AssertionError(digest)
-        host = Path("/tmp/pump-global-admin-host")
-        subprocess.run(
-            ["rustc", "--edition=2021", "-O", str(ROOT / "programs/pump/recovered/global_admin_host.rs"), "-o", str(host)],
-            check=True,
-        )
-        cls.rows = business_cases() + admission_cases()
-        completed = subprocess.run(
-            [str(host)],
-            input="".join(host_line(row) + "\n" for row in cls.rows),
-            text=True,
-            capture_output=True,
-            check=True,
-        )
+        with tempfile.TemporaryDirectory(prefix="pump-global-admin-") as temporary:
+            host = Path(temporary) / "pump-global-admin-host"
+            subprocess.run(
+                ["rustc", "--edition=2021", "-O", str(ROOT / "programs/pump/recovered/global_admin_host.rs"), "-o", str(host)],
+                check=True,
+            )
+            cls.rows = business_cases() + admission_cases()
+            completed = subprocess.run(
+                [str(host)],
+                input="".join(host_line(row) + "\n" for row in cls.rows),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
         cls.host = completed.stdout.splitlines()
         if len(cls.host) != len(cls.rows):
             raise AssertionError(completed.stderr)

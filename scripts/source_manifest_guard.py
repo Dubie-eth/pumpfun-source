@@ -7,66 +7,102 @@ repository. This module keeps the archived helper unchanged and adds the
 admission check used by the production Pump build verifier.
 """
 import os
+import stat
 from pathlib import Path
 
 from build_source_manifest import source_manifest
 
 
-def _plain(path, root):
-    """Reject a symlink at `path` or in its ancestry below `root`.
+def _is_symlink_or_reparse(path):
+    """Return true for symlinks and Windows reparse points such as junctions."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_reparse_tag', 0))
 
-    Raises before resolving an outside path, so a path outside the repository
-    cannot walk to the filesystem root or loop forever.
+
+def _plain(path, root):
+    """Reject a link or reparse point at `path` or in its ancestry below `root`.
+
+    The repository path itself may contain filesystem aliases, such as
+    macOS's `/var` to `/private/var`.  Compare the resolved locations first,
+    then inspect the equivalent lexical path below the caller's root so links
+    inside the repository remain rejected.
     """
     path = Path(path)
-    root = Path(root).resolve()
+    root = Path(os.path.abspath(root))
+    resolved_root = root.resolve()
     current = path
     if not current.is_absolute():
         current = root / current
-    try:
-        current.relative_to(root)
-    except ValueError:
-        raise ValueError('compiler input resolves outside repository: ' + str(path))
+    current = Path(os.path.abspath(current))
+    for lexical_root in (root, resolved_root):
+        try:
+            current = root / current.relative_to(lexical_root)
+            break
+        except ValueError:
+            continue
+    else:
+        resolved = current.resolve()
+        try:
+            current = root / resolved.relative_to(resolved_root)
+        except ValueError:
+            raise ValueError(
+                'compiler input resolves outside repository: ' + str(path)
+            ) from None
     while True:
-        if current.is_symlink():
-            raise ValueError('symlinked compiler input: ' + str(path))
         if current == root:
             break
+        if _is_symlink_or_reparse(current):
+            raise ValueError('symlinked compiler input or reparse point: ' + str(path))
         parent = current.parent
         if parent == current:
             raise ValueError('compiler input resolves outside repository: ' + str(path))
         current = parent
     resolved = path.resolve()
-    if not resolved.is_relative_to(root):
+    if not resolved.is_relative_to(resolved_root):
         raise ValueError('compiler input resolves outside repository: ' + str(path))
     return resolved
 
 
-def _no_linked_directories(top):
-    """Reject a symlinked directory anywhere below `top`.
+def _no_linked_directories(top, *, optional=False):
+    """Reject a linked directory or reparse point anywhere below `top`.
 
     `Path.rglob('*')` does not descend into symlinked directories, so files
     behind one never reach the manifest and `_plain` never sees them, while
     the compiler still reads them through the link.
     """
     top = Path(top)
-    for directory, names, _ in os.walk(top):
+    if _is_symlink_or_reparse(top):
+        raise ValueError('symlinked directory or reparse point under compiler inputs: ' + str(top))
+    if optional:
+        try:
+            top.lstat()
+        except FileNotFoundError:
+            return
+    def traversal_error(error):
+        raise ValueError(f'cannot traverse compiler inputs under {top}: {error}') from error
+    for directory, names, _ in os.walk(top, onerror=traversal_error):
         if Path(directory) == top:
             names[:] = [name for name in names if name not in ('target', '.git')]
         for name in names:
             path = Path(directory) / name
-            if path.is_symlink():
-                raise ValueError('symlinked directory under compiler inputs: ' + str(path))
+            if _is_symlink_or_reparse(path):
+                raise ValueError(
+                    'symlinked directory or reparse point under compiler inputs: '
+                    + str(path)
+                )
 
 
 def strict_manifest(crate, workspace, repository, extra_inputs=(), cwd=None):
     """Return the archived manifest after rejecting symlinked or outside inputs."""
     extra_inputs = tuple(extra_inputs)
-    root = Path(repository).resolve()
+    root = Path(os.path.abspath(repository))
     crate_path, workspace_path = Path(crate).resolve(), Path(workspace).resolve()
     _no_linked_directories(crate_path)
     for directory in (crate_path, *crate_path.parents):
-        _no_linked_directories(directory / 'idls')
+        _no_linked_directories(directory / 'idls', optional=True)
         if directory == workspace_path:
             break
     for extra in extra_inputs:

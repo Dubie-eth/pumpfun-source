@@ -61,6 +61,9 @@ from amm_sell.test_sell_distance import AlignmentDistanceTests
 from amm_sell.test_cached_status import CachedAttemptStatusTests
 
 
+from amm_sell.test_attempt_queries import AttemptQueryTests
+
+
 import gzip
 
 
@@ -135,6 +138,32 @@ import sys
 import unittest
 from test_analysis_interface_inventory import InterfaceInventoryEncodingTests
 from test_capture_verification_modes import CaptureVerificationModeTests
+# Some solders wheels (Windows) ship without LiteSVM. Report the VM-backed
+# suites as skipped instead of failing to load every other tooling test.
+def litesvm_unavailable_reason():
+    from solders import solders as native
+    if not hasattr(native, 'LiteSVM'):
+        return 'LiteSVM unavailable in this solders build: native extension has no LiteSVM'
+    try:
+        from solders.litesvm import LiteSVM as _LiteSVM  # noqa: F401
+    except ModuleNotFoundError as error:
+        if error.name != 'solders.litesvm':
+            raise
+        return 'LiteSVM unavailable in this solders build: no solders.litesvm module'
+    return None
+
+
+LITESVM_MISSING = litesvm_unavailable_reason()
+requires_litesvm = unittest.skipIf(LITESVM_MISSING is not None, LITESVM_MISSING)
+if LITESVM_MISSING is None:
+    from test_mayhem_receipt_admission import MayhemReceiptAdmissionTests
+else:
+    @requires_litesvm
+    class MayhemReceiptAdmissionTests(unittest.TestCase):
+        def test_requires_litesvm(self):
+            pass
+from test_fees_runtime_image_binding import FeesRuntimeImageBindingTests
+FeesRuntimeImageBindingTests = requires_litesvm(FeesRuntimeImageBindingTests)
 from test_fees_external_codec_cases import ExternalCodecBooleanCases
 from types import SimpleNamespace
 import deep_disassembly
@@ -716,7 +745,7 @@ class GeneratedPacketMembershipTests(unittest.TestCase):
         capture = view / 'evidence/original/mayhem/deployed.so'
         capture.parent.mkdir(parents=True)
         shutil.copyfile(analyze.ROOT / 'evidence/original/mayhem/deployed.so', capture)
-        for name in ('bytecode_signatures.py', 'window_elf_reader.py'):
+        for name in ('bytecode_signatures.py', 'window_elf_reader.py', 'deep_disassembly.py'):
             shutil.copyfile(analyze.ROOT / 'scripts' / name, view / 'scripts' / name)
         output = view / 'packet'
         generated = self.run_python(view / 'scripts/bytecode_signatures.py', '--output', output)
@@ -893,8 +922,12 @@ class ParallelCaseCountTests(unittest.TestCase):
     def test_special_suite_count_protocols_are_unchanged(self):
         artifact = self.artifact
         reports = {
-            'quote_control': {'bound_inputs_sha256': {str(artifact.relative_to(analyze.ROOT)): self.digest},
-                              'cases': 507, 'results': [{'matches': True, 'different_fields': []} for _ in range(507)]},
+            'quote_control': {'bound_inputs_sha256': {artifact.relative_to(analyze.ROOT).as_posix(): self.digest},
+                              'cases': 507, 'compare_keys': list(corpus.QUOTE_CONTROL_COMPARE_KEYS),
+                              'results': [{'case': f'fixture/{index}', 'matches': True, 'different_fields': [],
+                                           'original': dict.fromkeys(corpus.QUOTE_CONTROL_COMPARE_KEYS),
+                                           'candidate': dict.fromkeys(corpus.QUOTE_CONTROL_COMPARE_KEYS)}
+                                          for index in range(507)]},
             'multi_hop_curve_partial': {'candidate_sha256': self.digest, 'original_pump_sha256': self.digest,
                                         'passed': 56, 'case_count': 56, 'cases': [{'mismatches': []} for _ in range(56)]},
             'tokenkeg_two_curve': {'candidate_sha256': self.digest,
@@ -919,7 +952,7 @@ from capture import b58
 
 import local_validation
 from compare import compare
-from test_revalidation_output import RevalidationOutputTests
+from test_revalidation_output import RevalidationOutputTests, StandalonePublicationTests
 
 
 
@@ -933,7 +966,8 @@ class RevalidationReportTests(unittest.TestCase):
             root = Path(temporary).resolve()
             self.assertTrue(root.name.startswith('pump-revalidation-'))
             (root / 'scripts').mkdir()
-            shutil.copyfile(repo / 'scripts/revalidate_all.py', root / 'scripts/revalidate_all.py')
+            for name in ('revalidate_all.py', 'deep_disassembly.py', 'window_elf_reader.py'):
+                shutil.copyfile(repo / 'scripts' / name, root / 'scripts' / name)
             for name in ['both-pass', 'manifest-fails', 'verifier-fails',
                          'manifest-parse-error', 'manifest-only', 'verifier-only', 'neither']:
                 packet = root / 'research' / name
@@ -1057,6 +1091,67 @@ class PatternTailScanTests(unittest.TestCase):
         self.assertIn({'offset': 120, 'branch_target_offset': 24, 'error_code': 0, 'type': 'conditional_error'}, result)
 
 
+class ConditionalBranchErrorPatternTests(unittest.TestCase):
+    # Every SBPF JMP64 conditional jump (anza-xyz/sbpf f754c707, src/ebpf.rs L478-L521).
+    CONDITIONAL = (0x15, 0x1d, 0x25, 0x2d, 0x35, 0x3d, 0x45, 0x4d, 0x55, 0x5d, 0x65,
+                   0x6d, 0x75, 0x7d, 0xa5, 0xad, 0xb5, 0xbd, 0xc5, 0xcd, 0xd5, 0xdd)
+    # Opcodes the detector skipped before: jset, jslt and jsle in both operand forms.
+    OMITTED = (0x45, 0x4d, 0xc5, 0xcd, 0xd5, 0xdd)
+
+    @staticmethod
+    def branch_then_move(opcode):
+        return struct.pack('<BBhi', opcode, 0, 0, 0) + struct.pack('<BBhi', 0xb7, 2, 0, 6000)
+
+    def test_every_conditional_jump_is_a_branch_candidate(self):
+        # The repository disassembler decodes the same 22 opcodes as conditional jumps.
+        decoded = set()
+        for opcode in range(256):
+            if opcode & 7 == 5 and opcode not in (0x05, 0x85, 0x8d, 0x95):
+                record, _ = deep_disassembly.decode_instruction(bytes([opcode]) + bytes(7), 0, None)
+                decoded.update([opcode] if 'branch_target' in record else [])
+        self.assertEqual(decoded, set(self.CONDITIONAL))
+        for opcode in self.CONDITIONAL:
+            with self.subTest(opcode=hex(opcode)):
+                window = self.branch_then_move(opcode)
+                self.assertEqual(
+                    bytecode_signatures.detect_error_patterns(SimpleNamespace(b=window), 0, 16),
+                    [{'offset': 0, 'branch_target_offset': 8, 'error_code': 6000, 'type': 'conditional_error'}])
+        for opcode in (0x05, 0x85, 0x95, 0xb7):
+            with self.subTest(opcode=hex(opcode)):
+                window = self.branch_then_move(opcode)
+                self.assertEqual(bytecode_signatures.detect_error_patterns(SimpleNamespace(b=window), 0, 16), [])
+
+    def test_captured_signed_less_than_branches_are_reported(self):
+        added = {'pump': 23, 'pump_amm': 16, 'pump_fees': 13, 'mayhem': 5}
+        for name, expected_added in added.items():
+            with self.subTest(program=name):
+                elf = Elf(analyze.ROOT / 'evidence/original' / name / 'deployed.so')
+                restored = 0
+                for start, end in zip(elf.entries, elf.entries[1:] + [elf.hi]):
+                    # Independent scan of the same windows over every conditional opcode.
+                    expected, at = [], start
+                    while at + 8 <= end:
+                        if elf.b[at] in self.CONDITIONAL:
+                            target = at + 8 + struct.unpack_from('<h', elf.b, at + 2)[0] * 8
+                            if start <= target < end and elf.b[target] in (0xb7, 0xb4):
+                                expected.append({
+                                    'offset': at - start, 'branch_target_offset': target - start,
+                                    'error_code': struct.unpack_from('<i', elf.b, target + 4)[0],
+                                    'type': 'conditional_error'})
+                                restored += elf.b[at] in self.OMITTED
+                        at += 16 if elf.b[at] == 0x18 else 8
+                    self.assertEqual(bytecode_signatures.detect_error_patterns(elf, start, end), expected)
+                self.assertEqual(restored, expected_added)
+        # Pump 0x2af38 is `jslt r4, 0, +168`; its target 0x2b480 is `mov64 r2, 96`.
+        elf = Elf(analyze.ROOT / 'evidence/original/pump/deployed.so')
+        self.assertEqual(elf.b[0x2af38:0x2af40].hex(), 'c504a80000000000')
+        self.assertEqual(elf.b[0x2b480:0x2b488].hex(), 'b702000060000000')
+        self.assertIn(
+            {'offset': 0x2af38 - 0x2a8e8, 'branch_target_offset': 0x2b480 - 0x2a8e8,
+             'error_code': 96, 'type': 'conditional_error'},
+            bytecode_signatures.detect_error_patterns(elf, 0x2a8e8, 0x2b490))
+
+
 class NegationDecodeTests(unittest.TestCase):
     def test_negation_has_only_a_destination_operand(self):
         for opcode, mnemonic in ((0x84, 'neg32'), (0x87, 'neg64')):
@@ -1117,6 +1212,7 @@ class SyscallFingerprintTests(unittest.TestCase):
         rel = b''.join(struct.pack('<QQ', at, (idx << 32) | 10)
                        for at, idx in ((8, 1), (16, 2), (48, 1)))
         elf = SimpleNamespace(b=code + dynsym + rel, symbols={1: 'abort', 2: 'helper'},
+            file_offset=lambda address, size: address,
             secs={'.dynsym': (0, 11, 0, 0, len(code), len(dynsym), 0, 0, 8, 24),
                   '.rel.dyn': (0, 9, 0, 0, len(code)+len(dynsym), len(rel), 0, 0, 8, 16)})
         fp = deep_disassembly.fingerprint_window(elf, 0, len(code))
@@ -1131,6 +1227,7 @@ class SyscallFingerprintTests(unittest.TestCase):
                 sym = bytes(48)
                 rel = struct.pack('<QQ', 0, (index << 32) | typ)
                 elf = SimpleNamespace(b=code + sym + rel, symbols={1: 'abort'},
+                    file_offset=lambda address, size: address,
                     secs={'.dynsym': (0, 11, 0, 0, 8, 48, 0, 0, 8, entry_size),
                           '.rel.dyn': (0, 9, 0, 0, 56, 16, 0, 0, 8, 16)})
                 self.assertEqual(deep_disassembly.fingerprint_window(
@@ -1277,6 +1374,53 @@ class CompareProgramNamesTests(unittest.TestCase):
             self.assertEqual(compare_module.program_names(root), ['probe'])
 
 
+class CompareRelayCliTests(unittest.TestCase):
+    def test_primary_relay_capture_and_negative_controls(self):
+        source_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            for script in ('compare.py', 'analyze.py', 'deep_disassembly.py', 'window_elf_reader.py'):
+                shutil.copyfile(source_root / 'scripts' / script, root / 'scripts' / script)
+            captures = {
+                'donation_relay': 'dependencies',
+                'pump': 'original',
+                'spl_token': 'dependencies',
+            }
+            for name, group in captures.items():
+                destination = root / 'evidence' / group / name / 'deployed.so'
+                destination.parent.mkdir(parents=True)
+                shutil.copyfile(source_root / 'evidence' / group / name / 'deployed.so', destination)
+            relay = root / 'evidence/dependencies/donation_relay/deployed.so'
+            changed = root / 'changed.so'
+            data = bytearray(relay.read_bytes())
+            data[0] ^= 1
+            changed.write_bytes(data)
+            for name, candidate, code, equal in (
+                ('donation_relay', relay, 0, True),
+                ('pump', root / 'evidence/original/pump/deployed.so', 0, True),
+                ('donation_relay', changed, 1, False),
+                ('spl_token', root / 'evidence/dependencies/spl_token/deployed.so', 2, None),
+            ):
+                with self.subTest(program=name, candidate=candidate.name):
+                    output = root / ('result-' + str(len(list(root.glob('result-*')))))
+                    result = subprocess.run(
+                        [sys.executable, str(root / 'scripts/compare.py'), name,
+                         str(candidate), '--output', str(output)],
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    if equal is None:
+                        self.assertIn('unknown program', result.stderr)
+                        self.assertFalse(output.exists())
+                    else:
+                        report = json.loads((output / 'comparison.json').read_text())
+                        self.assertEqual(report['full_byte_equality'], equal)
+                        if not equal:
+                            self.assertEqual(report['first_difference'], 0)
+                            self.assertEqual(report['different_positions_in_shared_length'], 1)
+
+
 class AnalyzeProgramRootTests(unittest.TestCase):
     def test_explicit_root_overrides_current_default(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1349,6 +1493,45 @@ class SectionTerminalStringTests(unittest.TestCase):
         elf = SimpleNamespace(b=b'abc', lo=0x1000, hi=0x2000,
             secs={'.rodata': (0, 1, 2, 0, 0, 3, 0, 0, 1, 0)})
         self.assertEqual(deep_section_analysis.analyze_data_layout(elf)['.rodata']['strings'], [])
+
+
+class AllocationBackscanBarrierTests(unittest.TestCase):
+    sizes = AllocationSizeRegisterTests.sizes
+
+    def test_intervening_operations_do_not_reuse_stale_size(self):
+        for instruction in ((0xbf, 0x61, 0, 0), (0x07, 1, 0, 8),
+                            (0x79, 0x61, 0, 0), (0x85, 0, 0, 123),
+                            (0x05, 0, 0, 0)):
+            with self.subTest(instruction=instruction):
+                self.assertEqual(self.sizes([
+                    (0xb7, 1, 0, 64), instruction,
+                    (0x85, 0, 0, -2081419633),
+                ]), [])
+
+
+class RelocationTextAddressTests(unittest.TestCase):
+    def test_text_targets_use_virtual_extent(self):
+        for target, expected in ((0x4000, '.text'), (0x40ff, '.text'),
+                                 (0x4100, 'unknown'), (0x100, 'unknown')):
+            with self.subTest(target=target):
+                elf = SimpleNamespace(
+                    b=struct.pack('<QQ', target, 8) + bytes(496), symbols={}, lo=0x100, hi=0x200,
+                    secs={'.text': (0, 1, 6, 0x4000, 0x100, 0x100, 0, 0, 8, 0),
+                          '.rel.dyn': (0, 9, 0, 0, 0, 16, 0, 0, 8, 16)},
+                )
+                report = deep_section_analysis.analyze_relocations(elf)
+                self.assertEqual(report['entries'][0]['target_section'], expected)
+                self.assertEqual(report['entries_in_text'], int(expected == '.text'))
+
+    def test_lddw_pointer_is_read_from_translated_file_position(self):
+        blob = bytearray(512)
+        struct.pack_into('<QQ', blob, 0, 0x4000, 8)
+        struct.pack_into('<BBhIII', blob, 0x100, 0x18, 1, 0, 0x12345678, 0, 0x9abcdef0)
+        elf = SimpleNamespace(b=bytes(blob), symbols={}, lo=0x100, hi=0x200,
+            secs={'.text': (0, 1, 6, 0x4000, 0x100, 0x100, 0, 0, 8, 0),
+                  '.rel.dyn': (0, 9, 0, 0, 0, 16, 0, 0, 8, 16)})
+        entry = deep_section_analysis.analyze_relocations(elf)['entries'][0]
+        self.assertEqual(entry['resolved_value'], '0x9abcdef012345678')
 
 
 class RelocationTargetTests(unittest.TestCase):
@@ -1492,11 +1675,11 @@ class InstructionLogNameTests(unittest.TestCase):
     def test_program_names_fall_back_to_captures(self):
         self.assertEqual(
             analyze.program_names(),
-            ['pump', 'pump_amm', 'pump_fees', 'mayhem'],
+            ['pump', 'pump_amm', 'pump_fees', 'mayhem', 'donation_relay'],
         )
 
     def test_program_addresses_fall_back_to_captures(self):
-        # Matches the archived repro/programs.json removed in fce9f28.
+        # The four original programs plus the retained Donation Relay dependency.
         self.assertEqual(
             analyze.program_addresses(),
             {
@@ -1504,6 +1687,7 @@ class InstructionLogNameTests(unittest.TestCase):
                 'pump_amm': 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
                 'pump_fees': 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ',
                 'mayhem': 'MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e',
+                'donation_relay': 'RLAYHr9TRFcKB2ubYQhspcnXiaGpaVzNQvHytt47RZu',
             },
         )
 
@@ -1813,7 +1997,7 @@ class LocalValidationProgramTests(unittest.TestCase):
             self.assertEqual(receipt['program'], address)
             idl_path = root / 'evidence/upstream' / f'{name}.json'
             if idl_path.is_file():
-                self.assertEqual(json.loads(idl_path.read_text())['address'], address)
+                self.assertEqual(json.loads(idl_path.read_text(encoding='utf-8'))['address'], address)
             else:
                 self.assertEqual(name, 'mayhem')
 
@@ -1863,14 +2047,16 @@ class DispatchRecoveryTests(unittest.TestCase):
         import recover_dispatch
         report = recover_dispatch.dispatch()
         self.assertEqual(
-            list(report), ['pump', 'pump_amm', 'pump_fees', 'mayhem'])
+            list(report), ['pump', 'pump_amm', 'pump_fees', 'mayhem', 'donation_relay'])
         self.assertEqual(
             [sum(bool(row['matches']) for row in rowset['instructions'].values())
-             for rowset in report.values()],
+             for name, rowset in report.items() if name != 'donation_relay'],
             [56, 38, 31, 25])
         self.assertEqual(
-            report,
+            {name: row for name, row in report.items() if name != 'donation_relay'},
             json.loads((analyze.ROOT / 'evidence/dispatch-map.json').read_text()))
+        self.assertEqual(report['donation_relay']['binary_sha256'],
+                         '367f07a62e3f74d358187d175cf3228848e81a56c781a9a75b9df7fed1268563')
 
 
 class SbpfInventoryInputTests(unittest.TestCase):
@@ -1953,6 +2139,7 @@ class FallbackDispatchRelocationTests(unittest.TestCase):
         blob[0x50:0x58] = bytes.fromhex('8510000000000000')
         return SimpleNamespace(
             b=bytes(blob), lo=0x40, hi=0x58, funcs=[],
+            text_offset=lambda address: address if 0x40 <= address < 0x58 else None,
             relocations={0x40: {'type': 8, 'symbol': ''}} if relocated else {},
         )
 
@@ -2113,6 +2300,77 @@ class MemoryWidthDecodeTests(unittest.TestCase):
                     offset += size
                 self.assertEqual(seen, set(self.FORMS))
                 self.assertEqual(mismatches, 0)
+
+
+class LddwImmediateDecodeTests(unittest.TestCase):
+    # LDDW carries one unsigned 64-bit value: low word, then high word.
+    def test_both_words_form_one_unsigned_value(self):
+        for low, high in ((0, 0), (0x80000000, 0), (0xffffffff, 0x7fffffff),
+                          (0, 0x80000000), (0xffffffff, 0xffffffff),
+                          (0x1f6dafaf, 0xed9b980d)):
+            with self.subTest(low=hex(low), high=hex(high)):
+                blob = struct.pack('<BBhIBBhI', 0x18, 4, 0, low, 0, 0, 0, high)
+                record, size = deep_disassembly.decode_instruction(blob, 0, None)
+                value = high << 32 | low
+                self.assertEqual(record['imm64'], value)
+                self.assertEqual(record['mnemonic'], f'lddw r4, {value:#018x}')
+                self.assertEqual(record['hex'], blob.hex())
+                self.assertEqual(size, 16)
+
+    def test_captured_selector_constants_match_the_dispatch_table(self):
+        # Selectors with bit 63 set; every one used to print as a negative value.
+        expected_high = {'pump': 33, 'pump_amm': 28, 'pump_fees': 15}
+        for name, high_count in expected_high.items():
+            with self.subTest(program=name):
+                elf = deep_disassembly.Elf(
+                    analyze.ROOT / 'evidence/original' / name / 'deployed.so')
+                selectors = deep_disassembly.load_idl_discriminators(elf)
+                table = deep_disassembly.recover_anchor_dispatch(elf)
+                offset = elf.lo
+                sites = high = 0
+                while offset < elf.hi:
+                    record, size = deep_disassembly.decode_instruction(elf.b, offset, elf)
+                    raw = elf.b[offset + 4:offset + 8] + elf.b[offset + 12:offset + 16]
+                    if elf.b[offset] == 0x18 and raw in selectors:
+                        value = int.from_bytes(raw, 'little')
+                        self.assertIn(hex(value), table)
+                        self.assertEqual(record['imm64'], value)
+                        self.assertEqual(record['mnemonic'],
+                                         f"lddw r{record['dst']}, {value:#018x}")
+                        sites += 1
+                        high += value >> 63
+                    offset += size
+                self.assertEqual(sites, len(table))
+                self.assertEqual(high, high_count)
+
+    def test_every_captured_lddw_matches_its_encoded_bytes(self):
+        for name in ('pump', 'pump_amm', 'pump_fees', 'mayhem'):
+            with self.subTest(program=name):
+                elf = deep_disassembly.Elf(
+                    analyze.ROOT / 'evidence/original' / name / 'deployed.so')
+                offset = elf.lo
+                high = mismatches = 0
+                while offset < elf.hi:
+                    record, size = deep_disassembly.decode_instruction(elf.b, offset, elf)
+                    if elf.b[offset] == 0x18:
+                        value = int.from_bytes(
+                            elf.b[offset + 4:offset + 8] + elf.b[offset + 12:offset + 16],
+                            'little')
+                        high += value >> 63
+                        mismatches += (record['imm64'] != value
+                                       or not record['mnemonic'].endswith(f'{value:#018x}'))
+                    offset += size
+                self.assertGreater(high, 0)
+                self.assertEqual(mismatches, 0)
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tests.test_current_bindings_paths import CurrentBindingsPathTests
+from tests.test_revalidate_all_invocation import (
+    RequiredArgumentTests, ReportTests, RunVerifyTests, InvocationCliTests)
+from test_fees_error_messages_exit import FeesErrorMessageExitTests, FeesErrorMessageOptimizationTests
+FeesErrorMessageExitTests = requires_litesvm(FeesErrorMessageExitTests)
+from test_pump_window_inventory import WindowInventoryTests
 
 
 if __name__=='__main__': unittest.main()

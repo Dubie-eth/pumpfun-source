@@ -1,4 +1,6 @@
 """Verify a controlled Pump-only Rust source-path remap build offline."""
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O.")
 
 import gzip
 import hashlib
@@ -133,7 +135,7 @@ def main():
         "remapped_source_lines_match_target": False,
         "byte_identical_deployment": False,
     }
-    OUT.write_text(json.dumps(report, indent=2) + "\n")
+    OUT.write_text(json.dumps(report, indent=2) + "\n",encoding='utf-8',newline='\n')
     print(json.dumps({"path_match": True,
                       "source_lines_match": False,
                       "trial_sha256": report["remapped_candidate_sha256"]}))

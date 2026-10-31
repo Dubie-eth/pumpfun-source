@@ -5,19 +5,28 @@ A missing account leaves an empty directory; exhausted genesis requests leave
 account binaries without a manifest. Both failures block the next attempt at
 the same destination.
 
-`capture_retry.py` admits the archived source by SHA-256 before executing it and
-adapts its two loader branches in memory. It defers directory creation and binary
-writes until all RPC reads, validation and report construction succeed. It retains
-the early existing-destination check and final exclusive `mkdir`. No cleanup or
-deletion of prior output is performed. The callable `capture(url, name, key, out)`
+`capture_retry.py` admits the archived source by SHA-256 before executing it.
+Since #2423, `scripts/capture.py` itself stages every write in a sibling
+temporary directory, renames it into place only after all RPC reads, validation
+and report construction succeed, and removes the stage on failure; it keeps the
+early existing-destination check and re-checks before the rename. The adapter
+therefore executes the reviewed bytes unmodified; the earlier in-memory deferral
+of `mkdir` and binary writes would now collide with that staging and is gone.
+No deletion of prior output is performed. The callable `capture(url, name, key, out)`
 keeps the archived function's arguments, output schema and RPC policy.
+The authenticated source is explicitly compiled with `optimize=0`. Since #2440
+its validation uses explicit checks rather than `assert`, so this is a second
+layer keeping capture validation active under `-O`, `-OO` or `PYTHONOPTIMIZE`.
 
 This package follows `scripts/README.md`'s frozen-directory rule. The archived
 Python file set, source bytes, captured accounts and prior packages stay intact.
 
-Tested base: `ccd3330bfd12ed04c3a598af9a2ab95ed5de77ac`. Source binding:
+Tested base: `ee11fc91dc7768f5a92936dd98f6c850bdb08bd7`. Source binding:
 `scripts/capture.py`, SHA-256
-`16b2a6e9f747dee5a964afae25d90cdd974d5da76e0db3fdfd4bf018fe80b5f5`.
+`329eaa1bda93034ee4147b4a6a3bea66ddd5403c1e79bc591c58fc75942a8465`.
+This binding includes the reviewed #1289 source transition (program-address
+selection only), #2423 (staged publication after success) and #2440 (explicit
+checks instead of `assert`).
 
 Run from the repository root:
 
@@ -31,11 +40,17 @@ The loopback JSON-RPC fixture serves unchanged retained associated-token and
 SPL Token account bytes. Four failure/retry cases cover missing accounts and six
 failed genesis requests for both loaders. A fifth case preserves existing output
 without any RPC request. Successful retries compare all binary bytes and stable
-manifest fields. Only retry delays are patched. The archived function fails all
-four failure/retry cases; the adapter passes all five capture scenarios. A fourth
-test rejects changed archived source before execution.
+manifest fields. Only retry delays are patched. Optimization-mode probes also
+exercise every archived loader, header, ELF and re-read assertion under ordinary
+Python, `-O`, `-OO`, `PYTHONOPTIMIZE=1` and `PYTHONOPTIMIZE=2`.
 
 Limits: this is offline capture-tool behavior, not a live RPC or program runtime
-qualification. Filesystem failures after publication begins can still leave
-partial output. The archived CLI's missing `repro/programs.json` selector remains
+qualification. Publication is a single directory rename; a crash that
+prevents the `finally` cleanup can leave a hidden `.<name>.capture-*` stage
+beside the destination, never a partial destination. The archived CLI's missing `repro/programs.json` selector remains
 separate work in PR #1289.
+
+The current adapter also admits the reviewed UTF-8/LF-only writer update.
+Its source binding is `d332969152829dc75dc855dc93f3132b9d6674b9765aee3be3bfe0f5c4453a5d`;
+RPC, parsing and admission behavior are unchanged. The earlier binding above
+identifies the historical baseline.

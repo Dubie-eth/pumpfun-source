@@ -5,17 +5,20 @@ records accounts changed by setup and all writable transaction accounts before
 execution, then restores them before the next case. Program loading is cached;
 transaction history is disabled by the underlying Harness.
 """
+import atexit
+import hashlib
 import os
 from pathlib import Path
+import shutil
+import tempfile
 from solders.account import Account
 from solders.pubkey import Pubkey
-from pump_amm_admin_differential import Harness
 
 class _ResettableVM:
     def __init__(self, vm):
         self._vm = vm
         self._before = {}
-        self._programs = set()
+        self._programs = {}
 
     def __getattr__(self, name):
         return getattr(self._vm, name)
@@ -29,10 +32,11 @@ class _ResettableVM:
         return self._vm.set_account(key, account)
 
     def add_program_from_file(self, key, path):
-        entry = (key, str(Path(path).resolve()))
-        if entry not in self._programs:
-            self._vm.add_program_from_file(key, path)
-            self._programs.add(entry)
+        data = Path(path).read_bytes()
+        digest = hashlib.sha256(data).digest()
+        if self._programs.get(key) != digest:
+            self._vm.add_program(key, data)
+            self._programs[key] = digest
 
     def send_transaction(self, tx):
         message = tx.message
@@ -50,15 +54,43 @@ class _ResettableVM:
             self._vm.set_account(key, account if account is not None else Account(0, b'', Pubkey.default()))
         self._before.clear()
 
+_pinned = {}
+def pin_program(path):
+    """Return a private copy of one byte snapshot of path, the same for the whole run.
+
+    acquire_harness reloads whenever a path's bytes change, so a suite that passes
+    its input path to every case could run two images under one receipt.
+    """
+    # Key the path as given: resolving symlinks would re-pin a retargeted link.
+    key = os.path.abspath(path)
+    if key not in _pinned:
+        directory = tempfile.mkdtemp(prefix='pump-amm-pinned-')
+        atexit.register(shutil.rmtree, directory, True)
+        snapshot = Path(directory) / 'program.so'
+        snapshot.write_bytes(Path(key).read_bytes())
+        _pinned[key] = snapshot
+    return _pinned[key]
+
 _cached = {}
 def acquire_harness(program):
+    # Import the LiteSVM harness only when a VM is needed: pin_program is also
+    # imported by metadata-only consumers (test_tooling.py on solders wheels
+    # without LiteSVM, such as Windows).
+    from pump_amm_admin_differential import Harness
     if os.environ.get('PUMP_AMM_FRESH_VM') == '1':
         return Harness(program)
     key = str(Path(program).resolve())
-    if key not in _cached:
-        harness = Harness(program)
+    data = Path(key).read_bytes()
+    digest = hashlib.sha256(data).digest()
+    if key not in _cached or _cached[key][0] != digest:
+        # Harness loads from a path. Give it the same snapshot that was hashed,
+        # even if a concurrent build replaces the original path during loading.
+        with tempfile.NamedTemporaryFile(prefix='pump-amm-program-', suffix='.so') as snapshot:
+            snapshot.write(data)
+            snapshot.flush()
+            harness = Harness(snapshot.name)
         harness.vm = _ResettableVM(harness.vm)
-        _cached[key] = harness
-    harness = _cached[key]
+        _cached[key] = (digest, harness)
+    harness = _cached[key][1]
     harness.vm.reset()
     return harness

@@ -35,7 +35,7 @@ def address(value):
     if isinstance(value, int): result = value
     elif isinstance(value, str):
         if not value or value != value.strip(): raise ValueError('blank or padded target')
-        try: result = int(value, 0)
+        try: result = int(value, 10 if re.fullmatch(r'[+-]?[0-9]+', value) else 0)
         except ValueError: return value  # ledger also supports named scopes such as all
     else: raise ValueError('invalid target')
     if result < 0: raise ValueError('negative target')
@@ -59,7 +59,14 @@ def classify(row, context, evidence_root):
     if not isinstance(evidence, list) or not evidence:
         return {'applicability': 'unverifiable', 'reasons': ['no hash-bound evidence files']}
     reasons = []
-    root = Path(evidence_root).resolve()
+    root = Path(evidence_root)
+    try:
+        if linked(root):
+            return {'applicability': 'unverifiable', 'reasons': ['linked evidence root is not admitted']}
+        root = root.resolve(strict=True)
+    except OSError:
+        return {'applicability': 'unverifiable', 'reasons': ['unreadable evidence root']}
+
     for item in evidence:
         if not isinstance(item, dict) or not isinstance(item.get('path'), str) or not isinstance(item.get('sha256'), str) or not re.fullmatch('[0-9a-f]{64}', item['sha256']):
             reasons.append('invalid evidence descriptor'); continue

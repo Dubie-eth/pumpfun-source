@@ -35,6 +35,9 @@ class BatchMetricTests(unittest.TestCase):
         rows=[json.loads(line) for line in self.output.getvalue().splitlines()]
         self.assertEqual([row['window'] for row in rows],['0x0','0x8'])
         self.assertTrue(all(row['normalized_equal'] and row['raw_equal'] for row in rows))
+        self.assertTrue(all(row['call_counts_original'] == {
+            'internal': 0, 'syscall_or_relocated': 0, 'indirect': 0,
+        } for row in rows))
 
     def test_duplicates_are_coalesced_in_request_order(self):
         metric.main(['candidate.so','8','0','0x8'])
@@ -49,6 +52,25 @@ class BatchMetricTests(unittest.TestCase):
         for extra in [['--top','0'],['--slots','-1'],['--sym','[']]:
             with self.assertRaises(SystemExit):metric.main(['candidate.so','0',*extra])
         self.original.assert_not_called();self.candidate.assert_not_called()
+
+    def test_missing_explicit_symbol_does_not_publish_a_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report=Path(temp)/'report.json'
+            with self.assertRaises(SystemExit) as caught:
+                metric.main(['candidate.so','0','--sym','missing_symbol','--json',str(report)])
+            self.assertEqual(caught.exception.code,2)
+            self.assertFalse(report.exists())
+            self.assertEqual(self.output.getvalue(),'')
+
+    def test_missing_explicit_symbol_preserves_existing_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report=Path(temp)/'report.json'
+            report.write_bytes(b'previous report\n')
+            with self.assertRaises(SystemExit) as caught:
+                metric.main(['candidate.so','0','--sym','missing_symbol','--json',str(report)])
+            self.assertEqual(caught.exception.code,2)
+            self.assertEqual(report.read_bytes(),b'previous report\n')
+            self.assertEqual(self.output.getvalue(),'')
 
     def test_symbol_selection_keeps_all_matches_per_window(self):
         metric.main(['candidate.so','0','8','--sym','first|second','--top','1'])

@@ -5,7 +5,9 @@ import contextlib
 import hashlib
 import io
 import json
+from pathlib import Path
 import struct
+import tempfile
 import unittest
 from unittest import mock
 
@@ -97,37 +99,72 @@ class AlignedMatchTests(unittest.TestCase):
         self.assertEqual(raw, [8])
 
 
+class FunctionInstructionBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.code = slot(0x18, dst=1, immediate=7) + slot(0, immediate=2) + slot()
+        self.image = b'header!!' + self.code
+        self.sections = {'.text': {'addr': 0x1000, 'offset': 8, 'size': len(self.code)}}
+
+    def test_lddw_continuation_is_not_a_function_start(self):
+        with self.assertRaisesRegex(ValueError, 'logical instruction boundary'):
+            matcher.function_body(self.image, self.sections, 0x1008, 8)
+
+    def test_function_end_cannot_split_lddw(self):
+        with self.assertRaisesRegex(ValueError, 'logical instruction boundary'):
+            matcher.function_body(self.image, self.sections, 0x1000, 8)
+
+    def test_complete_lddw_and_following_function_are_unchanged(self):
+        self.assertEqual(matcher.function_body(self.image, self.sections, 0x1000, 16), self.code[:16])
+        self.assertEqual(matcher.function_body(self.image, self.sections, 0x1010, 8), self.code[16:])
+
+    def test_changed_mutable_image_does_not_reuse_stale_boundaries(self):
+        image = bytearray(self.image)
+        image[8] = 0xb7
+        self.assertEqual(matcher.function_body(image, self.sections, 0x1008, 8), self.code[8:16])
+        image[8] = 0x18
+        with self.assertRaisesRegex(ValueError, 'logical instruction boundary'):
+            matcher.function_body(image, self.sections, 0x1008, 8)
+
+    def test_truncated_enclosing_instruction_stream_is_rejected(self):
+        image = self.image[:-8] + slot(0x18)
+        with self.assertRaisesRegex(ValueError, 'truncated instruction'):
+            matcher.function_body(image, self.sections, 0x1000, 16)
+
+
+class BoundaryHelperProtectionTests(unittest.TestCase):
+    def test_report_cannot_replace_the_logical_instruction_reader(self):
+        helper = Path(matcher.instruction_boundaries.__code__.co_filename)
+        before = helper.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'aliases an input'):
+            matcher.protect_report_output(helper, [], 'not-executed')
+        self.assertEqual(helper.read_bytes(), before)
+
+
 class SyntheticMainTests(unittest.TestCase):
     def test_main_keeps_json_schema_and_reports_overlapping_raw_match(self):
-        class MemoryPath:
-            def __init__(self, name, data):
-                self.name, self.data = name, data
-
-            def __str__(self):
-                return self.name
-
-            def read_bytes(self):
-                return self.data
-
         calls = [slot(0x85, 1, immediate=immediate) for immediate in (10, 20, 30)]
         original, candidate = b''.join(calls), b''.join(calls[1:])
-        output = mock.Mock()
-        args = argparse.Namespace(candidate=MemoryPath('synthetic-candidate', candidate),
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        candidate_path, original_path, output = (root / name for name in ('candidate', 'original', 'report.json'))
+        candidate_path.write_bytes(candidate)
+        original_path.write_bytes(original)
+        args = argparse.Namespace(candidate=candidate_path,
                                   objdump='not-executed', pattern='quote_control', output=output)
         sections = [{'.text': {'addr': 0x100, 'offset': 0, 'size': len(original)}},
                     {'.text': {'addr': 0x200, 'offset': 0, 'size': len(candidate)}}]
         stdout = io.StringIO()
         with mock.patch.object(matcher.argparse.ArgumentParser, 'parse_args', return_value=args), \
-                mock.patch.object(matcher, 'ORIGINAL', MemoryPath('synthetic-original', original)), \
+                mock.patch.object(matcher, 'ORIGINAL', original_path), \
                 mock.patch.object(matcher, 'sections', side_effect=sections), \
                 mock.patch.object(matcher, 'candidate_functions', return_value=[(0x200, len(candidate), 'quote_control_synthetic')]), \
                 mock.patch.object(matcher.subprocess, 'check_output', side_effect=AssertionError('no subprocess permitted')), \
                 contextlib.redirect_stdout(stdout):
             matcher.main()
-        output.write_text.assert_called_once()
-        report = json.loads(output.write_text.call_args.args[0])
+        report = json.loads(output.read_text())
         self.assertEqual(set(report), {'candidate', 'candidate_sha256', 'original_sha256', 'functions'})
-        self.assertEqual(report['candidate'], 'synthetic-candidate')
+        self.assertEqual(report['candidate'], str(candidate_path))
         self.assertEqual(report['candidate_sha256'], hashlib.sha256(candidate).hexdigest())
         self.assertEqual(report['original_sha256'], hashlib.sha256(original).hexdigest())
         self.assertEqual(report['functions'], [{

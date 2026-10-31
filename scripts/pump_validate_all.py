@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
-"""Run the published 44-suite bounded Pump corpus against one compiled ELF."""
+"""Run the published 44-suite bounded Pump corpus against one compiled ELF.
+
+Publish the complete retained-suite directory atomically, then link the report.
+If a late report destination prevents the second publication, keep the complete
+suite directory and staged report for recovery. The two paths are not a single
+filesystem transaction.
+"""
 if not __debug__:
     raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import gzip
 import hashlib
 import json
-import subprocess
+import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 from pump_diagnostic_audit import audit as audit_diagnostics
 from pump_diagnostic_audit import bound_input_key
+from pump_amm_reusable_harness import pin_program
 
 ROOT = Path(__file__).resolve().parents[1]
-SUITES = [('volume', 'pump_validate_volume.py'), ('administration', 'pump_validate_admin.py'), ('authority', 'pump_validate_authority.py'), ('configuration', 'pump_validate_config_admin.py'), ('buy', 'pump_validate_buy.py'), ('sell', 'pump_validate_sell.py'), ('quote', 'pump_validate_quote.py'), ('creator_collection', 'pump_creator_collect_differential.py'), ('creator_distribution', 'pump_creator_distribution_differential.py'), ('minimum_distribution', 'pump_minimum_fee_differential.py'), ('creator_collection_v2', 'pump_creator_collect_v2_differential.py'), ('extension', 'pump_extend_differential.py'), ('volume_sync', 'pump_volume_sync_differential.py'), ('fee_sweeps', 'pump_fee_sweep_differential.py'), ('creator_migration', 'pump_creator_migration_differential.py'), ('admin_cto', 'pump_admin_cto_differential.py'), ('set_params', 'pump_set_params_differential.py'), ('set_creator', 'pump_set_creator_differential.py'), ('idl_authority', 'pump_idl_authority_differential.py'), ('legacy_create', 'pump_create_differential.py'), ('exact_quote_v3', 'pump_exact_quote_differential.py'), ('create_v2', 'pump_create_quote_differential.py'), ('legacy_sell', 'pump_legacy_sell_differential.py'), ('legacy_sell_configured_fee', 'pump_legacy_sell_configured_fee_differential.py'), ('sell_v2', 'pump_sell_v2_differential.py'), ('create_control', 'pump_create_control_differential.py'), ('migration', 'pump_migrate_differential.py'), ('v3_configured_fee', 'pump_v3_configured_fee_differential.py'), ('legacy_buy', 'pump_legacy_buy_differential.py'), ('buy_v2', 'pump_buy_v2_differential.py'), ('migrate_v2', 'pump_migrate_v2_differential.py'), ('cashback', 'pump_cashback_differential.py'), ('global_init', 'pump_global_init_differential.py'), ('holder_distribution', 'pump_holder_distribution_differential.py'), ('nested_create', 'pump_create_nested_differential.py'), ('quote_control', 'pump_quote_control_fresh_differential.py'), ('multi_hop_curve_partial', 'repro/pump/native-curve-partial-fortyeight/harness/pump_multi_hop_curve_differential.py')]
+from serial_suite_process import PROCESS_INPUTS, run_suite_process, validate_timeout
+
+DEFAULT_SUITE_TIMEOUT = 1800.0
+SUITES = [('volume', 'pump_validate_volume.py'), ('administration', 'pump_validate_admin.py'), ('authority', 'pump_validate_authority.py'), ('configuration', 'pump_validate_config_admin.py'), ('buy', 'pump_validate_buy.py'), ('sell', 'pump_validate_sell.py'), ('quote', 'pump_validate_quote.py'), ('creator_collection', 'pump_creator_collect_differential.py'), ('creator_distribution', 'pump_creator_distribution_differential.py'), ('minimum_distribution', 'pump_minimum_fee_differential.py'), ('creator_collection_v2', 'pump_creator_collect_v2_differential.py'), ('extension', 'pump_extend_differential.py'), ('volume_sync', 'pump_volume_sync_differential.py'), ('fee_sweeps', 'pump_fee_sweep_differential.py'), ('creator_migration', 'pump_creator_migration_differential.py'), ('admin_cto', 'pump_admin_cto_differential.py'), ('set_params', 'pump_set_params_differential.py'), ('set_creator', 'pump_set_creator_differential.py'), ('idl_authority', 'pump_idl_authority_differential.py'), ('legacy_create', 'pump_create_differential.py'), ('exact_quote_v3', 'pump_exact_quote_differential.py'), ('create_v2', 'pump_create_quote_differential.py'), ('legacy_sell', 'pump_legacy_sell_differential.py'), ('legacy_sell_configured_fee', 'pump_legacy_sell_configured_fee_differential.py'), ('sell_v2', 'pump_sell_v2_differential.py'), ('create_control', 'pump_create_control_differential.py'), ('migration', 'pump_migrate_differential.py'), ('v3_configured_fee', 'pump_v3_configured_fee_differential.py'), ('legacy_buy', 'pump_legacy_buy_differential.py'), ('buy_v2', 'pump_buy_v2_differential.py'), ('migrate_v2', 'pump_migrate_v2_differential.py'), ('cashback', 'pump_cashback_differential.py'), ('global_init', 'pump_global_init_differential.py'), ('holder_distribution', 'pump_holder_distribution_differential.py'), ('nested_create', 'pump_create_nested_differential.py'), ('quote_control', 'pump_quote_control_fresh_differential.py'), ('multi_hop_curve_partial', 'research/pump-multi-hop-corpus/harness.py')]
 EXPECTED_CASES = {'volume': 66, 'administration': 93, 'creator_collection_v2': 154, 'extension': 308, 'exact_quote_v3': 352, 'sell_v2': 206, 'legacy_buy': 284, 'migrate_v2': 827, 'global_init': 40, 'buy': 334, 'creator_collection': 119, 'creator_distribution': 298, 'admin_cto': 363, 'set_params': 169, 'legacy_create': 87, 'migration': 228, 'holder_distribution': 649, 'multi_hop_curve_partial': 56, 'authority': 59, 'configuration': 351, 'sell': 301, 'minimum_distribution': 181, 'creator_migration': 139, 'set_creator': 509, 'legacy_sell': 115, 'legacy_sell_configured_fee': 28, 'v3_configured_fee': 372, 'cashback': 283, 'quote': 130, 'volume_sync': 341, 'fee_sweeps': 504, 'idl_authority': 171, 'create_v2': 297, 'create_control': 85, 'buy_v2': 216, 'nested_create': 48, 'quote_control': 507}
 
 SUITES.append(('tokenkeg_two_curve', 'pump_tokenkeg_two_curve_differential.py'))
@@ -38,7 +49,9 @@ EXPECTED_CASES['legacy_cashback'] = 14
 def validate_two_curve(result, candidate_sha, original_sha):
     assert result['candidate_sha256'] == candidate_sha
     assert result['provenance']['repository_inputs']['evidence/original/pump/deployed.so'] == original_sha
-    assert result['inputs_unchanged']
+    assert result['inputs_unchanged'] is True
+    for key in ('case_count', 'original_successes', 'original_pump_cpi_cases', 'verified_outer_signatures'):
+        assert type(result[key]) is int, f'{key} must be an integer'
     assert result['case_count'] == len(result['cases']) == 20
     assert result['original_successes'] == 16 and result['original_pump_cpi_cases'] == 18
     assert result['verified_outer_signatures'] == 40
@@ -50,6 +63,7 @@ def retained_case_count(result):
     cases = result.get('cases')
     assert isinstance(cases, list), 'a retained cases array is required'
     count = result.get('case_count', len(cases))
+    assert type(count) is int, 'case_count must be an integer'
     assert count == len(cases), ('case_count differs from retained cases', count, len(cases))
     return count
 
@@ -58,14 +72,44 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def protect_inputs(destinations, inputs):
+    """Reject path, symlink and existing hardlink aliases before output writes."""
+    protected = {Path(path).resolve() for path in inputs}
+    existing = [path for path in protected if path.exists()]
+    for destination in destinations:
+        resolved = destination.resolve()
+        if resolved in protected or (resolved.exists() and any(
+                resolved.samefile(path) for path in existing)):
+            raise ValueError('validation output aliases a bound input: ' + str(destination))
+
+
 def validate_quote_control(result, candidate, original):
     bound = result['bound_inputs_sha256']
     assert bound[bound_input_key(candidate, ROOT)] == sha(candidate)
     assert bound[bound_input_key(original, ROOT)] == sha(original)
     count = result['cases']
+    assert type(count) is int, 'cases must be an integer'
+    assert isinstance(result['results'], list), 'results must be a list'
     assert count == len(result['results'])
-    assert all(row['matches'] and not row['different_fields'] for row in result['results'])
+    assert result['compare_keys'] == list(QUOTE_CONTROL_COMPARE_KEYS), 'comparison fields differ'
+    identities = set()
+    for row in result['results']:
+        identity = row.get('case')
+        assert isinstance(identity, str) and identity, 'case identity missing'
+        assert identity not in identities, f'duplicate quote-control case: {identity}'
+        identities.add(identity)
+        assert row['matches'] is True and row['different_fields'] == []
+        assert all(isinstance(row.get(side), dict) for side in ('original', 'candidate'))
+        assert all(key in row['original'] and key in row['candidate'] and
+                   row['original'][key] == row['candidate'][key]
+                   for key in QUOTE_CONTROL_COMPARE_KEYS), f'{identity}: retained comparison contradicts success'
     return count
+
+
+QUOTE_CONTROL_COMPARE_KEYS = ('error', 'before_accounts', 'after_accounts', 'rollback',
+                             'event_payloads', 'inner_instructions', 'return_data',
+                             'transaction_base64', 'signature_verification', 'blockhash',
+                             'sigverify_enabled', 'blockhash_check_enabled')
 
 
 CASE_DIFFERENCE_FIELDS = ('different_fields', 'diff', 'differences', 'mismatched_fields')
@@ -86,75 +130,179 @@ def validate_case_results(result):
             assert row[name] == [], f'case {index}: {name} is not an empty difference list'
 
 
+def publish_file(staged, output):
+    """Publish without replacement; return whether staging was consumed.
+
+    Rename on Windows, link elsewhere.
+
+    Windows sandboxes refuse hard links (WinError 5). The sibling staging
+    directory is on the same filesystem. Windows rename refuses an existing
+    destination; reporting whether it consumed the file preserves ownership
+    when cleaning up the staging directory.
+    """
+    if os.name == "nt":
+        os.rename(staged, output)
+        return True
+    os.link(staged, output)
+    return False
+
+
+def suite_command(name, script, candidate, output, source_directory, build_report):
+    """Keep the pinned ELF and the actual producer receipt separate."""
+    command = [sys.executable, str(script), '--candidate', str(candidate), '--output', str(output)]
+    source_text = script.read_text()
+    if "'--source-directory'" in source_text or '"--source-directory"' in source_text:
+        command += ['--source-directory', str(source_directory.resolve())]
+    if name == 'tokenkeg_two_curve':
+        command += ['--build-report', str(build_report)]
+    return command
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--candidate', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--source-directory', type=Path, default=ROOT / 'programs/pump')
+    parser.add_argument('--build-report', type=Path,
+                        help='Actual producer build-comparison.json; defaults beside the selected candidate')
+    parser.add_argument('--suite-timeout', type=float, default=DEFAULT_SUITE_TIMEOUT,
+                        help='Seconds per suite; POSIX timeouts terminate its process group')
     args = parser.parse_args()
-    candidate = args.candidate.resolve()
+    validate_timeout(args.suite_timeout)
+    source_paths = [path for path in args.source_directory.rglob('*')
+                    if path.is_file() and 'target' not in path.relative_to(args.source_directory).parts
+                    and (path.suffix == '.rs' or path.name in ('Cargo.toml', 'Cargo.lock'))]
+    if not source_paths:
+        raise SystemExit(f'no Rust/Cargo inputs under {args.source_directory}')
+    candidate_input = args.candidate.resolve()
+    build_report = (args.build_report or candidate_input.parent / 'build-comparison.json').resolve()
+    build_attempt = build_report.with_name('build-attempt.json')
+    build_inputs = (build_report, build_attempt)
+    candidate = pin_program(candidate_input)
     original = ROOT / 'evidence/original/pump/deployed.so'
     runner = Path(__file__).resolve()
     candidate_sha, original_sha, runner_sha = map(sha, (candidate, original, runner))
+    process_hashes = {path: sha(path) for path in PROCESS_INPUTS}
     suites, scripts = {}, {}
     assert len(SUITES) == len(EXPECTED_CASES) == len({name for name, _ in SUITES}) == 44
     assert {name for name, _ in SUITES} == set(EXPECTED_CASES)
-    with tempfile.TemporaryDirectory(prefix='pump-differential-') as tmp:
-        for name, filename in SUITES:
-            script = ROOT / filename if filename.startswith('repro/') else ROOT / 'scripts' / filename
-            before = sha(script)
-            output = Path(tmp) / (name + '.json')
-            command = [sys.executable, str(script), '--candidate', str(candidate), '--output', str(output)]
-            source_text = script.read_text()
-            if "'--source-directory'" in source_text or '"--source-directory"' in source_text:
-                command += ['--source-directory', str(args.source_directory.resolve())]
-            subprocess.run(command, check=True, cwd=ROOT)
-            assert before == sha(script), f'harness changed during execution: {filename}'
-            assert runner_sha == sha(runner), 'aggregate runner changed during execution'
-            assert candidate_sha == sha(candidate), 'candidate changed during execution'
-            assert original_sha == sha(original), 'original changed during execution'
-            raw = output.read_bytes()
-            result = json.loads(gzip.decompress(raw) if raw.startswith(b'\x1f\x8b') else raw)
-            if name == 'quote_control':
-                count = validate_quote_control(result, candidate, original)
-            elif name == 'multi_hop_curve_partial':
-                assert result['candidate_sha256'] == candidate_sha
-                assert result['original_pump_sha256'] == original_sha
-                assert result['passed'] == result['case_count'] == 56
-                assert len(result['cases']) == 56
-                assert all(not row['mismatches'] for row in result['cases'])
-                count = result['case_count']
-            elif name == 'tokenkeg_two_curve':
-                count = validate_two_curve(result, candidate_sha, original_sha)
-            else:
-                assert result.get('original_sha256', result.get('provenance', {}).get(str(original))) == original_sha
-                assert result.get('candidate_sha256', result.get('provenance', {}).get(str(candidate))) == candidate_sha
-                count = retained_case_count(result)
-                validate_case_results(result)
-            assert count == EXPECTED_CASES[name], (name, count, EXPECTED_CASES[name])
-            assert not result.get('mismatches', result.get('failures', [])), name
-            result['case_count'] = count
-            suites[name] = result
-            scripts[filename] = before
-            retained = args.output.parent / (args.output.name + '.suites')
-            retained.mkdir(parents=True, exist_ok=True)
-            (retained / (name + '.json.gz')).write_bytes(
-                gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
-    assert sum(s['case_count'] for s in suites.values()) == 10468
-    diagnostics = audit_diagnostics(suites)
-    report = {
-        'scope': 'Published 44-suite bounded Pump differential corpus. Per-suite limits remain in receipts; not full source recovery or binary identity.',
-        'original_sha256': original_sha, 'candidate_sha256': candidate_sha,
-        'runner_sha256': runner_sha, 'script_sha256': scripts,
-        'case_count': sum(s['case_count'] for s in suites.values()),
-        'source_directory': str(args.source_directory.resolve()),
-        'diagnostic_audit_sha256': sha(ROOT / 'scripts/pump_diagnostic_audit.py'),
-        'diagnostics': diagnostics,
-        'mismatches': diagnostics['mismatches'], 'suites': suites,
-    }
-    raw = (json.dumps(report, separators=(',', ':')) + '\n').encode()
+    retained = args.output.parent / (args.output.name + '.suites')
+    suite_paths = [ROOT / filename if filename.startswith(('repro/', 'research/'))
+                   else ROOT / 'scripts' / filename for _, filename in SUITES]
+    protect_inputs([args.output, *(retained / (name + '.json.gz') for name, _ in SUITES)],
+                   [candidate_input, candidate, original, runner, *build_inputs, *PROCESS_INPUTS,
+                    ROOT / 'scripts/pump_diagnostic_audit.py',
+                    *suite_paths, *source_paths])
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(gzip.compress(raw, mtime=0) if args.output.suffix == '.gz' else raw)
+    for destination in (args.output, retained):
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(destination)
+    build_inputs = {path: sha(path) for path in build_inputs}
+    from deep_disassembly import rename_directory, temporary_sibling
+    retained_staging = report_directory = None
+    published_retained = preserve_recovery = report_consumed = report_published = False
+    report_identity = None
+    try:
+        retained_staging = temporary_sibling(retained, 'staging')
+        report_directory = temporary_sibling(args.output, 'staging')
+        report_staging = report_directory / 'report.json'
+        with tempfile.TemporaryDirectory(prefix='pump-differential-') as tmp:
+            for name, filename in SUITES:
+                script = ROOT / filename if filename.startswith(('repro/', 'research/')) else ROOT / 'scripts' / filename
+                before = sha(script)
+                output = Path(tmp) / (name + '.json')
+                command = suite_command(name, script, candidate, output,
+                                        args.source_directory, build_report)
+                completed, timed_out = run_suite_process(command, cwd=ROOT, timeout=args.suite_timeout)
+                if completed.stdout:
+                    print(completed.stdout, end='', flush=True)
+                if timed_out:
+                    raise SystemExit(f'suite {name} exceeded {args.suite_timeout}s')
+                completed.check_returncode()
+                assert before == sha(script), f'harness changed during execution: {filename}'
+                assert runner_sha == sha(runner), 'aggregate runner changed during execution'
+                assert all(sha(path) == digest for path, digest in process_hashes.items()), 'suite process helper changed'
+                assert candidate_sha == sha(candidate), 'candidate changed during execution'
+                assert original_sha == sha(original), 'original changed during execution'
+                assert all(sha(path) == digest for path, digest in build_inputs.items()), 'build receipt changed during execution'
+                raw = output.read_bytes()
+                result = json.loads(gzip.decompress(raw) if raw.startswith(b'\x1f\x8b') else raw)
+                if name == 'quote_control':
+                    count = validate_quote_control(result, candidate, original)
+                elif name == 'multi_hop_curve_partial':
+                    assert type(result['passed']) is type(result['case_count']) is int
+                    assert result['candidate_sha256'] == candidate_sha
+                    assert result['original_pump_sha256'] == original_sha
+                    assert result['passed'] == result['case_count'] == 56
+                    assert len(result['cases']) == 56
+                    assert all(not row['mismatches'] for row in result['cases'])
+                    count = result['case_count']
+                elif name == 'tokenkeg_two_curve':
+                    count = validate_two_curve(result, candidate_sha, original_sha)
+                else:
+                    assert result.get('original_sha256', result.get('provenance', {}).get(str(original))) == original_sha
+                    assert result.get('candidate_sha256', result.get('provenance', {}).get(str(candidate))) == candidate_sha
+                    count = retained_case_count(result)
+                    validate_case_results(result)
+                assert count == EXPECTED_CASES[name], (name, count, EXPECTED_CASES[name])
+                assert not result.get('mismatches', result.get('failures', [])), name
+                result['case_count'] = count
+                suites[name] = result
+                scripts[filename] = before
+                (retained_staging / (name + '.json.gz')).write_bytes(
+                    gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
+        assert sum(s['case_count'] for s in suites.values()) == 10468
+        diagnostics = audit_diagnostics(suites)
+        report = {
+            'scope': 'Published 44-suite bounded Pump differential corpus. Per-suite limits remain in receipts; not full source recovery or binary identity.',
+            'original_sha256': original_sha, 'candidate_sha256': candidate_sha,
+            'runner_sha256': runner_sha, 'script_sha256': scripts,
+            'suite_timeout_seconds': args.suite_timeout,
+            'process_runner_sha256': {bound_input_key(path, ROOT): digest for path, digest in process_hashes.items()},
+            'build_inputs_sha256': {bound_input_key(path, ROOT): digest
+                                    for path, digest in build_inputs.items()},
+            'case_count': sum(s['case_count'] for s in suites.values()),
+            'source_directory': str(args.source_directory.resolve()),
+            'diagnostic_audit_sha256': sha(ROOT / 'scripts/pump_diagnostic_audit.py'),
+            'diagnostics': diagnostics,
+            'mismatches': diagnostics['mismatches'], 'suites': suites,
+        }
+        raw = (json.dumps(report, separators=(',', ':')) + '\n').encode()
+        report_staging.write_bytes(
+            gzip.compress(raw, mtime=0) if args.output.suffix == '.gz' else raw)
+        report_stat = report_staging.stat()
+        report_identity = (report_stat.st_dev, report_stat.st_ino)
+        rename_directory(retained_staging, retained)
+        published_retained = True
+        try:
+            report_consumed = publish_file(report_staging, args.output)
+            report_published = True
+        except BaseException as error:
+            # The complete suite directory is already public. A late writer
+            # may have added files: retain it and the complete report for
+            # recovery instead of deleting a directory we no longer own.
+            preserve_recovery = True
+            error.add_note(f'Complete suites retained at {retained}; report retained at {report_staging}')
+            raise
+    finally:
+        if retained_staging is not None and not published_retained:
+            shutil.rmtree(retained_staging, ignore_errors=True)
+        if report_directory is not None and not preserve_recovery:
+            if report_published:
+                if not report_consumed:
+                    try:
+                        current = report_staging.stat()
+                        if (current.st_dev, current.st_ino) == report_identity:
+                            report_staging.unlink()
+                    except FileNotFoundError:
+                        pass
+                # Do not recursively remove paths a later writer now owns.
+                try:
+                    report_directory.rmdir()
+                except OSError:
+                    pass
+            else:
+                shutil.rmtree(report_directory, ignore_errors=True)
     print(json.dumps({'cases': report['case_count'], 'diagnostic_log_cases': diagnostics['log_bearing_cases'], 'mismatches': len(report['mismatches'])}))
     return bool(report['mismatches'])
 

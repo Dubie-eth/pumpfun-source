@@ -38,3 +38,41 @@ outside this correction. The current captures have identical text addresses and
 file offsets, so their reports are unchanged. This is static reporting fidelity,
 not a general ELF validation, relocation execution or source-equivalence proof.
 Only the reviewed LF source bytes are admitted; no Windows qualification is made.
+
+Source binding re-reviewed at `f09c728c8520`: `scripts/deep_section_analysis.py`
+`9940b20f…` (after #1254, #1284, #1294, #1448, #1453, #1606, #1648, #1731,
+#1795, #1806, #1813, #1831, #1842, #1991, #2182, #2209, #2351, #2482 and the LF-output commit 11c5d73b) and
+`scripts/window_elf_reader.py` `5a57f329…` (after #2075 and #2388). Within
+`analyze_relocations` those changes only rename relocation types 8 and 10 to
+the SBPF loader's meanings; the three substituted fragments are unchanged and
+the tests still show the archived behavior and the correction on the current
+bytes.
+
+The source binding was reviewed again with the combined #2546/#2548 analyzer
+(`4b3c5cb204f8a287b5337e14932468c47713f0a0a38f274e1e46fec1e905f8c2`).
+It rejects truncated or misaligned relocation tables and uses the section's
+virtual address for strings that reach its end. The comparison predicate and
+all three relocation substitutions remain unchanged. The six math and five
+relocation successor tests pass against these combined bytes. The reader pin
+remains `5a57f32949f983fc6f9ddf40916cd04bfcd2a73b6a16cc0e9d5d6872180dac32`.
+
+The source binding was reviewed again with the #2625 analyzer
+(`2c1c81602986cb0d988446923a6add9e10f4cffa6189737fa1cf1497345ce09b`).
+It binds immediate comparisons to the destination register and recovers real IDL
+discriminators from the dispatch tables. The replaced comparison predicate and
+the three relocation substitutions remain unchanged, and the six math and five
+relocation successor tests pass against these bytes, including the captured
+Pump pair at file offset `0xd278` and every relocation report recorded above.
+The reader pin remains
+`5a57f32949f983fc6f9ddf40916cd04bfcd2a73b6a16cc0e9d5d6872180dac32`.
+
+The reviewed tool bytes are now retained in this packet's `archived/` directory
+and bound by the same SHA-256 pins. `scripts/deep_section_analysis.py` has since
+been corrected: #2745 translates text relocation addresses to file offsets, which
+is the correction this packet reviews. The live script is therefore no longer the
+archived analyzer the three substitutions apply to, and binding the pin to it
+fails with `reviewed relocation substitution is not unique`. Retaining the
+reviewed revision keeps the archived behaviour (a text section at `0x1000` with
+file offset `0x20` is reported as unknown) and the corrected behaviour (`.text`)
+demonstrable together, independently of later analyzer changes, and keeps every
+recorded report reproducible.

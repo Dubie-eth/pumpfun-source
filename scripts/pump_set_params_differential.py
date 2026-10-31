@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Offline original-vs-recovered Pump administrative instruction differential tests."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse, base64, hashlib, json, pathlib
+from pump_differential_output import PumpReport
 from solders.account import Account
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
@@ -10,7 +13,7 @@ from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-IDL = json.loads((ROOT / 'evidence/upstream/pump.json').read_text())
+IDL = json.loads((ROOT / 'evidence/upstream/pump.json').read_text(encoding='utf-8'))
 PROGRAM = Pubkey.from_string(IDL['address'])
 GLOBAL = Pubkey.find_program_address([b'global'], PROGRAM)[0]
 EVENT = Pubkey.find_program_address([b'__event_authority'], PROGRAM)[0]
@@ -74,10 +77,10 @@ def cases():
  return rows
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();paths=[pathlib.Path(__file__),ORIGINAL,a.candidate,ROOT/'evidence/upstream/pump.json',ROOT/'research/imported-lab/analysis/pump_fun/config-snapshot.json'];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();provenance={str(p):sha(p) for p in paths};rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();output=PumpReport(a.output,ROOT,a.candidate,__file__);paths=[pathlib.Path(__file__),ORIGINAL,a.candidate,ROOT/'evidence/upstream/pump.json',ROOT/'research/imported-lab/analysis/pump_fun/config-snapshot.json'];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();provenance={str(p):sha(p) for p in paths};rows=[]
  for c in cases():
   o=run(c);n=run(c,a.candidate);diff=[k for k in ['error','before','after','events','inner','returns'] if o[k]!=n[k]];rows.append(dict(case=c,original=o,candidate=n,different_fields=diff))
  assert provenance=={str(p):sha(p) for p in paths}
- report={'case_count':len(rows),'provenance':provenance,'mismatches':[i for i,r in enumerate(rows) if r['different_fields']],'cases':rows};a.output.write_text(json.dumps(report,indent=2)+'\n');print({k:report[k] for k in ['case_count','mismatches']})
+ report={'case_count':len(rows),'provenance':provenance,'mismatches':[i for i,r in enumerate(rows) if r['different_fields']],'cases':rows};output.write((json.dumps(report,indent=2)+'\n').encode("utf-8"));print({k:report[k] for k in ['case_count','mismatches']})
  if report['mismatches']:raise SystemExit(1)
 if __name__=='__main__':main()

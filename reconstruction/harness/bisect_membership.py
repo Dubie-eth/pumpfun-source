@@ -39,7 +39,7 @@ def narrow(revisions, evaluate, budget):
 
 
 def git(repo, *args):
-    return subprocess.check_output(['git', '-C', str(repo), *args])
+    return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.PIPE)
 
 
 def revision_chain(repo, good, bad):
@@ -49,6 +49,11 @@ def revision_chain(repo, good, bad):
     history = git(repo, 'rev-list', '--first-parent', bad_sha).decode().splitlines()
     if good_sha not in history: raise ValueError('good revision must be on bad revision first-parent history')
     return list(reversed(history[:history.index(good_sha) + 1]))
+
+
+def load_oracle(path):
+    """Read the oracle config as UTF-8 regardless of the host locale."""
+    return json.loads(path.read_text(encoding='utf-8'))
 
 
 def main():
@@ -63,17 +68,25 @@ def main():
     subdir = Path(args.source_subdir)
     if subdir.is_absolute() or '..' in subdir.parts: parser.error('source subdirectory must stay inside repository')
     revisions = revision_chain(args.repo, args.good, args.bad)
-    config = json.loads(args.oracle.read_text())
+    config = load_oracle(args.oracle)
     args.out.mkdir(parents=True, exist_ok=True)
+    archive_errors = []
     def evaluate(revision):
         with tempfile.TemporaryDirectory(prefix='bisect-source-', dir=args.out) as temporary:
-            blob = git(args.repo, 'archive', revision, '--', subdir.as_posix())
+            try:
+                blob = git(args.repo, 'archive', revision, '--', subdir.as_posix())
+            except subprocess.CalledProcessError as error:
+                archive_errors.append({'revision': revision, 'returncode': error.returncode,
+                                       'stderr': error.stderr.decode('utf-8', errors='replace')})
+                return 'error'
             with tarfile.open(fileobj=io.BytesIO(blob)) as archive:
                 if any(m.issym() or m.islnk() for m in archive.getmembers()): raise ValueError('source links unsupported')
                 archive.extractall(temporary, filter='data')
             return run_trial(Path(temporary) / subdir, config['command'], args.out / 'trials' / revision,
                              config.get('inputs', []), config.get('timeout', 300))['status']
     result = narrow(revisions, evaluate, args.max_trials)
+    if archive_errors:
+        result['archive_errors'] = archive_errors
     atomic_json(args.out / 'bisect.json', result)
     print(json.dumps(result, indent=2))
     return 0 if result['status'] == 'boundary-found' else 2

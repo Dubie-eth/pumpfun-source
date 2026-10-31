@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Build frozen Pump inputs using the pinned macOS compiler/Linux SBF profile."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 from pathlib import Path
 from collections import Counter
 from functools import lru_cache
@@ -13,6 +15,19 @@ def sha(path):
     with Path(path).open('rb')as f:
         for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
     return h.hexdigest()
+def download_archive(path,url,expected_sha):
+    if path.is_symlink() or path.exists():raise FileExistsError(f'refusing to replace retained archive: {path}')
+    partial=path.with_name('.'+path.name+'.partial')
+    if partial.is_symlink() or partial.exists():raise FileExistsError(f'refusing to replace retained partial archive: {partial}')
+    created=False
+    try:
+        with partial.open('xb')as f:
+            created=True
+            with urllib.request.urlopen(url)as response:shutil.copyfileobj(response,f)
+        if sha(partial)!=expected_sha:raise ValueError(path.name)
+        os.link(partial,path)
+    finally:
+        if created:partial.unlink(missing_ok=True)
 def run(name,args,env=None):
     with (EVIDENCE/(name+'.log')).open('w')as log:
         p=subprocess.run([str(x)for x in args],cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT)
@@ -20,7 +35,9 @@ def run(name,args,env=None):
     with (EVIDENCE/'commands.jsonl').open('a')as f:f.write(json.dumps(row)+'\n')
     p.check_returncode()
 def archive(destination,source):
-    with tarfile.open(destination,'w:gz')as t:
+    # Pin the gzip header mtime: the archives are hashed into MANIFEST.json,
+    # and a wall-clock header made identical inputs hash differently per run.
+    with open(destination,'wb')as raw,gzip.GzipFile(filename='',fileobj=raw,mode='wb',mtime=0)as compressed,tarfile.open(fileobj=compressed,mode='w')as t:
         for p in sorted(source.rglob('*')):
             if p.is_file():t.add(p,arcname=p.relative_to(source))
 def retain(build,label):
@@ -36,15 +53,14 @@ def retain(build,label):
 def main():
     EVIDENCE.mkdir(parents=True,exist_ok=False)
     spec=json.loads(SPEC.read_text());shutil.copyfile(SPEC,EVIDENCE/'inputs.json')
-    (EVIDENCE/'revision.txt').write_text(subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True))
+    (EVIDENCE/'revision.txt').write_text(subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True),encoding='utf-8',newline='\n')
     shutil.copyfile(Path(__file__),EVIDENCE/'qualification.py')
     shutil.copyfile(ROOT/'.github/workflows/qualify-pump-macos-v144.yml',EVIDENCE/'workflow.yml')
-    (EVIDENCE/'host.json').write_text(json.dumps({'system':platform.system(),'machine':platform.machine(),'python':sys.version},indent=2)+'\n')
+    (EVIDENCE/'host.json').write_text(json.dumps({'system':platform.system(),'machine':platform.machine(),'python':sys.version},indent=2)+'\n',encoding='utf-8',newline='\n')
     assert platform.system()=='Darwin'and platform.machine()=='arm64','Requires the standard Apple Silicon macOS runner'
     for label,definition in spec['archives'].items():
         path=OUT/(label+'.tar.bz2')
-        with urllib.request.urlopen(definition['url'])as response,path.open('wb')as f:shutil.copyfileobj(response,f)
-        assert sha(path)==definition['sha256'],label
+        download_archive(path,definition['url'],definition['sha256'])
         destination=OUT/label;destination.mkdir()
         with tarfile.open(path)as t:t.extractall(destination,filter='data')
     sdk=OUT/'macos';libraries=OUT/'linux/rust/lib/rustlib/sbf-solana-solana/lib'
@@ -78,8 +94,8 @@ def main():
         assert sum(((oc&counters['baseline'])&counters['candidate']).values())==744
         assert measurement['builds']['round37-canonical']['candidate_sha256']==spec['round37_candidate_sha256']
         assert measurement['builds']['round37-canonical']['unstripped_sha256']==spec['round37_unstripped_sha256']
-        (EVIDENCE/'measurement.json').write_text(json.dumps(measurement,indent=2)+'\n')
+        (EVIDENCE/'measurement.json').write_text(json.dumps(measurement,indent=2)+'\n',encoding='utf-8',newline='\n')
     finally:
         for path,label in builds:retain(path,label)
-        (EVIDENCE/'MANIFEST.json').write_text(json.dumps({p.relative_to(EVIDENCE).as_posix():sha(p)for p in sorted(EVIDENCE.rglob('*'))if p.is_file()and p.name!='MANIFEST.json'},indent=2)+'\n')
+        (EVIDENCE/'MANIFEST.json').write_text(json.dumps({p.relative_to(EVIDENCE).as_posix():sha(p)for p in sorted(EVIDENCE.rglob('*'))if p.is_file()and p.name!='MANIFEST.json'},indent=2)+'\n',encoding='utf-8',newline='\n')
 if __name__=='__main__':main()

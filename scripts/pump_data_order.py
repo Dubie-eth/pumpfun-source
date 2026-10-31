@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import tempfile
 
 from build_source_manifest import source_manifest
 from pump_compare_function_bytes import normalize
@@ -661,6 +662,39 @@ def verify_transform(cert, output):
     }
 
 
+def publish_file(staged, path):
+    """Publish without replacement; return whether staging was consumed.
+
+    Rename on Windows, link elsewhere.
+
+    Windows sandboxes refuse hard links (WinError 5); a same-directory
+    rename refuses an existing destination, preserving no-replace.
+    """
+    if os.name == "nt":
+        os.rename(staged, path)
+        return True
+    os.link(staged, path)
+    return False
+
+
+def publish_certificate(path, cert):
+    """Publish a complete certificate into a new path; never replace an output."""
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", dir=path.parent, prefix="." + path.name + ".", delete=False
+        ) as stream:
+            staged = Path(stream.name)
+            stream.write(json.dumps(cert, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        if publish_file(staged, path):
+            staged = None  # Rename consumed this name; a new owner may recreate it.
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+
+
 def main():
     import argparse
 
@@ -669,13 +703,14 @@ def main():
     parser.add_argument("--text-section-order", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    assert not args.output.exists(), "use a new certificate output"
+    if args.output.exists():
+        parser.error("use a new certificate output")
     cert = {
         "schema": 1,
         "payload": derive_payload(args.baseline_build, args.text_section_order),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(cert, indent=2) + "\n")
+    publish_certificate(args.output, cert)
     print(
         json.dumps(
             {

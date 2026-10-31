@@ -1,6 +1,7 @@
 """Real locked bookkeeping I/O; no compiler or VM execution."""
 import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -46,7 +47,7 @@ def runner_at(root):
 
 class BestScoreVersionTests(unittest.TestCase):
     def entry(self, distance, lost=0):
-        return {'status':'scored', 'metrics':{'score_version':3,
+        return {'status':'scored', 'metrics':{'score_version':4,
                 'lost_windows_normalized_count':lost, 'sell_raw_equal':False,
                 'sell_size':9024, 'align_distance':distance, 'slot_diffs':1}}
 
@@ -58,13 +59,17 @@ class BestScoreVersionTests(unittest.TestCase):
             old = root / 'BEST.json'
             raw = b'{"rank":[1,0,0,0],"entry":{"metrics":{"score_version":2}}}\n'
             old.write_bytes(raw)
+            previous_version = root / 'BEST-v3.json'
+            previous_raw = b'{"rank":[1,0,0,0],"entry":{"metrics":{"score_version":3}}}\n'
+            previous_version.write_bytes(previous_raw)
             with runner_at(root) as runner:
                 entry = self.entry(1)
                 runner.locked_append(entry)
-                current = root / 'BEST-v3.json'
+                current = root / 'BEST-v4.json'
                 self.assertTrue(current.exists())
                 self.assertEqual(json.loads(current.read_bytes())['entry'], entry)
             self.assertEqual(old.read_bytes(), raw)
+            self.assertEqual(previous_version.read_bytes(), previous_raw)
             self.assertEqual(len((root/'ATTEMPTS.jsonl').read_text().splitlines()), 1)
 
     def test_current_version_best_still_tracks_the_lower_rank(self):
@@ -75,7 +80,7 @@ class BestScoreVersionTests(unittest.TestCase):
             with runner_at(root) as runner:
                 for distance in (5, 2, 4):
                     runner.locked_append(self.entry(distance))
-                self.assertEqual(json.loads((root/'BEST-v3.json').read_bytes())['entry'], self.entry(2))
+                self.assertEqual(json.loads((root/'BEST-v4.json').read_bytes())['entry'], self.entry(2))
             self.assertFalse((root/'BEST.json').exists())
             self.assertEqual(len((root/'ATTEMPTS.jsonl').read_text().splitlines()), 3)
 
@@ -86,8 +91,57 @@ class BestScoreVersionTests(unittest.TestCase):
             root = Path(folder)
             with runner_at(root) as runner:
                 runner.locked_append(self.entry(0, lost=1))
-            self.assertFalse((root/'BEST-v3.json').exists())
+            self.assertFalse((root/'BEST-v4.json').exists())
             self.assertEqual(len((root/'ATTEMPTS.jsonl').read_text().splitlines()), 1)
+
+    def test_attempts_best_agrees_with_the_ranker(self):
+        # attempts.py best used a three-part key without the sell-size guard,
+        # so a wrong-size attempt with fewer slot diffs could print above the
+        # attempt the current BEST file actually tracks.
+        import contextlib
+        import importlib.util
+        from unittest import mock
+
+        def build(name, size, diffs):
+            return {'schema': 'amm-sell-attempt-v1', 'status': 'scored', 'lane': 'test',
+                    'approach': name, 'hypothesis': name,
+                    'metrics': {'score_version': 4, 'lost_windows_normalized_count': 0,
+                                'sell_raw_equal': False, 'sell_size': size,
+                                'align_distance': 120, 'slot_diffs': diffs}}
+
+        parent = HERE.parent.parent / 'work'
+        parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as folder:
+            root = Path(folder)
+            full_size = build('full-size', 9024, 6)
+            wrong_size = build('wrong-size', 200, 4)
+            (root / 'ATTEMPTS.jsonl').write_text(
+                json.dumps(full_size) + '\n' + json.dumps(wrong_size) + '\n')
+            previous_env = os.environ.get('AMM_SELL_SWARM')
+            previous = sys.path.pop(0) if sys.path and sys.path[0] == str(HERE) else None
+            sys.path.insert(0, str(HERE))
+            try:
+                spec = importlib.util.spec_from_file_location('attempts_probe', HERE / 'attempts.py')
+                probe = importlib.util.module_from_spec(spec)
+                with mock.patch.dict(os.environ, {'AMM_SELL_SWARM': str(root)}):
+                    spec.loader.exec_module(probe)
+            finally:
+                sys.path.pop(0)
+                if previous is not None:
+                    sys.path.insert(0, previous)
+            self.assertEqual(os.environ.get('AMM_SELL_SWARM'), previous_env)
+            out = io.StringIO()
+            argv = sys.argv
+            sys.argv = ['attempts.py', 'best', '2']
+            try:
+                with contextlib.redirect_stdout(out):
+                    probe.main()
+            finally:
+                sys.argv = argv
+            lines = out.getvalue().splitlines()
+            self.assertEqual(len(lines), 2)
+            self.assertIn('full-size', lines[0])
+            self.assertIn('wrong-size', lines[1])
 
 
 if __name__ == '__main__':

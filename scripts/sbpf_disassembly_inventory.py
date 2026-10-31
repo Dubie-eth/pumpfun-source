@@ -5,26 +5,83 @@ Analyst evidence only: this does not produce a reconstructed executable.
 Requires a separately built, pinned blueshift-gg/sbpf checkout.
 """
 import argparse
+from contextlib import contextmanager
 import concurrent.futures
 import gzip
 import hashlib
 import json
+import re
 from pathlib import Path
+import shutil
 import struct
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-from analyze import program_names
+from analyze import capture_directory, program_names
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def validate_program_names(entries):
+    """Preflight every portable output component before workers can write."""
+    if not isinstance(entries, list) or not entries:
+        raise ValueError('inventory must contain program entries')
+    seen = set()
+    for entry in entries:
+        name = entry.get('name') if isinstance(entry, dict) else None
+        reserved = {'CON', 'PRN', 'AUX', 'NUL'} | {
+            f'{prefix}{number}' for prefix in ('COM', 'LPT') for number in range(1, 10)
+        }
+        if (not isinstance(name, str)
+                or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', name)
+                or name.endswith('.') or name.split('.', 1)[0].upper() in reserved
+                or name.casefold() == 'report.json'):
+            raise ValueError(f'unsafe program output name: {name!r}')
+        if name.casefold() in seen:
+            raise ValueError(f'duplicate program output name: {name!r}')
+        seen.add(name.casefold())
+
+
+@contextmanager
+def tool_snapshot(path, expected=None):
+    """Execute a private admitted copy, independent of later rebuilds at path."""
+    data = path.read_bytes()
+    digest = sha(data)
+    if expected is not None and digest != expected:
+        raise ValueError('assembler/disassembler executable mismatch')
+    with tempfile.TemporaryDirectory(prefix='sbpf-admitted-tool-') as directory:
+        executable = Path(directory) / 'sbpf'
+        executable.write_bytes(data)
+        executable.chmod(0o500)
+        yield executable, digest
+        if executable.read_bytes() != data:
+            raise ValueError('admitted tool snapshot changed during execution')
+
+
 def program_inputs(root):
     """Capture paths for every selected program, in selector order."""
-    return [(name, root / 'evidence/original' / name / 'deployed.so')
+    return [(name, capture_directory(root, name) / 'deployed.so')
             for name in program_names(root)]
+
+
+def capture_inputs(root):
+    """Keep every selected contract, then dependencies not already selected.
+
+    ``capture_directory`` already routes ``donation_relay`` to
+    ``evidence/dependencies``, so the dependency sweep below re-finds it. The dependency sweep is
+    deduplicated by resolved path (not by name); selector entries are preserved
+    even when they alias one file. A genuine name collision still reaches
+    ``validate_program_names``.
+    """
+    inputs = program_inputs(root)
+    selected = {path.resolve() for _, path in inputs}
+    inputs += [(path.parent.name, path)
+               for path in sorted((root / 'evidence/dependencies').glob('*/deployed.so'))
+               if path.resolve() not in selected]
+    return inputs
 
 
 def sections(data):
@@ -63,8 +120,13 @@ def inventory(tool, name, path, output):
                                                             symbol_index=info >> 32)
     if length % 8:
         raise ValueError('unaligned text length')
-    command = [str(tool), 'disassemble', str(path), '--raw']
-    run = subprocess.run(command, capture_output=True, check=True)
+    with tempfile.TemporaryDirectory(prefix='sbpf-admitted-elf-') as directory:
+        snapshot = Path(directory) / 'input.so'
+        snapshot.write_bytes(data)
+        command = [str(tool), 'disassemble', str(snapshot), '--raw']
+        run = subprocess.run(command, capture_output=True, check=True)
+        if snapshot.read_bytes() != data:
+            raise ValueError(f'{name}: admitted ELF snapshot changed during disassembly')
     (output / (name + '.stderr')).write_bytes(run.stderr)
     lines = run.stdout.decode().splitlines()
     rows = []
@@ -122,20 +184,31 @@ def main():
     if subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain', '--untracked-files=no']):
         raise ValueError('tool source has tracked modifications')
     output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=False)
-    inputs = program_inputs(ROOT)
-    inputs += [(p.parent.name, p) for p in sorted((ROOT / 'evidence/dependencies').glob('*/deployed.so'))]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        futures = [pool.submit(inventory, tool, name, path, output) for name, path in inputs]
-        results = [f.result() for f in futures]
-    manifest = dict(scope='Complete original-text disassembly; no executable generation or modification',
-                    tool_repository='https://github.com/blueshift-gg/sbpf', tool_revision=revision,
-                    tool_version=subprocess.check_output([str(tool), '--version'], text=True).strip(),
-                    tool_sha256=sha(tool.read_bytes()),
-                    tool_lockfile_sha256=sha((source / 'Cargo.lock').read_bytes()),
-                    generator_sha256=sha(Path(__file__).read_bytes()), programs=results,
-                    proves_byte_identical_reconstruction=False)
-    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Publish only a complete inventory: a failed program must not leave a
+    # partial directory without manifest.json that blocks the next run.
+    staging = Path(tempfile.mkdtemp(prefix='.' + output.name + '.', dir=output.parent))
+    try:
+        inputs = capture_inputs(ROOT)
+        validate_program_names([{'name': name} for name, _ in inputs])
+        with tool_snapshot(tool) as (executable, tool_digest):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(inventory, executable, name, path, staging) for name, path in inputs]
+                results = [f.result() for f in futures]
+            manifest = dict(scope='Complete original-text disassembly; no executable generation or modification',
+                        tool_repository='https://github.com/blueshift-gg/sbpf', tool_revision=revision,
+                        tool_version=subprocess.check_output([str(executable), '--version'], text=True).strip(),
+                        tool_sha256=tool_digest,
+                        tool_lockfile_sha256=sha((source / 'Cargo.lock').read_bytes()),
+                        generator_sha256=sha(Path(__file__).read_bytes()), programs=results,
+                        proves_byte_identical_reconstruction=False)
+        (staging / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n',encoding='utf-8',newline='\n')
+        staging.rename(output)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     print(json.dumps(manifest, indent=2))
 
 

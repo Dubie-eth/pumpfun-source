@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Independently verify saved runtime receipts; no VM or network use."""
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O.")
+
 import argparse, base64, hashlib, json, re, struct
 from pathlib import Path
 from solders.pubkey import Pubkey
@@ -153,7 +156,7 @@ def main():
               'known_log_differences': ['compute-unit numbers', 'second-burn source filename/line'] if sequential else ['compute-unit numbers'],
               'cases': results, 'success': True}
     report.update({'original_sha256': d['cases'][0]['original']['binary_sha256'], 'candidate_sha256': d['cases'][0]['candidate']['binary_sha256'], 'case_count': 6, 'mismatches': [], 'raw_log_mismatch_cases': d['mismatches'], 'comparison_fields': 'Complete nonprogram account bytes/metadata/balances, error name/number/message, events, return data, inner instructions, ordinary signed transaction bytes. Compute usage and recorded source locations differ.'})
-    (args.receipts / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
+    (args.receipts / 'verification.json').write_text(json.dumps(report, indent=2) + '\n',encoding='utf-8',newline='\n')
     print(json.dumps(report, indent=2))
 
 if __name__ == '__main__':

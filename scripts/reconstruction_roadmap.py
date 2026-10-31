@@ -213,8 +213,11 @@ def trace_handler_attribution(elf, entries, forward, reverse):
 
         if ancestors or descendants:
             attributions[start] = {
-                "likely_callers": sorted(ancestors, key=lambda x: x[1]),
-                "likely_callees": sorted(descendants, key=lambda x: x[1]),
+                # Depth ties must break on the name: sets of (name, depth)
+                # iterate in hash order, so a depth-only key made the
+                # published attribution order depend on PYTHONHASHSEED.
+                "likely_callers": sorted(ancestors, key=lambda x: (x[1], x[0])),
+                "likely_callees": sorted(descendants, key=lambda x: (x[1], x[0])),
             }
 
     return attributions
@@ -251,9 +254,41 @@ def analyze_cross_references(elf, entries):
     return rodata_strings
 
 
+def planning_windows(data):
+    return [{'address': w['address'], 'size': w['size'], 'complexity': w['complexity_score'],
+             'callers': [c[0] for c in w['likely_callers'][:5]],
+             'callees': [c[0] for c in w['likely_callees'][:5]],
+             'strings': w['string_references'][:3]}
+            for w in sorted(data['window_details'], key=lambda w: -w['size']) if not w['name']]
+
+
+def cluster_windows(unnamed_windows):
+    clusters = []
+    for w in unnamed_windows:
+        names = {c[0] for c in w['likely_callers']}
+        if not names:
+            continue
+        joined = [c for c in clusters if c['callers'] & names]
+        clusters = [c for c in clusters if not c['callers'] & names]
+        clusters.append({'callers': names.union(*(c['callers'] for c in joined)),
+                         'windows': [a for c in joined for a in c['windows']] + [w['address']],
+                         'total_bytes': sum(c['total_bytes'] for c in joined) + w['size']})
+    return clusters
+
+
+def prepare_output_directory(output_dir):
+    """Keep a new roadmap packet from adopting entries left by another run."""
+    if output_dir.is_symlink():
+        raise FileExistsError(f"output directory is a symlink: {output_dir}")
+    if output_dir.exists():
+        if not output_dir.is_dir() or any(output_dir.iterdir()):
+            raise FileExistsError(f"output directory is not empty: {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+
 def generate_roadmap(output_dir):
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    prepare_output_directory(output_dir)
 
     all_program_data = {}
 
@@ -340,25 +375,7 @@ def generate_roadmap(output_dir):
         unnamed_windows.sort(key=lambda w: -w["size"])
 
         # Identify clusters of related unnamed windows
-        clusters = []
-        for w in unnamed_windows:
-            if w["likely_callers"]:
-                caller_names = set(c[0] for c in w["likely_callers"])
-                # Find cluster with same callers
-                found = False
-                for cluster in clusters:
-                    if cluster["callers"] & caller_names:
-                        cluster["windows"].append(w["address"])
-                        cluster["total_bytes"] += w["size"]
-                        cluster["callers"] |= caller_names
-                        found = True
-                        break
-                if not found:
-                    clusters.append({
-                        "callers": caller_names,
-                        "windows": [w["address"]],
-                        "total_bytes": w["size"],
-                    })
+        clusters = cluster_windows(unnamed_windows)
 
         # Sort clusters by total bytes
         clusters.sort(key=lambda c: -c["total_bytes"])
@@ -372,12 +389,18 @@ def generate_roadmap(output_dir):
             for c in clusters[:50]
         ]
 
+        unmatched_estimate = len(entries) - prog_info["frontier_normalized"]
         prog_data = {
             "program": prog_name,
             "deployed_sha256": sha256_file(str(deployed_path)),
             "total_windows": len(entries),
             "frontier_normalized": prog_info["frontier_normalized"],
-            "unmatched_estimate": len(entries) - prog_info["frontier_normalized"],
+            "unmatched_estimate": unmatched_estimate,
+            # Preserve the historical largest-N estimate, but calculate it
+            # before the display cap. Unnamed does not imply byte-unmatched.
+            "unmatched_bytes_estimate": sum(w["size"] for w in unnamed_windows[:unmatched_estimate]),
+            "unnamed_windows_total": len(unnamed_windows),
+            "unnamed_bytes_total": sum(w["size"] for w in unnamed_windows),
             "window_details": window_details,
             "unnamed_windows_by_size": [
                 {"address": w["address"], "size": w["size"],
@@ -388,6 +411,7 @@ def generate_roadmap(output_dir):
                 for w in unnamed_windows[:100]
             ],
             "reconstruction_clusters": serializable_clusters,
+            "reconstruction_clusters_total": len(clusters),
             "rodata_strings_count": len(rodata_strings),
         }
         all_program_data[prog_name] = prog_data
@@ -397,7 +421,7 @@ def generate_roadmap(output_dir):
     # 1. Per-program detailed analysis
     for prog_name, data in all_program_data.items():
         prog_path = output_dir / f"{prog_name}-details.json"
-        prog_path.write_text(json.dumps(data, indent=2) + "\n")
+        prog_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"[roadmap] {prog_name}: {data['total_windows']} windows, "
               f"{data['unmatched_estimate']} estimated unmatched")
 
@@ -406,21 +430,29 @@ def generate_roadmap(output_dir):
         "programs": {},
         "total_unmatched_estimate": 0,
         "total_unmatched_bytes_estimate": 0,
+        "total_unnamed_windows": 0,
+        "total_unnamed_bytes": 0,
+        "estimate_basis": "Largest unnamed windows up to the historical unmatched count; not a candidate byte comparison.",
         "priority_order": [],
     }
     for prog_name, data in all_program_data.items():
         unmatched = data["unmatched_estimate"]
-        unmatched_bytes = sum(w["size"] for w in data["unnamed_windows_by_size"][:unmatched])
+        unmatched_bytes = data["unmatched_bytes_estimate"]
         summary["programs"][prog_name] = {
             "total_windows": data["total_windows"],
             "frontier_normalized": data["frontier_normalized"],
             "unmatched_estimate": unmatched,
             "unmatched_bytes_estimate": unmatched_bytes,
-            "largest_unmatched": data["unnamed_windows_by_size"][:5] if data["unnamed_windows_by_size"] else [],
-            "reconstruction_clusters": len(data["reconstruction_clusters"]),
+            "unnamed_windows_total": data["unnamed_windows_total"],
+            "unnamed_bytes_total": data["unnamed_bytes_total"],
+            "largest_unnamed": data["unnamed_windows_by_size"][:5],
+            "reconstruction_clusters": data["reconstruction_clusters_total"],
+            "displayed_reconstruction_clusters": len(data["reconstruction_clusters"]),
         }
         summary["total_unmatched_estimate"] += unmatched
         summary["total_unmatched_bytes_estimate"] += unmatched_bytes
+        summary["total_unnamed_windows"] += data["unnamed_windows_total"]
+        summary["total_unnamed_bytes"] += data["unnamed_bytes_total"]
 
     # Priority: most unmatched first, then by bytes
     summary["priority_order"] = sorted(
@@ -429,18 +461,19 @@ def generate_roadmap(output_dir):
     )
 
     summary_path = output_dir / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 3. Reconstruction plan
     plan = {
         "phases": [],
-        "total_estimated_windows_to_close": summary["total_unmatched_estimate"],
+        "historical_unmatched_estimate": summary["total_unmatched_estimate"],
+        "candidate_basis": "Unnamed captured windows selected by size and call context; not unmatched membership.",
     }
 
     # Phase 1: Low-hanging fruit (small unnamed windows with known callers)
     phase1_windows = []
     for prog_name, data in all_program_data.items():
-        for w in data["unnamed_windows_by_size"]:
+        for w in planning_windows(data):
             if w["size"] <= 512 and w["callers"]:
                 phase1_windows.append({
                     "program": prog_name,
@@ -455,13 +488,15 @@ def generate_roadmap(output_dir):
                        "whose behavior can be inferred from calling context.",
         "window_count": len(phase1_windows),
         "total_bytes": sum(w["size"] for w in phase1_windows),
+        "display_limit": 50,
+        "displayed_window_count": min(50, len(phase1_windows)),
         "windows": phase1_windows[:50],
     })
 
     # Phase 2: Medium windows with call context
     phase2_windows = []
     for prog_name, data in all_program_data.items():
-        for w in data["unnamed_windows_by_size"]:
+        for w in planning_windows(data):
             if 512 < w["size"] <= 4096 and (w["callers"] or w["callees"]):
                 phase2_windows.append({
                     "program": prog_name,
@@ -478,13 +513,15 @@ def generate_roadmap(output_dir):
                        "or major helper functions.",
         "window_count": len(phase2_windows),
         "total_bytes": sum(w["size"] for w in phase2_windows),
+        "display_limit": 50,
+        "displayed_window_count": min(50, len(phase2_windows)),
         "windows": phase2_windows[:50],
     })
 
     # Phase 3: Large handler bodies
     phase3_windows = []
     for prog_name, data in all_program_data.items():
-        for w in data["unnamed_windows_by_size"]:
+        for w in planning_windows(data):
             if w["size"] > 4096:
                 phase3_windows.append({
                     "program": prog_name,
@@ -505,11 +542,16 @@ def generate_roadmap(output_dir):
                        "careful IR-level matching.",
         "window_count": len(phase3_windows),
         "total_bytes": sum(w["size"] for w in phase3_windows),
+        "display_limit": 30,
+        "displayed_window_count": min(30, len(phase3_windows)),
         "windows": phase3_windows[:30],
     })
 
+    plan["total_planning_candidates"] = sum(p["window_count"] for p in plan["phases"])
+    plan["total_planning_bytes"] = sum(p["total_bytes"] for p in plan["phases"])
+
     plan_path = output_dir / "reconstruction-plan.json"
-    plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+    plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 4. README
     total_files = 0
@@ -518,11 +560,16 @@ def generate_roadmap(output_dir):
 
 ## Overview
 
-Cross-program analysis of all three incomplete program binaries, identifying
-unmatched code windows, call graph relationships, instruction patterns, and
+Cross-program analysis of all three incomplete program binaries, cataloguing
+unnamed code windows, call graph relationships, instruction patterns, and
 a phased reconstruction plan.
 
-## Current Frontier
+## Historical reference frontier
+
+The fixed frontier counts below are historical references, not the official
+current completion score. Byte estimates take the largest unnamed windows up
+to each reference's unmatched count. An unnamed window may already byte-match;
+only the official candidate scorer establishes matching membership.
 
 | Program | Windows | Matched | Unmatched (est.) | Match % |
 |---------|---------|---------|------------------|---------|"""]
@@ -537,6 +584,12 @@ a phased reconstruction plan.
     readme_parts.append(f"""
 **Total estimated unmatched:** {summary["total_unmatched_estimate"]} windows, """
         f"""{summary["total_unmatched_bytes_estimate"]:,} bytes
+
+**Full unnamed inventory:** {summary["total_unnamed_windows"]} windows,
+{summary["total_unnamed_bytes"]:,} bytes. This is a separate naming diagnostic,
+not a completion deficit. Phase totals below use every eligible unnamed window,
+including windows that may already match. The JSON phase lists display at most
+50, 50 and 30 entries respectively; those displayed lists are not exhaustive.
 
 ## Reconstruction Phases
 
@@ -567,7 +620,7 @@ python3 verify.py
 """)
 
     readme_text = "\n".join(readme_parts)
-    (output_dir / "README.md").write_text(readme_text)
+    (output_dir / "README.md").write_text(readme_text, encoding="utf-8", newline="\n")
 
     # 5. Verify script
     verify_py = '''#!/usr/bin/env python3
@@ -575,6 +628,7 @@ python3 verify.py
 import hashlib, json, os, sys
 
 PACKET = os.path.dirname(os.path.abspath(__file__))
+REQUIRED_FILES = frozenset(__REQUIRED_PACKET_FILES__)
 
 def sha256_file(path):
     h = hashlib.sha256()
@@ -585,6 +639,8 @@ def sha256_file(path):
 
 def main():
     manifest = json.load(open(os.path.join(PACKET, "manifest.json")))
+    if not isinstance(manifest, dict) or not REQUIRED_FILES.issubset(manifest):
+        print("FAIL: manifest omits required roadmap artifacts"); return 1
     errors = 0
     for name, expected in manifest.items():
         path = os.path.join(PACKET, name)
@@ -612,7 +668,11 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 '''
-    (output_dir / "verify.py").write_text(verify_py)
+    verify_py = verify_py.replace('__REQUIRED_PACKET_FILES__', repr([
+        'README.md', 'summary.json', 'reconstruction-plan.json', 'verify.py',
+        *[f'{program}-details.json' for program in all_program_data],
+    ]))
+    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8", newline="\n")
 
     # 6. Manifest
     manifest = {}
@@ -622,10 +682,10 @@ if __name__ == "__main__":
         path = output_dir / name
         if path.is_file():
             manifest[name] = sha256_file(str(path))
-    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     total_lines = sum(
-        sum(1 for _ in open(output_dir / name))
+        sum(1 for _ in open(output_dir / name,encoding='utf-8'))
         for name in os.listdir(output_dir)
         if (output_dir / name).is_file()
     )

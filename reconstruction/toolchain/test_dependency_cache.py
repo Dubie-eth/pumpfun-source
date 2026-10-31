@@ -3,12 +3,16 @@ import contextlib
 import io
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import bootstrap
+
+# The publication copy is a clonefile on macOS and an archive copy elsewhere.
+CLONE_COPY = ['cp', '-cRp'] if sys.platform == 'darwin' else ['cp', '-a']
 
 
 class DependencyCacheTests(unittest.TestCase):
@@ -22,7 +26,7 @@ class DependencyCacheTests(unittest.TestCase):
         self.template = self.root / 'cache/template-target-sbpf'
 
     def copy(self, command, **kwargs):
-        self.assertEqual(command[:2], ['cp', '-cRp'])
+        self.assertEqual(command[:2], CLONE_COPY)
         self.assertTrue(kwargs['check'])
         self.assertFalse(self.template.exists())
         shutil.copytree(command[2], command[3])
@@ -44,6 +48,12 @@ class DependencyCacheTests(unittest.TestCase):
         self.assert_no_staging()
         with patch.object(bootstrap.subprocess, 'run', side_effect=self.copy):
             self.assertTrue(bootstrap.publish_dependency_cache(self.source, self.template))
+        self.assertEqual((self.template / 'deps/library.rlib').read_bytes(), b'complete library')
+        self.assert_no_staging()
+
+    def test_publication_copy_runs_on_this_platform(self):
+        # The real cp must accept these flags: -c (clonefile) is macOS-only.
+        self.assertTrue(bootstrap.publish_dependency_cache(self.source, self.template))
         self.assertEqual((self.template / 'deps/library.rlib').read_bytes(), b'complete library')
         self.assert_no_staging()
 
@@ -87,6 +97,7 @@ class DependencyCacheTests(unittest.TestCase):
             stack.enter_context(patch.object(bootstrap, 'HYBRID', hybrid))
             stack.enter_context(patch.object(bootstrap, 'check_linux_libs', return_value=[]))
             stack.enter_context(patch.object(bootstrap, 'hybrid_ok', return_value=True))
+            stack.enter_context(patch.object(bootstrap, 'hybrid_ok_linux', return_value=True))
             stack.enter_context(patch.object(bootstrap.subprocess, 'check_output', return_value=str(hybrid / 'rust')))
             stack.enter_context(patch.object(bootstrap.subprocess, 'run', side_effect=self.fail_copy))
             stack.enter_context(patch('sys.argv', ['bootstrap', '--sdk-check', 'skip', '--warm']))

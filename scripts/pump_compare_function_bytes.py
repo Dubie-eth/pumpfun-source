@@ -5,17 +5,21 @@ Masks internal direct-call immediates and lddw values that point into an ELF
 section. Other constants, registers, branch offsets and instruction bytes must
 match. Raw equality and the masked operands are reported separately.
 """
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import csv
 import hashlib
 import json
 import struct
 from pathlib import Path
+from probe_report import write_json_report
 
 from pump_exact_body_inventory import window_inventory
-from pump_quote_control_function_match import sections, candidate_functions, function_body as body
+from pump_quote_control_function_match import sections, candidate_functions, function_body as body, protect_report_output
 
 ROOT = Path(__file__).resolve().parents[1]
+WINDOW_COLUMNS = {'program', 'variant', 'original_start', 'original_end'}
 
 
 def normalize(raw, address, image_sections):
@@ -42,6 +46,50 @@ def normalize(raw, address, image_sections):
     return bytes(masked), operands
 
 
+def selected_window(stream, original_start):
+    reader = csv.DictReader(stream, delimiter='\t', strict=True)
+    try:
+        if not WINDOW_COLUMNS <= set(reader.fieldnames or ()):
+            raise ValueError('selected Pump window inventory is missing columns')
+        if any(reader.fieldnames.count(name) != 1 for name in WINDOW_COLUMNS):
+            raise ValueError('selected Pump window inventory has duplicate required columns')
+        matches = []
+        for row in reader:
+            if row['program'] != 'pump' or row['variant'] != 'selected':
+                continue
+            try:
+                start, end = int(row['original_start']), int(row['original_end'])
+            except ValueError:
+                raise ValueError('invalid bounds in selected Pump window inventory')
+            if start % 8 or end % 8:
+                raise ValueError(
+                    f'invalid selected Pump window bounds at {start:#x}'
+                )
+            if start == original_start:
+                if end <= start:
+                    raise ValueError(
+                        f'invalid selected Pump window bounds at {original_start:#x}'
+                    )
+                matches.append(row)
+    except csv.Error as error:
+        raise ValueError(
+            'malformed selected Pump window inventory record'
+        ) from error
+    if not matches:
+        raise ValueError(f'no selected Pump window starts at {original_start:#x}')
+    if len(matches) != 1:
+        raise ValueError(
+            f'ambiguous selected Pump window starts at {original_start:#x}: '
+            f'{len(matches)} rows'
+        )
+    return matches[0]
+
+
+def write_report(path, value):
+    """Replace a prior report only with a complete one."""
+    write_json_report(path, value)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--original-start',type=lambda s:int(s,0),required=True)
@@ -50,22 +98,28 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--objdump',default=str(Path.home()/'.cache/solana/v1.52/platform-tools/llvm/bin/llvm-objdump'))
     args=p.parse_args()
+    windows = window_inventory()
+    protect_report_output(args.output, [args.candidate, ROOT/'evidence/original/pump/deployed.so',
+                                       windows, Path(__file__), ROOT/'scripts/pump_exact_body_inventory.py'], args.objdump)
+    with windows.open() as stream:
+        try:
+            row=selected_window(stream,args.original_start)
+        except ValueError as error:
+            p.error(str(error))
     original=(ROOT/'evidence/original/pump/deployed.so').read_bytes();candidate=args.candidate.read_bytes()
-    with window_inventory().open() as stream:
-        row=next(r for r in csv.DictReader(stream,delimiter='\t') if r['program']=='pump' and r['variant']=='selected' and int(r['original_start'])==args.original_start)
     size=int(row['original_end'])-args.original_start
     original_sections=sections(original);candidate_sections=sections(candidate)
     ob=body(original,original_sections,args.original_start,size)
     on,oo=normalize(ob,args.original_start,original_sections)
     candidates=[]
-    for start,length,name in candidate_functions(args.candidate,args.objdump,args.symbol):
+    for start,length,name in candidate_functions(args.candidate,args.objdump,args.symbol,image=candidate):
         cb=body(candidate,candidate_sections,start,length);cn,co=normalize(cb,start,candidate_sections)
         diffs=[{'offset':i,'original':on[i:i+8].hex(),'candidate':cn[i:i+8].hex()} for i in range(0,max(len(on),len(cn)),8) if on[i:i+8]!=cn[i:i+8]]
         candidates.append({'symbol':name,'start':start,'bytes':length,'raw_equal':ob==cb,'normalized_equal':on==cn,'different_slots':diffs,'operands':co})
     if not candidates:
         p.error('no candidate function symbols matched the requested pattern')
     result={'scope':__doc__,'original_sha256':hashlib.sha256(original).hexdigest(),'candidate_sha256':hashlib.sha256(candidate).hexdigest(),'original_start':args.original_start,'original_bytes':size,'original_operands':oo,'candidates':candidates}
-    args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,indent=2)+'\n')
+    write_report(args.output,result)
     print(json.dumps({'original_bytes':size,'candidates':[{k:r[k] for k in ['start','bytes','raw_equal','normalized_equal']}|{'different_slots':len(r['different_slots'])} for r in candidates]},indent=2))
 
 

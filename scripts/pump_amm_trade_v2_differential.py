@@ -3,11 +3,12 @@
 import sys
 sys.path.insert(0,'scripts')
 from pump_amm_liquidity_differential import *
-from pump_amm_reusable_harness import acquire_harness
+from pump_amm_reusable_harness import acquire_harness, pin_program
+from pump_differential_output import PumpReport
 FEES=Pubkey.from_string('pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ')
 feeconfig=Pubkey.from_string(f['keys']['fee_config']);buyback=Pubkey.from_string(f['accounts']['buyback_fee_recipient']['address']);volume=Pubkey.find_program_address([b'user_volume_accumulator',bytes(PAYER.pubkey())],PROGRAM)[0]
 def trade(name,amount,limit,overrides=None,candidate=None,unsigned=False,payload_length=None):
- h=acquire_harness(candidate or ROOT/'evidence/original/pump_amm/deployed.so');h.vm.set_clock(Clock(100,1234567890,0,0,1234567890))
+ h=acquire_harness(pin_program(candidate or ROOT/'evidence/original/pump_amm/deployed.so'));h.vm.set_clock(Clock(100,1234567890,0,0,1234567890))
  for pid,filepath in [(TOKEN,'evidence/dependencies/spl_token/deployed.so'),(TOKEN22,'evidence/dependencies/spl_token_2022/deployed.so'),(FEES,'evidence/original/pump_fees/deployed.so')]:h.vm.add_program_from_file(pid,ROOT/filepath)
  glob=bytearray(RAW);glob[56]=0;h.vm.set_account(CONFIG_KEY,Account(CONFIG['lamports'],bytes(glob),PROGRAM))
  for n,row in f['accounts'].items():h.vm.set_account(Pubkey.from_string(row['address']),Account(row['lamports'],base64.b64decode(row['data_base64']),Pubkey.from_string(row['owner'])))
@@ -36,7 +37,8 @@ def trade_transferfee(key,bps=100,maximum=2**64-1):
    a=h.vm.get_account(buyback);owner=Pubkey.from_bytes(a.data[32:64]);newkey=Pubkey.find_program_address([bytes(owner),bytes(TOKEN22),bytes(quote)],Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'))[0];d=bytearray(a.data[:165])+bytes([2])+struct.pack('<HHQ',2,8,0);h.vm.set_account(newkey,Account(a.lamports,bytes(d),TOKEN22));m[14]=AccountMeta(newkey,False,True)
  return ov
 
-PUMP=Pubkey.from_string(json.load(open('evidence/upstream/pump.json'))['address'])
+PUMP_IDL_PATH=pathlib.Path('evidence/upstream/pump.json').resolve()
+PUMP=Pubkey.from_string(json.load(open(PUMP_IDL_PATH, encoding='utf-8'))['address'])
 def rekey_pool(quote_key,canonical=True,index=0):
  def apply(h,m):
   old=h.vm.get_account(pool);data=bytearray(old.data)
@@ -60,7 +62,7 @@ def custom_fee_table(tiers):
  return apply
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();rows=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args();publisher=PumpReport(args.output,ROOT,args.candidate,__file__,extra_inputs=[TRADE_FIXTURE_PATH,PUMP_IDL_PATH]);rows=[]
  def test(name,label,**kw):
   params=dict(amount=10**7 if name=='buy_exact_quote_in_v2' else 10**10,limit=10**9 if name=='buy_v2' else 1);params.update(kw)
   a=trade(name,**params);b=trade(name,candidate=args.candidate,**params)
@@ -107,7 +109,7 @@ def main():
    for value in [0,1,10**9,2**64-1]:test(n,'pool-fees='+str((off,value)),overrides=mutate(pool,off,struct.pack('<Q',value)))
   for value in [0,1,9999,10000,10001,2**64-1]:test(n,'buyback-bps='+str(value),overrides=mutate(CONFIG_KEY,899,struct.pack('<Q',value)))
  failures=[i for i,r in enumerate(rows) if not r['match']];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
- report={'scope':'SBF v2 buy/sell/exact-quote: committed account bytes, lamports, errors, exact token/System/event CPIs. Captured token dependency binaries; synthetic signer and balance fixtures. Not whole-program or exhaustive extension equivalence.','candidate_sha256':sha(args.candidate),'original_sha256':sha(ROOT/'evidence/original/pump_amm/deployed.so'),'script_sha256':sha(pathlib.Path(__file__)),'harness_sha256':sha(ROOT/'scripts/pump_amm_reusable_harness.py'),'case_count':len(rows),'mismatches':failures,'cases':rows}
- args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,separators=(',',':'))+'\n');print(json.dumps({'case_count':len(rows),'mismatch_count':len(failures),'mismatches':failures[:50]}))
+ report={'scope':'SBF v2 buy/sell/exact-quote: committed account bytes, lamports, errors, exact token/System/event CPIs. Captured token dependency binaries; synthetic signer and balance fixtures. Not whole-program or exhaustive extension equivalence.','candidate_sha256':sha(pin_program(args.candidate)),'original_sha256':sha(pin_program(ROOT/'evidence/original/pump_amm/deployed.so')),'script_sha256':sha(pathlib.Path(__file__)),'harness_sha256':sha(ROOT/'scripts/pump_amm_reusable_harness.py'),'case_count':len(rows),'mismatches':failures,'cases':rows}
+ publisher.write((json.dumps(report,separators=(',',':'))+'\n').encode('utf-8'));print(json.dumps({'case_count':len(rows),'mismatch_count':len(failures),'mismatches':failures[:50]}))
  if failures:raise SystemExit(1)
 if __name__=='__main__':main()

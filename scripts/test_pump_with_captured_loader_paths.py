@@ -22,10 +22,12 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         self.scripts.mkdir()
         self.wrapper = self.scripts / WRAPPER.name
         shutil.copyfile(WRAPPER, self.wrapper)
+        shutil.copyfile(HERE / 'probe_report.py', self.scripts / 'probe_report.py')
         (self.scripts / "pump_captured_loader.py").write_text(
             "from pathlib import Path\n"
             "ROOT = Path(__file__).resolve().parents[1]\n"
             "LOADS = []\n"
+            "INPUT_SHA256 = {}\n"
             "def install():\n"
             "    pass\n",
             encoding="utf-8",
@@ -38,10 +40,11 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         )
         (evidence / "program-account.bin").write_bytes(b"program-account")
         (evidence / "programdata-account.bin").write_bytes(b"programdata-account")
+        (evidence / "deployed.so").write_bytes(b"captured executable")
         self.harness = self.root / "harness.py"
         self.harness.write_text("print('fixture completed')\n", encoding="utf-8")
 
-    def run_wrapper(self, receipt):
+    def run_wrapper(self, receipt, harness=None):
         return subprocess.run(
             [
                 sys.executable,
@@ -49,7 +52,7 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
                 str(self.wrapper),
                 "--receipt",
                 str(receipt),
-                str(self.harness),
+                str(harness or self.harness),
             ],
             text=True,
             capture_output=True,
@@ -71,6 +74,14 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         self.assertIn("receipt path aliases protected input", result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertEqual(capture.read_bytes(), before)
+
+    def test_receipt_cannot_replace_its_shared_writer(self):
+        writer = self.scripts / 'probe_report.py'
+        before = writer.read_bytes()
+        result = self.run_wrapper(writer)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('receipt path aliases protected input', result.stderr)
+        self.assertEqual(writer.read_bytes(), before)
 
     def test_receipt_symlink_cannot_replace_bound_input(self):
         account = self.root / "evidence/original/pump/program-account.bin"
@@ -94,6 +105,15 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertEqual(account.read_bytes(), before)
 
+    def test_receipt_cannot_replace_captured_executable(self):
+        deployed = self.root / "evidence/original/pump/deployed.so"
+        before = deployed.read_bytes()
+        result = self.run_wrapper(deployed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("receipt path aliases protected input", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(deployed.read_bytes(), before)
+
     def test_distinct_receipt_is_written(self):
         receipt = self.root / "work/receipt.json"
         result = self.run_wrapper(receipt)
@@ -101,9 +121,54 @@ class CapturedLoaderReceiptPathTests(unittest.TestCase):
         record = json.loads(receipt.read_text())
         self.assertEqual(record["harness"], str(self.harness.resolve()))
         self.assertEqual(record["loads"], [])
+        self.assertIs(record["ok"], True)
+        self.assertNotIn("error", record)
         expected = hashlib.sha256(self.harness.read_bytes()).hexdigest()
         self.assertEqual(record["input_sha256"][str(self.harness.resolve())], expected)
 
+    def test_failed_harness_run_is_marked_on_the_receipt(self):
+        harness = self.root / "failing.py"
+        harness.write_text("raise RuntimeError('fixture exploded')\n", encoding="utf-8")
+        receipt = self.root / "work/failed-receipt.json"
+        result = self.run_wrapper(receipt, harness)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("fixture exploded", result.stderr)
+        record = json.loads(receipt.read_text())
+        self.assertIs(record["ok"], False)
+        self.assertIn("RuntimeError: fixture exploded", record["error"])
+        self.assertEqual(record["harness"], str(harness.resolve()))
+
+
+    def test_successful_system_exit_is_marked_successful(self):
+        for statement in ("raise SystemExit(0)", "raise SystemExit()", "raise SystemExit(False)"):
+            with self.subTest(statement=statement):
+                self.harness.write_text(statement + "\n", encoding="utf-8")
+                receipt = self.root / "system-exit-ok.json"
+                result = self.run_wrapper(receipt)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                record = json.loads(receipt.read_text())
+                self.assertIs(record["ok"], True)
+                self.assertNotIn("error", record)
+
+    def test_failed_system_exit_is_marked_failed(self):
+        self.harness.write_text("raise SystemExit('failed by request')\n", encoding="utf-8")
+        receipt = self.root / "system-exit-failed.json"
+        result = self.run_wrapper(receipt)
+        self.assertNotEqual(result.returncode, 0)
+        record = json.loads(receipt.read_text())
+        self.assertIs(record["ok"], False)
+        self.assertIn("failed by request", record["error"])
+
+    def test_receipt_hash_error_does_not_mask_harness_failure(self):
+        capture = self.root / "evidence/original/pump/capture.json"
+        self.harness.write_text(
+            "from pathlib import Path\n"
+            + "Path(" + repr(str(capture)) + ").unlink()\n"
+            + "raise RuntimeError('original fixture failed')\n", encoding="utf-8")
+        result = self.run_wrapper(self.root / "missing-input-receipt.json")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("RuntimeError: original fixture failed", result.stderr)
+        self.assertNotIn("FileNotFoundError", result.stderr)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

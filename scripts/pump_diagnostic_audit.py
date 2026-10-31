@@ -4,40 +4,56 @@
 This audits paired logs already present in a differential receipt. It excludes
 source file/line coordinates, compute usage, and cases without paired logs.
 It therefore strengthens the bounded oracle, not its input-space coverage.
+Once published, a complete receipt is retained if a subsequent source check
+fails; its digest still identifies the audited bytes, and another writer may
+already have replaced the output.
 """
 import argparse
 from collections import Counter
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import tempfile
 
 
 def bound_input_key(path, root):
-    """Keep repository labels stable while admitting explicit external inputs."""
+    """Keep repository labels stable while admitting explicit external inputs.
+
+    POSIX spelling on every host: ``str(Path)`` yields backslashes on Windows,
+    so the published ``bound_*`` receipt keys would differ between hosts for
+    identical inputs.
+    """
     path, root = Path(path).resolve(), Path(root).resolve()
     try:
-        return str(path.relative_to(root))
+        return path.relative_to(root).as_posix()
     except ValueError:
-        return str(path)
+        return path.as_posix()
 
 
-def logs(value):
+def _log_data(value):
+    """Keep an absent log source distinct from an explicitly empty list."""
     result = []
+    available = False
     if isinstance(value, dict):
-        direct_logs = False
         for key, item in value.items():
             if 'log' in key.lower() and isinstance(item, list):
-                direct_logs = True
+                available = True
                 result.extend(x for x in item if isinstance(x, str))
         # Some receipts retain LiteSVM's serialized transaction metadata.
         # A direct list, even an empty one, remains authoritative.
-        if not direct_logs and isinstance(value.get('metadata'), dict):
+        if not available and isinstance(value.get('metadata'), dict):
             nested = value['metadata'].get('logs')
             if isinstance(nested, list):
+                available = True
                 result.extend(x for x in nested if isinstance(x, str))
-    return result
+    return result if available else None
+
+
+def logs(value):
+    return _log_data(value) or []
 
 
 def panic_message(line):
@@ -86,12 +102,16 @@ def messages(lines):
 
 
 def audit(suites):
+    """Audit available pairs, rejecting a log source present on only one side."""
     mismatches, coverage = [], Counter()
 
     def walk(value, path):
         if isinstance(value, dict):
             if isinstance(value.get('original'), dict) and isinstance(value.get('candidate'), dict):
-                left, right = logs(value['original']), logs(value['candidate'])
+                left, right = _log_data(value['original']), _log_data(value['candidate'])
+                if (left is None) != (right is None):
+                    missing = 'original' if left is None else 'candidate'
+                    raise ValueError(f'{path}: execution pair is missing {missing} logs')
                 if left or right:
                     coverage[path.split('/')[0]] += 1
                     a, b = messages(left), messages(right)
@@ -112,6 +132,16 @@ def audit(suites):
             'log_bearing_cases': sum(coverage.values()), 'mismatches': mismatches}
 
 
+def publish_file(staged, output):
+    """Publish without replacement; return whether staging was consumed."""
+    if os.name == 'nt':
+        # Windows rename refuses an existing destination without hard links.
+        os.rename(staged, output)
+        return True
+    os.link(staged, output)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', type=Path, required=True)
@@ -120,11 +150,41 @@ def main():
     raw = args.report.read_bytes()
     report = json.loads(gzip.decompress(raw) if raw.startswith(b'\x1f\x8b') else raw)
     result = audit(report['suites'])
+    if not result['log_bearing_cases']:
+        raise ValueError('report has no paired logs to audit')
     result['source_report_sha256'] = hashlib.sha256(raw).hexdigest()
     result['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     # Audits are new evidence: never replace an input or a prior receipt.
-    with args.output.open('x', encoding='utf-8') as stream:
-        stream.write(json.dumps(result, indent=2) + '\n')
+    staged = None
+    published = False
+    try:
+        with tempfile.NamedTemporaryFile(
+            'w',
+            dir=args.output.parent,
+            prefix='.' + args.output.name + '.',
+            delete=False,
+            encoding='utf-8',
+            newline='\n',
+        ) as stream:
+            staged = Path(stream.name)
+            stream.write(json.dumps(result, indent=2) + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        if args.report.read_bytes() != raw:
+            raise ValueError('source report changed during audit')
+        if publish_file(staged, args.output):
+            # The former pathname no longer belongs to us after rename.
+            staged = None
+        published = True
+        if args.report.read_bytes() != raw:
+            raise ValueError('source report changed during audit')
+    except BaseException as error:
+        if published:
+            error.add_note('Audit output was already published; leaving output path untouched: ' + str(args.output))
+        raise
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
     print(json.dumps({'log_bearing_cases': result['log_bearing_cases'], 'mismatches': len(result['mismatches'])}))
     return bool(result['mismatches'])
 

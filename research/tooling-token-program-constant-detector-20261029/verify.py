@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Read-only verifier for the token-program constant detector packet."""
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O.")
 import argparse
 import gzip
 import hashlib
@@ -15,20 +17,20 @@ root = args.repo.resolve()
 assert root == proof.REPO, (root, proof.REPO)
 sha = lambda data: hashlib.sha256(data).hexdigest()
 
-inventory = json.loads((P / 'manifest.json').read_text())
+inventory = json.loads((P / 'manifest.json').read_text(encoding='utf-8'))
 actual = {
-    str(path.relative_to(P)): sha(path.read_bytes())
+    path.relative_to(P).as_posix(): sha(path.read_bytes())
     for path in sorted(P.rglob('*'))
     if path.is_file() and path.name != 'manifest.json'
     and '__pycache__' not in path.parts and path.suffix != '.pyc'
 }
 assert actual == inventory, 'packet inventory differs'
-inputs = json.loads((P / 'inputs.json').read_text())
+inputs = json.loads((P / 'inputs.json').read_text(encoding='utf-8'))
 for name, digest in inputs.items():
     assert sha((root / name).read_bytes()) == digest, name
 report = proof.check(root)
 saved = json.loads(gzip.decompress((P / 'observations.json.gz').read_bytes()))
 assert report == saved, 'fresh observations differ'
-delta = json.loads((P / 'coverage-delta.json').read_text())
+delta = json.loads((P / 'coverage-delta.json').read_text(encoding='utf-8'))
 assert delta['totals'] == report['totals']
 print(json.dumps(report['totals'], indent=2))

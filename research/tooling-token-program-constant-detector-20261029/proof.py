@@ -1,6 +1,6 @@
 """Replace the archived small-constant token heuristic with real token-program loads.
 
-`scripts/bytecode_signatures.py::detect_token_transfer_patterns` looks for
+The reviewed historical `scripts/bytecode_signatures.py::detect_token_transfer_patterns` looked for
 `lddw` immediates equal to 3, 7 or 12, then labels them `spl_token_instruction`.
 Those values are instruction-data bytes, not instructions, and no captured
 program stores a token discriminant in a code immediate. The detector reports
@@ -12,6 +12,8 @@ helper, detects exactly those four-load constants in a window, and reports the
 real before/after counts. It does not rewrite the archived script or claim a
 transfer occurred.
 """
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O.")
 from collections import Counter
 from pathlib import Path
 import gzip
@@ -26,7 +28,12 @@ REPO = next(
     parent for parent in P.parents
     if (parent / 'evidence/original/pump/deployed.so').is_file()
 )
+# The bound helper is pinned inside the packet: the live scripts/ copy evolved
+# after sealing, which made the inputs binding fail against current main.
 SOURCE = 'scripts/bytecode_signatures.py'
+ARCHIVED = (P.relative_to(REPO) / 'archived' / 'bytecode_signatures.py').as_posix()
+READER = (P.relative_to(REPO) / 'archived' / 'window_elf_reader.py').as_posix()
+READER_SHA256 = '5a57f32949f983fc6f9ddf40916cd04bfcd2a73b6a16cc0e9d5d6872180dac32'
 PROGRAMS = ('pump', 'pump_amm', 'pump_fees', 'mayhem')
 TOKEN_PROGRAMS = {
     'Tokenkeg': bytes.fromhex(
@@ -36,7 +43,7 @@ TOKEN_PROGRAMS = {
         '06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc'
     ),
 }
-LF_SHA256 = '8200e01f582be1a267d187e6340ac2d403c22cad26bfd65e2613e19ea8a55f76'
+LF_SHA256 = 'e4e4e541316381e3e37f06f8ed372c69d31b9a131db4651d8f2184c82889c123'
 EXPECTED = {
     'pump': {'windows': 1035, 'rows': 4, 'Tokenkeg': 3, 'Tokenz': 1},
     'pump_amm': {'windows': 785, 'rows': 2, 'Tokenkeg': 1, 'Tokenz': 1},
@@ -46,18 +53,33 @@ EXPECTED = {
 sha = lambda data: hashlib.sha256(data).hexdigest()
 
 
-def _reviewed():
-    path = REPO / SOURCE
+def _reviewed(root=REPO):
+    root = Path(root).resolve()
+    path = root / ARCHIVED
     raw = path.read_bytes()
     lf = raw.replace(b'\r\n', b'\n')
     forms = {sha(raw), sha(lf), sha(lf.replace(b'\n', b'\r\n'))}
     if LF_SHA256 not in forms:
         raise ValueError('the reviewed bytecode-pattern source has changed')
-    if str(REPO / 'scripts') not in sys.path:
-        sys.path.insert(0, str(REPO / 'scripts'))
+    reader_path = root / READER
+    reader_raw = reader_path.read_bytes()
+    if sha(reader_raw) != READER_SHA256:
+        raise ValueError('the reviewed ELF reader source has changed')
+    reader = types.ModuleType('window_elf_reader')
+    reader.__file__ = str(root / 'scripts/window_elf_reader.py')
+    exec(compile(reader_raw, str(reader_path), 'exec'), reader.__dict__)
     module = types.ModuleType('reviewed_bytecode_signatures')
-    module.__file__ = str(path)
-    exec(compile(lf, str(path), 'exec'), module.__dict__)
+    module.__file__ = str(root / SOURCE)
+    previous = sys.modules.get('window_elf_reader')
+    sys.modules['window_elf_reader'] = reader
+    try:
+        exec(compile(lf, str(path), 'exec'), module.__dict__)
+    finally:
+        if previous is None:
+            sys.modules.pop('window_elf_reader', None)
+        else:
+            sys.modules['window_elf_reader'] = previous
+    module._reviewed_source_sha256 = sha(raw)
     return module
 
 
@@ -95,8 +117,8 @@ def token_constants(elf, start, end):
 
 def check(root=REPO):
     root = Path(root).resolve()
-    archived = _reviewed()
-    from window_elf_reader import Elf
+    archived = _reviewed(root)
+    Elf = archived.Elf
     programs = {}
     totals = Counter()
     for name in PROGRAMS:
@@ -151,7 +173,7 @@ def check(root=REPO):
     assert totals['Tokenkeg'] == 23 and totals['Tokenz'] == 6
     return {
         'script': SOURCE,
-        'script_sha256': sha((root / SOURCE).read_bytes()),
+        'script_sha256': archived._reviewed_source_sha256,
         'method': 'four consecutive lddw chunks assembled into a 32-byte token program id',
         'old_scope': 'archived lddw immediates 3/7/12 labelled spl_token_instruction',
         'totals': dict(totals),
@@ -170,15 +192,15 @@ def seal(packet=P):
             'kind': 'tooling',
             'scope': 'Token-program constant detection; no transfer or payload-byte claim.',
             'totals': report['totals'],
-        }, indent=2) + '\n'
+        }, indent=2) + '\n', encoding='utf-8', newline='\n'
     )
     inventory = {
-        str(path.relative_to(packet)): sha(path.read_bytes())
+        path.relative_to(packet).as_posix(): sha(path.read_bytes())
         for path in sorted(packet.rglob('*'))
         if path.is_file() and path.name != 'manifest.json'
         and '__pycache__' not in path.parts and path.suffix != '.pyc'
     }
-    (packet / 'manifest.json').write_text(json.dumps(inventory, indent=2) + '\n')
+    (packet / 'manifest.json').write_text(json.dumps(inventory, indent=2) + '\n', encoding='utf-8', newline='\n')
     return report['totals']
 
 

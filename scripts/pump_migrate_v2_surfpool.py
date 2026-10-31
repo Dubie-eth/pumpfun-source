@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Signed offline Surfpool Pump migrate_v2 comparisons with captured CPI programs."""
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
 import argparse,base64,hashlib,json,socket,struct,subprocess,sys,time,urllib.request
 from pathlib import Path
 from solders.hash import Hash
@@ -12,6 +14,7 @@ from types import SimpleNamespace
 from solders.compute_budget import set_compute_unit_limit
 f=SimpleNamespace(Pubkey=fixture.Pubkey,PAYER=fixture.PAYER,AUTH=fixture.USER,OTHER=fixture.USER,set_compute_unit_limit=set_compute_unit_limit)
 for attr,name,folder in [('PUMP','pump','original'),('PROGRAM','pump_fees','original'),('AMM','pump_amm','original'),('TOKEN','spl_token','dependencies'),('TOKEN22','spl_token_2022','dependencies'),('ATA','associated_token','dependencies')]:setattr(f,attr,f.Pubkey.from_string(json.loads((ROOT/f'evidence/{folder}/{name}/capture.json').read_text())['program']))
+COMPUTE=f.Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 PORT=20221
 sha=lambda data:hashlib.sha256(data).hexdigest()
 class RecordingVM:
@@ -71,6 +74,10 @@ def run(binary,cases,surfpool,output):
     def writable(i):return i<h.num_required_signatures-h.num_readonly_signed_accounts if i<h.num_required_signatures else i<len(keys)-h.num_readonly_unsigned_accounts
     instructions=[Instruction(keys[ix.program_id_index],bytes(ix.data),[AccountMeta(keys[n],n<h.num_required_signatures,writable(n)) for n in ix.accounts]) for ix in msg.instructions]
     # Distinct compute budgets avoid transaction deduplication for repeated payloads.
+    # The recorded fixture leads with a compute-budget instruction; replacing a
+    # different first instruction would silently drop a real program call.
+    if not instructions or instructions[0].program_id!=COMPUTE:
+     raise ValueError(('first recorded instruction is not compute-budget',row['name']))
     instructions[0]=f.set_compute_unit_limit(1400000-len(rows))
     signers=[k for k in [f.PAYER,f.AUTH] if k.pubkey() in keys[:h.num_required_signatures]]
     tx=Transaction.new_signed_with_payer(instructions,f.PAYER.pubkey(),signers,Hash.from_string(rpc('getLatestBlockhash')['value']['blockhash']));assert all(tx.verify_with_results());encoded=base64.b64encode(bytes(tx)).decode()
@@ -91,7 +98,7 @@ def run(binary,cases,surfpool,output):
 def layouts():
  out={}
  for name in ['pump','pump_amm','pump_fees']:
-  idl=json.loads((ROOT/f'evidence/upstream/{name}.json').read_text());types={t['name']:t for t in idl['types']}
+  idl=json.loads((ROOT/f'evidence/upstream/{name}.json').read_text(encoding='utf-8'));types={t['name']:t for t in idl['types']}
   for e in idl['events']:
    offset=8
    for field in types[e['name']]['type']['fields']:
@@ -133,7 +140,7 @@ def main():
  indices += list(range(806,822))+[221]+list(range(822,827))
  cases=[suite.cases[i] for i in indices]
  paths=[Path(__file__),Path(fixture.__file__),Path(suite.__file__)]+[ROOT/f'evidence/upstream/{n}.json' for n in ['pump','pump_fees','pump_amm']]+[ROOT/f'evidence/original/{n}/deployed.so' for n in ['pump','pump_fees','pump_amm']]+[ROOT/f'evidence/dependencies/{n}/deployed.so' for n in ['spl_token','spl_token_2022','associated_token']]
- provenance={str(p.relative_to(ROOT)):sha(p.read_bytes()) for p in paths};fixtures=[prepare(c) for c in cases];(a.output/'fixtures.json').write_text(json.dumps(fixtures,indent=2));x=run(original,fixtures,a.surfpool,a.output);y=run(candidate,fixtures,a.surfpool,a.output);bad=[];unexpected=[];offsets=layouts()
+ provenance={str(p.relative_to(ROOT)):sha(p.read_bytes()) for p in paths};fixtures=[prepare(c) for c in cases];(a.output/'fixtures.json').write_text(json.dumps(fixtures,indent=2),encoding='utf-8',newline='\n');x=run(original,fixtures,a.surfpool,a.output);y=run(candidate,fixtures,a.surfpool,a.output);bad=[];unexpected=[];offsets=layouts()
  def error(v):
   if v is None:return None
   m=re.fullmatch(r'TransactionErrorInstructionError\(\((\d+), Tagged\(InstructionErrorCustom\((\d+)\)\)\)\)',v)
@@ -145,5 +152,5 @@ def main():
   if l['error']!=error(f0['litesvm_error']):unexpected.append(i)
   if normalized(l,offsets)!=normalized(r,offsets):bad.append(i)
  assert all(sha((ROOT/p).read_bytes())==h for p,h in provenance.items());assert sha(candidate.read_bytes())==sha(a.candidate.read_bytes())
- report={'scope':'Migrate_v2 native and synthetic whitelisted quote routes; normally signed offline synthetic completed curves, captured genuine AMM create_pool/init_boost and token CPIs. Exact errors/state/returns/inner/events except recognized event timestamps. Raw bytes retained. No whole-program identity claim.','original_sha256':sha(original.read_bytes()),'candidate_sha256':sha(candidate.read_bytes()),'runner_sha256':sha(Path(__file__).read_bytes()),'provenance':provenance,'cases':len(cases),'signed_transactions':len(x)+len(y),'mismatches':bad,'unexpected_original_errors':unexpected,'original':x,'candidate':y};(a.output/'pump-migrate-v2-transactions.json').write_text(json.dumps(report,indent=2));(a.output/'raw-transactions.json').write_text(json.dumps({n:[r['transaction_base64'] for r in rows] for n,rows in [('original',x),('candidate',y)]}));print(json.dumps({k:report[k] for k in ['cases','signed_transactions','mismatches','unexpected_original_errors']}));assert not bad and not unexpected
+ report={'scope':'Migrate_v2 native and synthetic whitelisted quote routes; normally signed offline synthetic completed curves, captured genuine AMM create_pool/init_boost and token CPIs. Exact errors/state/returns/inner/events except recognized event timestamps. Raw bytes retained. No whole-program identity claim.','original_sha256':sha(original.read_bytes()),'candidate_sha256':sha(candidate.read_bytes()),'runner_sha256':sha(Path(__file__).read_bytes()),'provenance':provenance,'cases':len(cases),'signed_transactions':len(x)+len(y),'mismatches':bad,'unexpected_original_errors':unexpected,'original':x,'candidate':y};(a.output/'pump-migrate-v2-transactions.json').write_text(json.dumps(report,indent=2),encoding='utf-8',newline='\n');(a.output/'raw-transactions.json').write_text(json.dumps({n:[r['transaction_base64'] for r in rows] for n,rows in [('original',x),('candidate',y)]}),encoding='utf-8',newline='\n');print(json.dumps({k:report[k] for k in ['cases','signed_transactions','mismatches','unexpected_original_errors']}));assert not bad and not unexpected
 if __name__=='__main__':main()

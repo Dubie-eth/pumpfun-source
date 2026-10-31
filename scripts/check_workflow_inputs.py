@@ -11,9 +11,25 @@ from pathlib import Path
 
 import yaml
 
-ROOTS = {'scripts', 'research', 'reconstruction'}
+ROOTS = {'scripts', 'research', 'reconstruction', 'tests'}
 INTERPRETER = re.compile(r'^(?:python(?:3(?:\.\d+)?)?|bash|sh)$')
 EXPRESSION = re.compile(r'\$\{\{\s*matrix\.(\w+)\s*\}\}')
+ASSIGNMENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+COMMAND_PREFIX = re.compile(r'^\s*(?:[A-Za-z_][A-Za-z0-9_]*=|env(?:\s|$)|python|bash|sh)')
+# An interpreter invoked through an absolute path (/usr/bin/python3,
+# /bin/bash, /usr/bin/env) is still that interpreter; resolve such tokens to
+# their basename so literal-command inspection covers absolute spellings too.
+ABSOLUTE_INTERPRETER = re.compile(r'^/(.*/)*(?:python(?:3(?:\.\d+)?)?|bash|sh|env)$')
+
+
+def resolved_interpreter(token):
+    """Return the interpreter name for a bare or absolute interpreter token."""
+    if INTERPRETER.fullmatch(token):
+        return token
+    if ABSOLUTE_INTERPRETER.fullmatch(token):
+        name = token.rsplit('/', 1)[-1]
+        return None if name == 'env' else name
+    return None
 
 
 def git(root, *args):
@@ -49,6 +65,113 @@ def substitute(value, row):
     return EXPRESSION.sub(lambda m: str(row.get(m[1], m[0])), value)
 
 
+def join_line_continuations(command):
+    """Remove shell backslash-newline pairs outside single quotes/comments.
+
+    This only reconstructs logical lines for the existing literal-command
+    checker; it does not evaluate expansions or compound shell commands.
+    """
+    result = []
+    quote = None
+    comment = False
+    word_start = True
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if comment:
+            result.append(char)
+            if char == '\n':
+                comment = False
+                word_start = True
+        elif quote == "'":
+            result.append(char)
+            if char == "'":
+                quote = None
+        elif char == '\\' and index + 1 < len(command):
+            following = command[index + 1]
+            if following != '\n':
+                result.extend((char, following))
+                word_start = False
+            index += 1
+        else:
+            result.append(char)
+            if char == quote:
+                quote = None
+            elif quote is None:
+                if char in ("'", '"'):
+                    quote = char
+                    word_start = False
+                elif char == '#' and word_start:
+                    comment = True
+                else:
+                    word_start = char.isspace() or char in ';&|()<>'
+        index += 1
+    return ''.join(result)
+
+
+def python_option(option):
+    """Return (inline mode, separate value) for one Python option token."""
+    if option == '-':
+        return True, False
+    if option.startswith('--'):
+        return False, option == '--check-hash-based-pycs'
+    for consumed, flag in enumerate(option[1:], 2):
+        if flag in ('c', 'm'):
+            return True, False
+        if flag in ('W', 'X'):
+            # The remainder belongs to this option's value, not more flags:
+            # -IWmodule must not be mistaken for inline module mode.
+            return False, consumed == len(option)
+    return False, False
+
+
+def command_start(tokens):
+    """Return the interpreter index after shell assignments and env options."""
+    return command_context(tokens, '.')[0]
+
+
+def command_context(tokens, directory):
+    """Resolve env's command-local chdir relative to the step directory."""
+    index = 0
+    change_directory = None
+    while index < len(tokens) and ASSIGNMENT.match(tokens[index]):
+        index += 1
+    if index < len(tokens) and (tokens[index] == 'env'
+                                or (ABSOLUTE_INTERPRETER.fullmatch(tokens[index])
+                                    and tokens[index].rsplit('/', 1)[-1] == 'env')):
+        index += 1
+        while index < len(tokens):
+            token = tokens[index]
+            if token == '--':
+                index += 1
+                break
+            if token in ('-C', '--chdir'):
+                if index + 1 >= len(tokens):
+                    raise ValueError('env chdir option requires a directory')
+                change_directory = tokens[index + 1]
+                index += 2
+                continue
+            if token.startswith('--chdir=') or token.startswith('-C'):
+                change_directory = token.partition('=')[2] if token.startswith('--chdir=') else token[2:]
+                index += 1
+                continue
+            if token in ('-u', '--unset'):
+                index += 2
+                continue
+            if token.startswith('-'):
+                index += 1
+                continue
+            if ASSIGNMENT.match(token):
+                index += 1
+                continue
+            break
+    if change_directory is not None:
+        # Keep expansions visible until the caller's nonliteral-directory
+        # check; normpath('$DIR/..') would otherwise erase the variable.
+        directory = posixpath.join(directory, change_directory)
+    return index, directory
+
+
 def references(name, source):
     doc = yaml.safe_load(source)
     if not isinstance(doc, dict) or not isinstance(doc.get('jobs'), dict):
@@ -61,7 +184,7 @@ def references(name, source):
             for step in job.get('steps', []):
                 if 'run' not in step:
                     continue
-                command = substitute(str(step['run']), row)
+                command = join_line_continuations(substitute(str(step['run']), row))
                 cwd = substitute(str(step.get('working-directory', directory)), row)
                 if re.search(r'<<-?\s*[^\s<]', command):
                     unsupported.add((name, str(job_id), 'heredoc body requires shell parsing'))
@@ -69,32 +192,35 @@ def references(name, source):
                 for line in command.splitlines():
                     # Only literal, standalone interpreter commands. Shell programs
                     # and generated script bodies are not evaluated by this checker.
-                    if not re.match(r'^\s*(python(?:3(?:\.\d+)?)?|bash|sh)\s', line):
-                        continue
-                    if '${{' in line or '$' in cwd or cwd.startswith('/'):
-                        unsupported.add((name, job_id, 'dynamic command/directory'))
-                        continue
                     try:
                         tokens = shlex.split(line, comments=True)
                     except ValueError:
-                        unsupported.add((name, job_id, 'unparsed shell command'))
+                        if COMMAND_PREFIX.match(line):
+                            unsupported.add((name, job_id, 'unparsed shell command'))
                         continue
-                    if not tokens or not INTERPRETER.fullmatch(tokens[0]):
+                    index, command_directory = command_context(tokens, cwd)
+                    interpreter = resolved_interpreter(tokens[index]) if index < len(tokens) else None
+                    if interpreter is None:
                         continue
-                    index = 1
+                    if '${{' in line or '$' in command_directory or command_directory.startswith('/'):
+                        unsupported.add((name, job_id, 'dynamic command/directory'))
+                        continue
+                    index += 1
                     while index < len(tokens) and tokens[index].startswith('-'):
                         option = tokens[index]
-                        python = tokens[0].startswith('python')
+                        python = interpreter.startswith('python')
                         if option == '--':
                             index += 1
                             break
-                        if (python and (option in ('-c', '-m', '-') or option.startswith(('-c', '-m')))
-                                or not python and not option.startswith('--') and 'c' in option[1:]):
+                        if python:
+                            inline, takes_value = python_option(option)
+                        else:
+                            inline = not option.startswith('--') and 'c' in option[1:]
+                            takes_value = (option in ('--rcfile', '--init-file') or
+                                           not option.startswith('--') and option[-1:] in ('o', 'O'))
+                        if inline:
                             index = len(tokens)
                             break
-                        takes_value = (option in ('-X', '-W', '--check-hash-based-pycs') if python else
-                                       option in ('--rcfile', '--init-file') or
-                                       not option.startswith('--') and option[-1:] in ('o', 'O'))
                         index += 2 if takes_value else 1
                     if index >= len(tokens):
                         continue
@@ -102,7 +228,7 @@ def references(name, source):
                     if script.startswith(('/', '<')) or any(c in script for c in '$`*?'):
                         unsupported.add((name, job_id, 'nonliteral script'))
                         continue
-                    path = posixpath.normpath(posixpath.join(cwd, script))
+                    path = posixpath.normpath(posixpath.join(command_directory, script))
                     if path.split('/')[0] in ROOTS and path.endswith(('.py', '.sh')):
                         found.add((name, str(job_id), path))
                     else:

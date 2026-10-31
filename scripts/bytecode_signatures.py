@@ -10,6 +10,13 @@ Builds a signature database from all three programs, identifying:
 - Token transfer patterns
 - Anchor serialization/deserialization patterns
 
+Read-only helper imports require only window_elf_reader.py. Packet generation also
+requires deep_disassembly.py for its shared publication implementation.
+
+Publication uses shared atomic no-replace/exchange operations. Replacements
+retain the prior packet in a printed .previous-* sibling; unsupported hosts
+fail closed.
+
 Usage:
     python3 scripts/bytecode_signatures.py --output research/bytecode-signatures-20261028
 """
@@ -18,6 +25,8 @@ import collections
 import hashlib
 import json
 import os
+import shutil
+import stat
 import struct
 import sys
 from pathlib import Path
@@ -115,10 +124,12 @@ def detect_error_patterns(elf, start, end):
     offset = start
     while offset + 8 <= end:
         opcode = b[offset]
-        # Look for: conditional branch + mov immediate + call/exit
-        if opcode in (0x15, 0x1d, 0x25, 0x2d, 0x35, 0x3d,
+        # Look for: conditional branch + mov immediate + call/exit.
+        # Every SBPF JMP64 conditional jump, including jset, jslt and jsle:
+        # https://github.com/anza-xyz/sbpf/blob/f754c707f99779a756978f87c9afd25eeeb3d92e/src/ebpf.rs#L478-L521
+        if opcode in (0x15, 0x1d, 0x25, 0x2d, 0x35, 0x3d, 0x45, 0x4d,
                       0x55, 0x5d, 0x65, 0x6d, 0x75, 0x7d,
-                      0xa5, 0xad, 0xb5, 0xbd):
+                      0xa5, 0xad, 0xb5, 0xbd, 0xc5, 0xcd, 0xd5, 0xdd):
             branch_off = struct.unpack_from("<h", b, offset + 2)[0]
             branch_target = offset + 8 + branch_off * 8
             # Check if branch leads to a mov + error pattern
@@ -278,13 +289,8 @@ def detect_account_validation(elf, start, end):
     }
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+def _build_packet(output_dir, output_label=None):
+    output_dir = Path(output_dir)
 
     all_signatures = {}
     all_patterns = {}
@@ -405,21 +411,33 @@ def main():
         if len(set(w["program"] for w in windows)) > 1
     }
 
+    # The manifest hashes every file here and verify.py requires exactly the
+    # generated set, so reject leftovers from another run before writing.
+    packet_files = expected_packet_files(program_summaries)
+    unexpected = sorted(path.name for path in output_dir.iterdir() if path.name not in packet_files)
+    if unexpected:
+        raise ValueError("unexpected packet entry: " + ", ".join(unexpected))
+    invalid = sorted(name for name in packet_files
+                     if linked(output_dir / name)
+                     or ((output_dir / name).exists() and not (output_dir / name).is_file()))
+    if invalid:
+        raise ValueError("packet entry is not a regular file: " + ", ".join(invalid))
+
     # --- Write outputs ---
 
     # 1. Per-program signatures
     for prog_name, sigs in all_signatures.items():
         path = output_dir / f"{prog_name}-signatures.json"
-        path.write_text(json.dumps(sigs, indent=2) + "\n")
+        path.write_text(json.dumps(sigs, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 2. Per-program patterns
     for prog_name, patterns in all_patterns.items():
         path = output_dir / f"{prog_name}-patterns.json"
-        path.write_text(json.dumps(patterns, indent=2) + "\n")
+        path.write_text(json.dumps(patterns, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 3. Cross-program shared signatures
     (output_dir / "shared-signatures.json").write_text(
-        json.dumps(shared_signatures, indent=2) + "\n")
+        json.dumps(shared_signatures, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 4. Top n-grams
     top_ngrams = [
@@ -427,7 +445,7 @@ def main():
         for gram, count in cross_program_ngrams.most_common(500)
     ]
     (output_dir / "top-ngrams.json").write_text(
-        json.dumps(top_ngrams, indent=2) + "\n")
+        json.dumps(top_ngrams, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 5. Summary
     summary = {
@@ -440,7 +458,7 @@ def main():
         },
     }
     (output_dir / "summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n")
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 6. README
     readme = f"""# Cross-Program Bytecode Signature Analysis
@@ -477,7 +495,7 @@ Invocation), token transfer, serialization, and account validation patterns.
 python3 verify.py
 ```
 """
-    (output_dir / "README.md").write_text(readme)
+    (output_dir / "README.md").write_text(readme, encoding="utf-8", newline="\n")
 
     # 7. Verify script
     verify_py = '''#!/usr/bin/env python3
@@ -495,6 +513,8 @@ def sha256_file(path):
     return h.hexdigest()
 
 def main():
+    if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
+        print("FAIL: packet directory entry set mismatch"); return 1
     manifest = json.load(open(os.path.join(PACKET, "manifest.json")))
     if not isinstance(manifest, dict) or set(manifest) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
@@ -519,7 +539,7 @@ if __name__ == "__main__":
         'README.md', 'shared-signatures.json', 'summary.json', 'top-ngrams.json', 'verify.py',
         *[f'{program}-{kind}.json' for program in program_summaries for kind in ('patterns', 'signatures')],
     ]))
-    (output_dir / "verify.py").write_text(verify_py)
+    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8", newline="\n")
 
     # 8. Manifest
     manifest = {}
@@ -530,14 +550,76 @@ if __name__ == "__main__":
         if path.is_file():
             manifest[name] = sha256_file(str(path))
     (output_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n")
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     total_lines = sum(
-        sum(1 for _ in open(output_dir / name))
+        sum(1 for _ in open(output_dir / name,encoding='utf-8'))
         for name in os.listdir(output_dir)
         if (output_dir / name).is_file()
     )
-    print(f"[sigs] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_dir}")
+    print(f"[sigs] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_label or output_dir}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+    from deep_disassembly import publish_packet, temporary_sibling
+    output_dir = Path(args.output)
+    identity = prepare_destination(output_dir)
+    staging = temporary_sibling(output_dir, "staging")
+    try:
+        _build_packet(staging, output_dir)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    publish_packet(staging, output_dir, identity)
+
+
+def expected_packet_files(programs=None):
+    programs = programs or [
+        program for program in PROGRAMS
+        if (REPO / 'evidence/original' / program / 'deployed.so').is_file()
+    ]
+    return {
+        "README.md", "manifest.json", "shared-signatures.json", "summary.json",
+        "top-ngrams.json", "verify.py",
+        *[f"{program}-{kind}.json" for program in programs
+          for kind in ("patterns", "signatures")],
+    }
+
+
+def linked(path):
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    return (stat.S_ISLNK(metadata.st_mode)
+            or bool(getattr(metadata, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+            or bool(getattr(metadata, "st_reparse_tag", 0)))
+
+
+def prepare_destination(output_dir):
+    from deep_disassembly import directory_identity
+    output_dir = Path(output_dir)
+    if linked(output_dir):
+        raise ValueError("output directory is a link")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise ValueError("output path is not a directory")
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    packet_files = expected_packet_files()
+    existing = list(output_dir.iterdir()) if output_dir.exists() else []
+    unexpected = sorted(path.name for path in existing if path.name not in packet_files)
+    if unexpected:
+        raise ValueError("unexpected packet entry: " + ", ".join(unexpected))
+    invalid = sorted(name for name in packet_files
+                     if linked(output_dir / name)
+                     or ((output_dir / name).exists()
+                         and not (output_dir / name).is_file()))
+    if invalid:
+        raise ValueError("packet entry is not a regular file: " + ", ".join(invalid))
+    return directory_identity(output_dir)
 
 
 if __name__ == "__main__":

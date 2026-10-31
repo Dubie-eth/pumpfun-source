@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Normally signed offline Surfpool original/candidate Pump initialize checks."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse
 import base64
 import hashlib
@@ -20,8 +22,7 @@ from solders.transaction import Transaction
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import pump_global_init_differential as fixtures
-sys.path.insert(0, str(ROOT / 'localnet'))
-from social_transactions import RecordingVM
+from surfpool_recording_vm import RecordingVM
 PORT = 20261
 COMPUTE = Pubkey.from_string('ComputeBudget111111111111111111111111111111')
 DEPENDENCIES = []
@@ -250,10 +251,10 @@ def main():
     assert len(cases)==len(wanted)
     fixture_hash, runner_hash = sha(Path(fixtures.__file__)), sha(Path(__file__))
     prepared = [prepare(case) for case in cases]
-    (args.output / 'fixtures.json').write_text(json.dumps(prepared, indent=2) + '\n')
+    (args.output / 'fixtures.json').write_text(json.dumps(prepared, indent=2) + '\n',encoding='utf-8',newline='\n')
     left = run(original, prepared, args.surfpool, args.output)
     right = run(candidate, prepared, args.surfpool, args.output)
-    (args.output / 'raw-transactions.json').write_text(json.dumps({'original': left, 'candidate': right}, indent=2) + '\n')
+    (args.output / 'raw-transactions.json').write_text(json.dumps({'original': left, 'candidate': right}, indent=2) + '\n',encoding='utf-8',newline='\n')
     import re
     def expected_error(value):
         if value is None: return None
@@ -273,7 +274,7 @@ def main():
         'dependency_sha256': {name: sha(dependency_path(name)) for name, _ in DEPENDENCIES},
         'cases': len(cases), 'signed_transactions': len(left) + len(right), 'mismatches': mismatches,
         'unexpected_original_errors': unexpected, 'original': left, 'candidate': right}
-    (args.output / 'pump-global-init-transactions.json').write_text(json.dumps(report, indent=2) + '\n')
+    (args.output / 'pump-global-init-transactions.json').write_text(json.dumps(report, indent=2) + '\n',encoding='utf-8',newline='\n')
     print(json.dumps({key: report[key] for key in ['cases', 'signed_transactions', 'mismatches', 'unexpected_original_errors', 'original_sha256', 'candidate_sha256']}, indent=2))
     if mismatches or unexpected:
         raise SystemExit(1)

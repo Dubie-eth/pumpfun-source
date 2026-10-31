@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from experiment_runner import run_trial, atomic_json, digest, IGNORED, manifest
+from experiment_runner import run_trial, atomic_json, digest, stage_ignore, manifest
 
 
 def minimize(count, evaluate, budget, wanted='pass'):
@@ -20,8 +20,11 @@ def minimize(count, evaluate, budget, wanted='pass'):
             if value not in ('pass', 'fail', 'error'): raise ValueError('invalid oracle status')
             cache[key] = value
         return cache[key]
+    def tested(): return [{'selected': list(key), 'status': value} for key, value in cache.items()]
     current = list(range(count))
-    if test(current) != wanted: return {'status': 'initial-predicate-not-met', 'selected': current, 'one_minimal': False}
+    if test(current) != wanted:
+        return {'status': 'initial-predicate-not-met', 'selected': current, 'one_minimal': False,
+                'wanted': wanted, 'tested': tested()}
     if test([]) == wanted: current = []
     partitions = 2
     while len(current) >= 2 and len(cache) < budget:
@@ -36,8 +39,12 @@ def minimize(count, evaluate, budget, wanted='pass'):
             partitions = min(len(current), partitions * 2)
     one_minimal = all(test(current[:i] + current[i + 1:]) in ({'pass', 'fail'} - {wanted}) for i in range(len(current)))
     return {'status': 'complete' if one_minimal else 'bounded-result', 'selected': current,
-            'one_minimal': one_minimal, 'wanted': wanted,
-            'tested': [{'selected': list(key), 'status': value} for key, value in cache.items()]}
+            'one_minimal': one_minimal, 'wanted': wanted, 'tested': tested()}
+
+
+def load_oracle(path):
+    """Read the oracle config as UTF-8 regardless of the host locale."""
+    return json.loads(path.read_text(encoding='utf-8'))
 
 
 def main():
@@ -53,15 +60,15 @@ def main():
     if args.source == args.out or args.source in args.out.parents or args.out in args.source.parents:
         parser.error('source and output must be separate trees')
     source_identity = manifest(args.source)
-    paths = [Path(p).resolve() for p in json.loads(args.patches.read_text())]
+    paths = [Path(p).resolve() for p in json.loads(args.patches.read_text(encoding='utf-8'))]
     patches = [p.read_bytes() for p in paths]
-    config = json.loads(args.oracle.read_text())
+    config = load_oracle(args.oracle)
     args.out.mkdir(parents=True, exist_ok=True)
     patch_errors = []
     def evaluate(selected):
         with tempfile.TemporaryDirectory(prefix='reduce-source-', dir=args.out) as temporary:
             stage = Path(temporary) / 'source'
-            shutil.copytree(args.source, stage, ignore=shutil.ignore_patterns(*IGNORED))
+            shutil.copytree(args.source, stage, ignore=stage_ignore(args.source))
             if manifest(stage) != source_identity or manifest(args.source) != source_identity:
                 raise ValueError('base source changed during minimization')
             subprocess.run(['git', '-C', str(stage), 'init', '-q'], check=True)

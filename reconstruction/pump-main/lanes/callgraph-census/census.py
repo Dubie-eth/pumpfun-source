@@ -45,7 +45,8 @@ PAIRS = {
     0x22a10: r'admin_cto::execute$',
 }
 
-ORIG_PATH = BASE / 'original.so'
+from original_input import resolve_original
+ORIG_PATH = resolve_original(BASE / 'original.so')
 
 
 def short(name):
@@ -74,9 +75,10 @@ def direct_calls(raw, addr):
 ARG_RE = re.compile(r'^(?!j|call|exit|st)(?:\w+)\s+(r[1-5]|w[1-5])\b')
 
 
-def norm_text(t):
+def norm_text(t, section_pointer=False):
     t = re.sub(r'\s*<[^>]*>', '', t)
-    t = re.sub(r'0x[0-9a-f]{5,}', 'ADDR', t)  # lddw section pointers
+    if section_pointer:
+        t = re.sub(r'0x[0-9a-f]+', 'ADDR', t)
     t = re.sub(r'call -?0x[0-9a-f]+', 'call X', t)
     t = re.sub(r'\b[rw][6-9]\b', 'rS', t)  # callee-saved register choice is allocation noise
     return t
@@ -118,7 +120,12 @@ def arg_setup(img, s, call_sites):
             t = txt[a]
             m = ARG_RE.match(t)
             if m:
-                regs[m.group(1)[1]] = norm_text(t)
+                raw = body(img.blob, img.secs, a, 8)
+                pointer = False
+                if raw[0] == 0x18:
+                    raw = body(img.blob, img.secs, a, 16)
+                    pointer = normalize(raw, a, img.secs) != raw
+                regs[m.group(1)[1]] = norm_text(t, section_pointer=pointer)
         res[cs] = [regs[r] for r in sorted(regs)]
         prev = k + 1
     return res

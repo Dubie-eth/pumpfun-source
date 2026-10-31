@@ -1,14 +1,22 @@
 import difflib
 import json
+import os
 import stat
 from pathlib import Path
+
+
+class SourceBytes(bytes):
+    def __new__(cls, data, executable):
+        value = super().__new__(cls, data)
+        value.executable = executable
+        return value
 
 
 def reject_source_link(path):
     try:
         info = path.lstat()
     except FileNotFoundError:
-        return  # Keep the existing missing-root diagnostic below.
+        return
     reparse = getattr(info, 'st_file_attributes', 0) & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0)
     if stat.S_ISLNK(info.st_mode) or reparse:
         raise ValueError(f'unsupported source tree link: {path}')
@@ -22,12 +30,21 @@ def tree_files(root):
     if not root.is_dir():
         raise NotADirectoryError(f'source tree is not a directory: {root}')
     files = {}
-    # Inspect each directory before rglob can descend into it. Eagerly sorting
-    # rglob first would already traverse Windows junctions before this check.
-    for path in root.rglob('*'):
-        reject_source_link(path)
-        if path.is_file():
-            files[path.relative_to(root).as_posix()] = path.read_bytes()
+    def scan_error(error):
+        raise error
+
+    # Fail on inaccessible/disappearing directories instead of certifying an
+    # incomplete tree. Inspect links before walk can descend into them.
+    for directory, directories, names in os.walk(root, followlinks=False, onerror=scan_error):
+        for name in sorted(directories + names):
+            path = Path(directory) / name
+            reject_source_link(path)
+            info = path.lstat()
+            if stat.S_ISREG(info.st_mode):
+                files[path.relative_to(root).as_posix()] = SourceBytes(
+                    path.read_bytes(), bool(info.st_mode & 0o111))
+            elif not stat.S_ISDIR(info.st_mode):
+                raise ValueError(f'unsupported special source file: {path}')
     return dict(sorted(files.items()))
 
 
@@ -51,15 +68,21 @@ def tree_diff(base, new, prefix='programs/pump'):
     out = []
     for rel in sorted(set(a) | set(b)):
         x, y = a.get(rel), b.get(rel)
-        if x == y:
+        old_mode = '100755' if getattr(x, 'executable', False) else '100644'
+        new_mode = '100755' if getattr(y, 'executable', False) else '100644'
+        if x == y and old_mode == new_mode:
             continue
         quoted_a = quote_path(f'a/{prefix}/{rel}')
         quoted_b = quote_path(f'b/{prefix}/{rel}')
         out.append(f'diff --git {quoted_a} {quoted_b}\n')
         if x is None:
-            out.append('new file mode 100644\n')
+            out.append(f'new file mode {new_mode}\n')
         elif y is None:
-            out.append('deleted file mode 100644\n')
+            out.append(f'deleted file mode {old_mode}\n')
+        elif old_mode != new_mode:
+            out.append(f'old mode {old_mode}\nnew mode {new_mode}\n')
+        if x is not None and y is not None and x == y:
+            continue
         if (x is None and y == b'') or (x == b'' and y is None):
             # Unified text hunks cannot represent an empty file's existence.
             if x is None:
@@ -67,10 +90,18 @@ def tree_diff(base, new, prefix='programs/pump'):
             else:
                 out.append('index e69de29..0000000\n')
             continue
-        xl = diff_lines(x)
-        yl = diff_lines(y)
+        xl = None
+        try:
+            xl = diff_lines(x)
+            yl = diff_lines(y)
+        except UnicodeDecodeError:
+            # Either side can fail after the other has already decoded.
+            xl = None
         fa = quoted_a if x is not None else '/dev/null'
         fb = quoted_b if y is not None else '/dev/null'
+        if xl is None:
+            out.append(f'Binary files {fa} and {fb} differ\n')
+            continue
         for line in difflib.unified_diff(xl, yl, fa, fb, n=3):
             out.append(line if line.endswith('\n') else line + '\n\\ No newline at end of file\n')
     return ''.join(out)

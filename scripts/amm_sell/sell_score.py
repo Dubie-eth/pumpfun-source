@@ -2,7 +2,7 @@
 """Score an AMM build against the original sell cashback window (0x4c750, 9,024 bytes).
 
 Usage:
-  sell_score.py BUILD_OUT_DIR [--disasm] [--json]
+  sell_score.py BUILD_OUT_DIR [--disasm]
 BUILD_OUT_DIR must contain candidate.so (stripped) and symbols.so (unstripped).
 
 Reported (JSON):
@@ -32,7 +32,16 @@ ORIGINAL = Path(os.environ.get('AMM_SELL_SWARM', HERE.parent)).resolve() / 'infr
 ORIGINAL_SHA = '6a7ad34596d83b4c435b32f458a56e718e9f82eb4ad38e4316616d15d24d8ff7'
 SELL_START = 0x4c750
 SELL_SIZE = 9024
-SCORE_VERSION = 3
+SCORE_VERSION = 4
+
+
+def rank(entry):
+    """Lower is better. None = regresses some other function (never 'best')."""
+    m = entry.get('metrics') or {}
+    if not m or m.get('lost_windows_normalized_count') != 0:
+        return None
+    return (0 if m.get('sell_raw_equal') else 1, 0 if m.get('sell_size') == SELL_SIZE else 1,
+            m.get('align_distance', 10**9), m.get('slot_diffs', 10**9))
 sys.path.insert(0, str(HERE))
 try:
     import elf_reader  # noqa: E402
@@ -48,7 +57,7 @@ SIZE = {0x00: 'w', 0x08: 'h', 0x10: 'b', 0x18: 'dw'}
 
 
 def decode(code, start, size):
-    """Yield (offset, length, raw, mnemonic, fields) for a function body."""
+    """Yield (offset, length, raw, mnemonic, fields) for an SBPF v0 body."""
     at = start
     end = start + size
     while at < end:
@@ -67,7 +76,10 @@ def decode(code, start, size):
             fields = (name, dst, src if op & 8 else None, None if op & 8 else imm)
         elif cls in (5, 6):
             kind = JMP.get(op >> 4, f'jmp{op >> 4:x}')
-            if kind == 'call':
+            if op == 0x8d:
+                # V0 CALL_REG encodes its register in imm, not a callee key.
+                text, fields = f'callx r{imm}', ('callx', imm)
+            elif kind == 'call':
                 text = f'call {"internal" if src == 1 else "syscall"} {imm}'
                 fields = ('call', src, imm)
             elif kind == 'exit':
@@ -153,6 +165,18 @@ def normalized_tokens(rows):
     return tokens
 
 
+def slot_differences(original, candidate):
+    """Count 8-byte sell slots that differ; an absent candidate tail is not zero.
+
+    Python slicing never raises: a candidate shorter than the sell window used
+    to shrink (or empty) the comparison, publishing `slot_diffs: 0` for a
+    missing window. Each slot the candidate does not fully cover counts as
+    differing instead.
+    """
+    return sum(1 for start in range(0, len(original), 8)
+               if original[start:start + 8] != candidate[start:start + 8])
+
+
 def alignment_distance(left, right):
     """Minimum unit-cost insertions, deletions and substitutions of tokens.
 
@@ -160,6 +184,19 @@ def alignment_distance(left, right):
     edit script. Keep its visual alignment separate from this ranking metric.
     Use one row of memory, bounded by the shorter instruction sequence.
     """
+    # Equal outer tokens can be matched at zero cost in an optimal edit
+    # script. Only the middle needs the quadratic dynamic-programming grid.
+    start = 0
+    end_left, end_right = len(left), len(right)
+    while start < min(end_left, end_right) and left[start] == right[start]:
+        start += 1
+    while (end_left > start and end_right > start
+           and left[end_left - 1] == right[end_right - 1]):
+        end_left -= 1
+        end_right -= 1
+    left, right = left[start:end_left], right[start:end_right]
+    if not left or not right:
+        return max(len(left), len(right))
     if len(left) < len(right):
         left, right = right, left
     previous = list(range(len(right) + 1))
@@ -210,7 +247,7 @@ def score(out_dir, want_disasm=False):
     o_tok, c_tok = normalized_tokens(o_rows), normalized_tokens(c_rows)
     matcher = difflib.SequenceMatcher(None, o_tok, c_tok, autojunk=False)
     distance = alignment_distance(o_tok, c_tok)
-    slot_diffs = sum(1 for i in range(0, min(len(o_sell), len(c_sell)), 8) if o_sell[i:i + 8] != c_sell[i:i + 8])
+    slot_diffs = slot_differences(o_sell, c_sell)
     borrow = {}
     for name, rows in (('original', o_rows), ('candidate', c_rows)):
         window = [r for r in rows if 0xcd0 <= r['off'] <= 0xd10]

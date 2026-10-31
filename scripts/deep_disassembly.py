@@ -10,6 +10,10 @@ Produces per-window disassembly with:
 - Stack frame analysis (frame pointer usage)
 - Bytecode signature fingerprints for pattern matching
 
+Replacement keeps the preceding complete packet in a sibling .previous- directory.
+Atomic directory exchange requires Linux or macOS; unsupported hosts fail closed.
+For a first publication the destination must remain absent.
+
 Usage:
     python3 scripts/deep_disassembly.py --program pump --output research/pump-deep-disasm-20261028
 """
@@ -19,10 +23,15 @@ import collections
 import gzip
 import hashlib
 import io
+import ctypes
+import errno
 import json
 import os
+import shutil
 import struct
+import stat
 import sys
+import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -142,7 +151,9 @@ def decode_instruction(b, offset, elf):
         else:
             result["mnemonic"] = f"raw_{opcode:#04x} {dst},{src},{off},{imm}"
     elif opcode == 0x18:
-        imm2 = struct.unpack_from("<i", b, offset + 12)[0]
+        # The high word is the top half of one unsigned 64-bit value; a
+        # signed read made every constant with bit 63 set negative.
+        imm2 = struct.unpack_from("<I", b, offset + 12)[0]
         val64 = (imm & 0xFFFFFFFF) | (imm2 << 32)
         result["mnemonic"] = f"lddw {dst}, {val64:#018x}"
         result["imm64"] = val64
@@ -302,7 +313,9 @@ def _recover_dispatch_target(elf, constant_offset):
     cursor = branch_target
     while elf.lo <= cursor and cursor + 8 <= elf.hi and cursor < branch_target + 256:
         cop, cregs, _, cimm = struct.unpack_from("<BBhi", elf.b, cursor)
-        if cop == 0x85 and (cregs >> 4) == 1:
+        # A type-10 relocation marks an extern call: its immediate is a
+        # placeholder, so it never targets the handler.
+        if cop == 0x85 and (cregs >> 4) == 1 and elf.relocations.get(cursor, {}).get("type") != 10:
             call_target = cursor + 8 + cimm * 8
             target_name = None
             for f in elf.funcs:
@@ -359,8 +372,9 @@ def recover_anchor_dispatch(elf):
     if discriminators:
         return recover_idl_dispatch(elf, discriminators)
 
-    entry = struct.unpack_from("<Q", elf.b, 24)[0]
-    if not (elf.lo <= entry < elf.hi):
+    # ELF entrypoints are virtual addresses; the scan walks file offsets.
+    entry = elf.text_offset(struct.unpack_from("<Q", elf.b, 24)[0])
+    if entry is None:
         return {}
 
     # Anchor dispatch: entrypoint computes sighash = sha256("global:<name>")[..8]
@@ -384,17 +398,20 @@ def recover_anchor_dispatch(elf):
         elif opcode == 0x85 and elf.b[offset + 1] == 0x10:
             # Internal call — this might be a handler dispatch
             imm = struct.unpack_from("<i", elf.b, offset + 4)[0]
-            target = offset + 8 + imm * 8
-            if prev_imm64 is not None:
-                selectors[hex(prev_imm64)] = {
-                    "selector": hex(prev_imm64),
-                    "target_address": hex(target),
-                    "target_name": None,
-                }
-                for f in elf.funcs:
-                    if f["start"] == target:
-                        selectors[hex(prev_imm64)]["target_name"] = f["name"]
-                        break
+            # A type-10 relocation marks an extern call: its immediate is a
+            # placeholder, so a selector literal never dispatches through it.
+            if elf.relocations.get(offset, {}).get("type") != 10:
+                target = offset + 8 + imm * 8
+                if prev_imm64 is not None:
+                    selectors[hex(prev_imm64)] = {
+                        "selector": hex(prev_imm64),
+                        "target_address": hex(target),
+                        "target_name": None,
+                    }
+                    for f in elf.funcs:
+                        if f["start"] == target:
+                            selectors[hex(prev_imm64)]["target_name"] = f["name"]
+                            break
             prev_imm64 = None
             offset += 8
         else:
@@ -466,7 +483,7 @@ def analyze_stack_frame(instructions):
 
 
 def relocated_syscalls(elf):
-    """Resolve call relocations without changing the captured ELF reader.
+    """Resolve call relocations using the ELF reader's file-offset coordinates.
 
     The pinned SBPF loader treats a function symbol with a nonzero value as
     BPF-to-BPF; other call symbols are resolved through its syscall registry.
@@ -485,9 +502,10 @@ def relocated_syscalls(elf):
             or rel[5] % 16 or sym[5] % 24):
         return calls
     for pos in range(rel[4], rel[4] + rel[5], 16):
-        at, info = struct.unpack_from('<QQ', b, pos)
+        address, info = struct.unpack_from('<QQ', b, pos)
         if info & 0xffffffff != 10:
             continue
+        at = elf.file_offset(address, 8)
         calls[at] = None
         index = info >> 32
         if index >= sym[5] // 24:
@@ -545,6 +563,18 @@ def fingerprint_window(elf, start, end, call_symbols=None):
     }
 
 
+def linked(path):
+    """Identify output symlinks and Windows reparse points without following them."""
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    return (stat.S_ISLNK(metadata.st_mode)
+            or bool(getattr(metadata, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+            or bool(getattr(metadata, "st_reparse_tag", 0)))
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -553,19 +583,113 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--program", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
+def prepare_destination(output_dir):
+    output_dir = Path(output_dir)
+    if linked(output_dir):
+        raise ValueError("output directory is a link")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise ValueError("output path is not a directory")
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    # The manifest hashes every file here and verify.py requires exactly the
+    # generated set, so reject leftovers from another run before writing.
+    packet_files = {
+        "README.md", "disassembly.json.gz", "dispatch-table.json", "error-strings.json",
+        "extern-usage.json", "fingerprints.json", "manifest.json", "rodata-strings.json",
+        "summary.json", "syscall-usage.json", "verify.py", "windows-deep.json",
+    }
+    existing = list(output_dir.iterdir()) if output_dir.exists() else []
+    unexpected = sorted(path.name for path in existing if path.name not in packet_files)
+    if unexpected:
+        raise ValueError("unexpected packet entry: " + ", ".join(unexpected))
+    invalid = sorted(name for name in packet_files
+                     if linked(output_dir / name)
+                     or ((output_dir / name).exists() and not (output_dir / name).is_file()))
+    if invalid:
+        raise ValueError("packet entry is not a regular file: " + ", ".join(invalid))
+    return output_dir, packet_files, directory_identity(output_dir)
 
-    deployed_path = REPO / "evidence" / "original" / args.program / "deployed.so"
-    if not deployed_path.exists():
-        print(f"ERROR: {deployed_path} not found")
-        return 1
 
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+def temporary_sibling(output_dir, label):
+    # Leave room for the label/PID/UUID even when the output basename is near
+    # the filesystem limit. Truncate whole characters, not encoded byte tails.
+    prefix = output_dir.name[:64]
+    while len(os.fsencode(prefix)) > 64:
+        prefix = prefix[:-1]
+    while True:
+        staging = output_dir.parent / (
+            f".{prefix}.{label}-{os.getpid()}-{uuid.uuid4().hex}"
+        )
+        try:
+            staging.mkdir()
+        except FileExistsError:
+            continue
+        return staging
+
+
+def directory_identity(path):
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("output path is not a directory")
+    return metadata.st_dev, metadata.st_ino
+
+
+def rename_directory(source, destination, *, exchange=False):
+    """Use native atomic exchange or no-replace semantics, never plain POSIX rename."""
+    if os.name == "nt" and not exchange:
+        source.rename(destination)
+        return
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = getattr(library, "renamex_np", None)
+        args = (os.fsencode(source), os.fsencode(destination), 2 if exchange else 4)
+        types = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+    elif sys.platform.startswith("linux"):
+        rename = getattr(library, "renameat2", None)
+        args = (-100, os.fsencode(source), -100, os.fsencode(destination), 2 if exchange else 1)
+        types = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    else:
+        rename = None
+    if rename is None:
+        raise OSError(errno.ENOTSUP, "atomic packet publication unavailable; use a supported host")
+    rename.argtypes = types
+    rename.restype = ctypes.c_int
+    if rename(*args) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(destination))
+
+
+def publish_packet(staging, output_dir, expected_identity):
+    exchanged = False
+    try:
+        if directory_identity(output_dir) != expected_identity:
+            raise ValueError("output directory changed during analysis")
+        if expected_identity is None:
+            rename_directory(staging, output_dir)
+            return
+        staging.chmod(stat.S_IMODE(output_dir.stat().st_mode))
+        rename_directory(staging, output_dir, exchange=True)
+        exchanged = True
+        if directory_identity(staging) != expected_identity:
+            # A directory replacement raced the exchange. Restore it and keep
+            # the generated packet for inspection rather than remove either tree.
+            rename_directory(staging, output_dir, exchange=True)
+            raise ValueError(f"output directory changed during publication; staging retained at {staging}")
+        backup = temporary_sibling(output_dir, "previous")
+        backup.rmdir()
+        rename_directory(staging, backup)
+        print(f"[disasm] retained previous packet at {backup}")
+    except BaseException:
+        if not exchanged:
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+
+def build_packet(program, output_dir, output_label):
+    deployed_path = REPO / "evidence" / "original" / program / "deployed.so"
 
     print(f"[disasm] Reading {deployed_path}")
     elf = Elf(deployed_path)
@@ -603,6 +727,10 @@ def main():
             insn, step = decode_instruction(elf.b, offset, elf)
             if insn:
                 instructions.append(insn)
+                # Captured programs reach syscalls through type-10 relocations,
+                # never the hash immediate. Defined functions resolve to None.
+                if insn.get("extern_symbol") and call_symbols.get(offset):
+                    insn["syscall"] = call_symbols[offset]
                 if insn.get("syscall"):
                     syscall_usage[insn["syscall"]] += 1
                 if insn.get("extern_symbol"):
@@ -733,7 +861,7 @@ def main():
 
     # 9. Summary
     summary = {
-        "program": args.program,
+        "program": program,
         "deployed_sha256": hashlib.sha256(elf.b).hexdigest(),
         "text_section_bytes": elf.hi - elf.lo,
         "total_windows": len(entries),
@@ -755,10 +883,10 @@ def main():
         json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 10. README
-    readme = f"""# {args.program} — Deep Disassembly Analysis
+    readme = f"""# {program} — Deep Disassembly Analysis
 
 ## Scope
-Full BPF instruction-level decode of the deployed {args.program} program binary,
+Full BPF instruction-level decode of the deployed {program} program binary,
 including syscall identification, error string extraction, Anchor dispatch table
 recovery, control flow graph construction, stack frame analysis, and bytecode
 fingerprinting for cross-window pattern matching.
@@ -823,6 +951,8 @@ def sha256_file(path):
     return h.hexdigest()
 
 def main():
+    if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
+        print("FAIL: packet directory entry set mismatch"); return 1
     manifest = json.load(open(os.path.join(PACKET, "manifest.json")))
     if not isinstance(manifest, dict) or set(manifest) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
@@ -854,7 +984,7 @@ if __name__ == "__main__":
         'extern-usage.json', 'fingerprints.json', 'rodata-strings.json', 'summary.json',
         'syscall-usage.json', 'verify.py', 'windows-deep.json',
     ]))
-    (output_dir / "verify.py").write_text(verify_py)
+    (output_dir / "verify.py").write_text(verify_py,encoding='utf-8',newline='\n')
 
 
     (output_dir / "verify.py").write_text(verify_py, encoding="utf-8", newline="\n")
@@ -875,7 +1005,28 @@ if __name__ == "__main__":
         for name in os.listdir(output_dir)
         if (output_dir / name).is_file() and not name.endswith(".gz")
     )
-    print(f"[disasm] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_dir}")
+    print(f"[disasm] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_label}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--program", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    deployed_path = REPO / "evidence" / "original" / args.program / "deployed.so"
+    if not deployed_path.exists():
+        print(f"ERROR: {deployed_path} not found")
+        return 1
+
+    output_dir, _, expected_identity = prepare_destination(args.output)
+    staging = temporary_sibling(output_dir, "staging")
+    try:
+        build_packet(args.program, staging, output_dir)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    publish_packet(staging, output_dir, expected_identity)
     return 0
 
 

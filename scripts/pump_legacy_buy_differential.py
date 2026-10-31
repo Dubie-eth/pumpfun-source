@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """Offline legacy buy recovery: normally signed synthetic transactions, captured dependencies."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,base64,hashlib,json,struct,gzip
 import pump_trade_fixture as f
+from pump_amm_reusable_harness import pin_program
+from pump_differential_output import PumpReport
+from pump_trade_fixture import REPORT_INPUTS
 from solders.clock import Clock
 R=f.R;P=f.Pubkey.from_string(f.x['program']);USER=f.Keypair.from_seed(bytes([231])*32)
 INITIAL={k:f.vm.get_account(k) for k in f.msg.account_keys}
 CURVE=f.Pubkey.from_string(f.x['accounts']['curve']);GLOBAL=f.Pubkey.from_string(f.x['accounts']['global']);FEE=f.Pubkey.from_string(f.x['accounts']['fee_config'])
-IDL=json.loads((R/'evidence/upstream/pump.json').read_text());IX=next(i for i in IDL['instructions'] if i['name']=='buy')
+IDL=json.loads((R/'evidence/upstream/pump.json').read_text(encoding='utf-8'));IX=next(i for i in IDL['instructions'] if i['name']=='buy')
 def run(c,binary=None):
  IX=next(i for i in IDL['instructions'] if i['name']==c.get('kind','buy'))
  vm=f.LiteSVM().with_transaction_history(0)
  if 'unix_timestamp' in c:vm.set_clock(Clock(1,0,0,0,c['unix_timestamp']))
  for name in ['pump','pump_fees']:
-  cap=json.loads((R/f'evidence/original/{name}/capture.json').read_text());vm.add_program_from_file(f.Pubkey.from_string(cap['program']),binary if name=='pump' and binary else R/f'evidence/original/{name}/deployed.so')
+  cap=json.loads((R/f'evidence/original/{name}/capture.json').read_text());vm.add_program_from_file(f.Pubkey.from_string(cap['program']),pin_program(binary) if name=='pump' and binary else R/f'evidence/original/{name}/deployed.so')
  for name in ['spl_token','spl_token_2022','associated_token']:
   cap=json.loads((R/f'evidence/dependencies/{name}/capture.json').read_text());vm.add_program_from_file(f.Pubkey.from_string(cap['program']),R/f'evidence/dependencies/{name}/deployed.so')
  for k,a in INITIAL.items():
@@ -113,11 +118,11 @@ def cases():
  return rows
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);args=ap.parse_args();rows=[]
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);args=ap.parse_args();publisher=PumpReport(args.output,R,args.candidate,__file__,extra_inputs=REPORT_INPUTS);rows=[]
  for c in cases():
   o=run(c);r={'case':c,'original':o}
   if args.candidate:
    b=run(c,args.candidate);diff=[k for k in ['error','accounts','events','inner','return_data'] if o[k]!=b[k]];r.update(candidate=b,different_fields=diff,match=not diff)
   rows.append(r)
- d={'scope':'Normally signed offline synthetic legacy buy fixtures; full binary identity unproven.','original_sha256':hashlib.sha256((R/'evidence/original/pump/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(args.candidate.read_bytes()).hexdigest() if args.candidate else None,'script_sha256':hashlib.sha256(f.pathlib.Path(__file__).read_bytes()).hexdigest(),'harness_sha256':hashlib.sha256(f.pathlib.Path(__file__).read_bytes()).hexdigest(),'cases':rows,'case_count':len(rows),'mismatches':[i for i,r in enumerate(rows) if r.get('match') is False]};args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(d,indent=2)+'\n');print(json.dumps({'case_count':len(rows),'mismatches':d['mismatches']}));assert not d['mismatches']
+ d={'scope':'Normally signed offline synthetic legacy buy fixtures; full binary identity unproven.','original_sha256':hashlib.sha256((R/'evidence/original/pump/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(pin_program(args.candidate).read_bytes()).hexdigest() if args.candidate else None,'script_sha256':hashlib.sha256(f.pathlib.Path(__file__).read_bytes()).hexdigest(),'harness_sha256':hashlib.sha256(f.pathlib.Path(__file__).read_bytes()).hexdigest(),'cases':rows,'case_count':len(rows),'mismatches':[i for i,r in enumerate(rows) if r.get('match') is False]};publisher.write((json.dumps(d,indent=2)+'\n').encode('utf-8'));print(json.dumps({'case_count':len(rows),'mismatches':d['mismatches']}));assert not d['mismatches']
 if __name__=='__main__':main()

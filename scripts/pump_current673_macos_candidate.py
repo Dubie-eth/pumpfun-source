@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Measure one frozen source proposal with the current673 native cold recipe."""
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
 import argparse
 import ast
 import copy
@@ -12,7 +14,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import urllib.request
 
 import pump_current673_macos_control as control
 
@@ -50,7 +51,6 @@ def main():
     parser.add_argument('--source-directory', type=Path, default=control.SOURCE_DIRECTORY,
                         help='Archived673 primary source; all65 existing hashes must match')
     args = parser.parse_args()
-    assert __debug__, 'Optimized Python is unsupported'
     spec, cold, source, ledger, proposal, frozen, expected, derived, patch = descriptor(args.candidate, args.source_directory)
     if args.inspect:
         print(json.dumps({'candidate': args.candidate, 'proposal': proposal, 'adapter_patch': patch}, indent=2))
@@ -86,7 +86,7 @@ def main():
     control.write(evidence / 'host.json', {'system': platform.system(), 'machine': platform.machine(),
                   'python': sys.version, 'primary_source_directory': str(source), 'revision': subprocess.check_output(
                       ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()})
-    (evidence / 'measurement-adapter.patch').write_text(patch)
+    (evidence / 'measurement-adapter.patch').write_text(patch,encoding='utf-8',newline='\n')
     shutil.copyfile(Path(__file__), evidence / 'candidate-controller.py')
     shutil.copyfile(Path(control.__file__), evidence / 'control-controller.py')
     shutil.copyfile(ROOT / '.github/workflows/qualify-pump-macos-v144.yml', evidence / 'workflow.yml')
@@ -100,7 +100,7 @@ def main():
         # the explicit terminal measurement assertion differ from the control.
         package = work / 'research/cold'
         package.mkdir(parents=True)
-        (package / 'build.py').write_text(derived)
+        (package / 'build.py').write_text(derived,encoding='utf-8',newline='\n')
         control.write(package / 'build-inputs.json', expected)
         shutil.copytree(cold / 'tools', package / 'tools', ignore=shutil.ignore_patterns('__pycache__'))
         staged = work / 'source'
@@ -116,9 +116,7 @@ def main():
         downloads = {}
         for label, pin in spec['archives'].items():
             archive_path = work / (label + '.tar.bz2')
-            with urllib.request.urlopen(pin['url'], timeout=120) as response, archive_path.open('wb') as f:
-                shutil.copyfileobj(response, f)
-            assert control.sha(archive_path) == pin['sha256']
+            control.download_archive(pin['url'], pin['sha256'], archive_path)
             destination = work / label
             destination.mkdir()
             with tarfile.open(archive_path) as archive:

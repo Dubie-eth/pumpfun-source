@@ -52,6 +52,10 @@ observed along the (necessarily failing) validation chain, and
 `valid_init_transaction_constructible` is reported false with the precise reason.
 No binary patching, no synthetic-signer bypass, no fabricated success.
 """
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
+
+
 import argparse, hashlib, json, pathlib, struct
 from solders.litesvm import LiteSVM
 from solders.pubkey import Pubkey
@@ -60,6 +64,8 @@ from solders.account import Account
 from solders.instruction import Instruction, AccountMeta
 from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
+from pump_amm_reusable_harness import pin_program
+from pump_differential_output import PumpReport
 from solders.clock import Clock
 from solders.compute_budget import set_compute_unit_limit
 
@@ -178,8 +184,9 @@ def main():
     ap.add_argument('--candidate', type=pathlib.Path, required=True,
                     help='source-built mayhem ELF (comparison target)')
     ap.add_argument('--output', type=pathlib.Path, required=True)
-    a = ap.parse_args()
-    original = ROOT / 'evidence/original/mayhem/deployed.so'
+    a = ap.parse_args(); publisher = PumpReport(a.output, ROOT, a.candidate, __file__, extra_inputs=[ROOT/'evidence/original/mayhem/deployed.so', *(ROOT/f'evidence/dependencies/{name}/capture.json' for name in ('spl_token','spl_token_2022','associated_token'))])
+    a.candidate = pin_program(a.candidate)
+    original = pin_program(ROOT / 'evidence/original/mayhem/deployed.so')
     o = Fixture(original); b = Fixture(a.candidate)
     rows = []; mismatches = []
     for c in cases():
@@ -226,12 +233,15 @@ def main():
         'cases': rows,
     }
     a.output.parent.mkdir(parents=True, exist_ok=True)
-    a.output.write_text(json.dumps(report, indent=2) + '\n')
+    publisher.write((json.dumps(report, indent=2) + '\n').encode('utf-8'))
     print(json.dumps({'cases': len(rows), 'mismatches': [m['case'] for m in mismatches],
                       'valid_init_transaction_constructible': False,
                       'terminal_blocker_confirmed': bool(signer_gate),
                       'terminal_blocker': orig_full['anchor_error']}))
-    # Non-zero exit signals that no positive (Ok) oracle case could be formed.
+    # 1: the candidate diverges from the original along the validation chain.
+    # 2: the original no longer stops at the expected signer gate.
+    if mismatches:
+        raise SystemExit(1)
     raise SystemExit(0 if signer_gate else 2)
 
 

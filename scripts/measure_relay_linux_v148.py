@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """SOURCE-ONLY PROPOSAL: one explicit Linux measurement, never a promotion tool."""
+if not __debug__:
+ raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 from pathlib import Path,PurePosixPath
 import argparse,datetime,gzip,hashlib,importlib.util,json,os,platform,re,shutil,shlex,struct,subprocess,sys,tarfile,tempfile,tomllib,traceback,urllib.request
 ASSETS={
@@ -19,7 +21,7 @@ RUST_SHA='293a1b6c60a0b8d92593843c373539e21e3ba087'
 H=lambda b:hashlib.sha256(b).hexdigest()
 J=lambda p:json.loads(Path(p).read_text())
 def write(path,value):
- path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+ path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n',encoding='utf-8',newline='\n')
 def files(root):
  root=Path(root);out={}
  for p in sorted(root.rglob('*')):

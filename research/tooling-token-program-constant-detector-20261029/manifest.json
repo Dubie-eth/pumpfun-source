@@ -1,9 +1,11 @@
 {
-  "README.md": "dcdc21cfd342fc621f6e21f2fb1d8c7217d97becd6f63d2b0e723ead9735bd3a",
+  "README.md": "c6b2bc4a71e985234adef19eab6ae7ae079f5217f75aa3a14a98426b01652dce",
+  "archived/bytecode_signatures.py": "e4e4e541316381e3e37f06f8ed372c69d31b9a131db4651d8f2184c82889c123",
+  "archived/window_elf_reader.py": "5a57f32949f983fc6f9ddf40916cd04bfcd2a73b6a16cc0e9d5d6872180dac32",
   "coverage-delta.json": "064380c4d6fd414119cff9ea6cd727cb07323f71136852f75cb5d6c588e16ba2",
-  "inputs.json": "cd561380a3d13fa17594a34300010a009fcc550515b4427c4233432f6b7a57ba",
-  "observations.json.gz": "8f8b6bdc4fc30446573af2d2a21ac7aeaaf0432c0d07c0a04159f22930f6a534",
-  "proof.py": "1d57fd04a2d663fd720da200e20961af99343af519fea10aa5b017d475313dac",
-  "test_verify.py": "91f2f10898fe2ed700eeeb2e9bee97903d1fb6119375314a7caa2b5caf056d49",
-  "verify.py": "f2816942b0d9eeebe210675dd0797db31df9e89876ae03df9ea149ea2a723459"
+  "inputs.json": "eec1add9ae76ebf997786218b6da5ed567a0c982613abeb7b26991d69b81e3a0",
+  "observations.json.gz": "28e7b072c60b7418b5e58762a61bc9e37fc209c64a941dea31aa36caab3b99d6",
+  "proof.py": "db684193d9dd3c92269f1902350b61e6c6f2a24e26e7845cb7903314e1c0898d",
+  "test_verify.py": "6d55d047558d0cea3fed16fa1e24a20e95d51ae058fb190ea56ab4ac04b73f87",
+  "verify.py": "9bdfafa3d3cf7c98b47eaf36b2f77fa2e9da57e60db1ef2e4eebdd698aee011b"
 }

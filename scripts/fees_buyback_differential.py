@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Original-only buyback probes: normal signatures and synthetic offline accounts."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,pathlib,json,hashlib,base64,argparse
 ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'scripts'))
 from fees_admin_differential import *
+from pump_differential_output import PumpReport
 from solders.clock import Clock
 TOKEN=Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');ATA=Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');WSOL=Pubkey.from_string('So11111111111111111111111111111111111111112');MINT=Pubkey.from_bytes(bytes([61])*32)
 TOKEN2022=Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
 ORIGINAL=ROOT/'evidence/original/pump_fees/deployed.so'
 
-def run(c,binary=ORIGINAL):
+def run(c,image):
  token=TOKEN2022 if c.get('token2022') else TOKEN
- vm=LiteSVM().with_transaction_history(0);vm.add_program_from_file(PROGRAM,binary);vm.set_clock(Clock(1000,0,0,0,1700000000))
+ vm=LiteSVM().with_transaction_history(0);vm.add_program(PROGRAM,image);vm.set_clock(Clock(1000,0,0,0,1700000000))
  for name,key in [('spl_token',TOKEN),('associated_token',ATA)]+([('spl_token_2022',TOKEN2022)] if c.get('token2022') else []):vm.add_program_from_file(key,ROOT/f'evidence/dependencies/{name}/deployed.so')
  for kp in [AUTH,OTHER,PAYER]:vm.set_account(kp.pubkey(),Account(10**12,b'',Pubkey.default()))
  index=c.get('index',0);mint=WSOL if c.get('native',True) else MINT
@@ -59,7 +62,7 @@ def run(c,binary=ORIGINAL):
  return {'case':c,'vault':str(vault),'bump':bump,'error':str(r.err()) if failed else None,'logs':m.logs(),'before':before,'after':snap(),'inner':json.loads(m.to_json())['inner_instructions'],'return':json.loads(m.to_json()).get('return_data'),'transaction_base64':base64.b64encode(bytes(tx)).decode()}
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,default=ROOT/'work/fees-buyback-recovery/probes.json');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,default=ROOT/'work/fees-buyback-recovery/probes.json');a=p.parse_args();publisher=PumpReport(a.output,ROOT,a.candidate,__file__)
  cases=[{'name':'init-'+str(n),'index':n} for n in [0,1,2,3,4,5,6,7,8,9,255]]
  cases += [{'name':'init-nonnative','native':False},{'name':'init-existing','existing':True}]
  for op in ['update_buyback_authority','update_buyback_claim_rate_limit','sweep_buyback']:
@@ -90,13 +93,14 @@ def main():
  cases += [{'name':'sweep-alias-'+alias,'op':'sweep_buyback','destination_alias':alias,'tokens':1000000} for alias in ['vault','authority','program']]
  cases += [{'name':'sweep-below-rent','op':'sweep_buyback','amount':-1},{'name':'sweep-missing-destination-ata','op':'sweep_buyback','missing_destination_ata':True}]
  rows=[];bad=[]
+ # Read each image once, so every case and the receipt use the same bytes.
+ original=ORIGINAL.read_bytes();candidate=a.candidate.read_bytes() if a.candidate else None
  for c in cases:
-  x=run(c);y=run(c,a.candidate) if a.candidate else None
+  x=run(c,original);y=run(c,candidate) if a.candidate else None
   match=all(x[k]==y[k] for k in ['error','before','after','inner','return']) and [l for l in x['logs'] if l.startswith('Program data:')]==[l for l in y['logs'] if l.startswith('Program data:')] if y else None
   rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(c['name'])
- a.output.parent.mkdir(parents=True,exist_ok=True)
- a.output.write_text(json.dumps({'scope':'Normal signed synthetic buyback fixtures; no full-byte identity claim.','original_sha256':hashlib.sha256(ORIGINAL.read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(a.candidate.read_bytes()).hexdigest() if a.candidate else None,'cases':rows,'mismatches':bad},indent=2)+'\n')
+ publisher.write((json.dumps({'scope':'Normal signed synthetic buyback fixtures; no full-byte identity claim.','original_sha256':hashlib.sha256(original).hexdigest(),'candidate_sha256':hashlib.sha256(candidate).hexdigest() if a.candidate else None,'cases':rows,'mismatches':bad},indent=2)+'\n').encode('utf-8'))
  print('Cases',len(rows),'mismatches',bad)
  if bad:raise SystemExit(1)
 if __name__=='__main__':main()

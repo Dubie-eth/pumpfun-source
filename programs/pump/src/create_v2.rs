@@ -193,8 +193,8 @@ pub enum QuoteSource { Sol, Whitelisted, Controlled, Nested(u8) }
 
 
 
-fn validate_quote_mint<'info>(accounts:&CreateV2<'info>,remaining_accounts:&[AccountInfo<'info>])->Result<(Pubkey,Option<u64>,QuoteSource)>{
- if remaining_accounts.is_empty() {return Ok((Pubkey::default(),None,QuoteSource::Sol));}
+fn validate_quote_mint<'info>(accounts:&CreateV2<'info>,remaining_accounts:&[AccountInfo<'info>],sol:&Pubkey)->Result<(Pubkey,Option<u64>,QuoteSource)>{
+ if remaining_accounts.is_empty() {return Ok((*sol,None,QuoteSource::Sol));}
  require_gte!(remaining_accounts.len(),3,PumpError::NotEnoughRemainingAccounts);
  let a=accounts;
  let mint=&remaining_accounts[0];
@@ -210,7 +210,7 @@ fn validate_quote_mint<'info>(accounts:&CreateV2<'info>,remaining_accounts:&[Acc
  require!(program.executable,PumpError::InvalidQuoteTokenProgram);
  let mint_key=mint.key();
  if mint_key==anchor_spl::token::spl_token::native_mint::ID || mint_key==Pubkey::default() {
-  return Ok((Pubkey::default(),None,QuoteSource::Sol));
+  return Ok((*sol,None,QuoteSource::Sol));
  }
 
 
@@ -736,7 +736,7 @@ pub fn execute<'info>(ctx:Context<'_,'_,'_,'info,CreateV2<'info>>,name:String,sy
 
 
  require_eq!(a.global.create_v2_enabled,true,PumpError::CreateV2Disabled);
- let (quote_mint,reserves,source)=validate_quote_mint(ctx.accounts,ctx.remaining_accounts)?;
+ let (quote_mint,reserves,source)=validate_quote_mint(ctx.accounts,ctx.remaining_accounts,&Pubkey::default())?;
 
 
 
@@ -817,10 +817,10 @@ fn init_curve(bonding_curve:&mut trade_types::BondingCurve,global:&Global,creato
 
  let sol=Pubkey::default();
  let initial_virtual_quote_reserves=global.initial_virtual_quote_reserves;
- let virtual_quote_reserves=if quote_mint==sol {global.initial_virtual_sol_reserves} else {reserves.unwrap_or(initial_virtual_quote_reserves)};
- bonding_curve.initial_virtual_quote_reserves=virtual_quote_reserves;
+ if quote_mint==sol {let r=global.initial_virtual_sol_reserves;bonding_curve.virtual_quote_reserves=r;bonding_curve.initial_virtual_quote_reserves=r;}
+ else {let r=reserves.unwrap_or(initial_virtual_quote_reserves);bonding_curve.virtual_quote_reserves=r;bonding_curve.initial_virtual_quote_reserves=r;}
+
  bonding_curve.virtual_token_reserves=global.initial_virtual_token_reserves;
- bonding_curve.virtual_quote_reserves=virtual_quote_reserves;
  bonding_curve.real_token_reserves=global.initial_real_token_reserves;
  bonding_curve.real_quote_reserves=0;
  bonding_curve.token_total_supply=global.token_total_supply;

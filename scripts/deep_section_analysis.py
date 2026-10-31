@@ -12,6 +12,9 @@ Layer 4: Anchor IDL Recovery — instruction discriminator extraction, account
 Layer 5: Bonding Curve Math — constant product arithmetic extraction, fee
          calculation patterns, overflow protection analysis, fixed-point math
 
+Successful replacements retain the prior packet in a printed .previous-* sibling.
+Publication reuses native atomic exchange/no-replace; unsupported hosts fail closed.
+
 Usage:
     python3 scripts/deep_section_analysis.py --program pump \
         --output research/pump-section-analysis-20261028
@@ -21,13 +24,16 @@ import collections
 import hashlib
 import json
 import os
+import shutil
 import struct
+import stat
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 from window_elf_reader import Elf
+from deep_disassembly import load_idl_discriminators, directory_identity, publish_packet, temporary_sibling
 
 SYSCALL_NAMES = {
     # SBPF hash_symbol_name: seed-zero MurmurHash3 x86_32 of symbol bytes.
@@ -51,6 +57,18 @@ SYSCALL_NAMES = {
     0xd7793abb: "sol_keccak256",
     0x5d2245e4: "sol_get_return_data",
 }
+
+
+def linked(path):
+    """Identify output symlinks and Windows reparse points without following them."""
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    return (stat.S_ISLNK(metadata.st_mode)
+            or bool(getattr(metadata, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+            or bool(getattr(metadata, "st_reparse_tag", 0)))
 
 
 def sha256_file(path):
@@ -107,9 +125,12 @@ def analyze_data_layout(elf):
                 current_start = None
 
         if len(current) >= 4:
+            # Same vaddr base as the in-loop flush above: the file-offset
+            # base (`start`) would misaddress every run that reaches the
+            # section end in a non-identity-mapped ELF.
             strings.append({
                 "offset": current_start,
-                "address": hex(start + current_start),
+                "address": hex(address_start + current_start),
                 "length": len(current),
                 "value": "".join(current)[:200],
             })
@@ -228,6 +249,10 @@ def analyze_relocations(elf):
     rel_sec = elf.secs.get(".rel.dyn")
     if not rel_sec:
         return {"count": 0, "entries": [], "type_distribution": {}}
+    # A malformed table is not equivalent to an absent table. Refuse to
+    # publish a valid-looking zero-relocation report for incomplete input.
+    if rel_sec[4] + rel_sec[5] > len(elf.b) or rel_sec[5] % 16:
+        raise ValueError("truncated or misaligned relocation table")
 
     entries = []
     type_counts = collections.Counter()
@@ -246,7 +271,8 @@ def analyze_relocations(elf):
 
         # Determine target
         target_section = "unknown"
-        if elf.lo <= at < elf.hi:
+        text_section = elf.secs.get(".text")
+        if text_section and text_section[3] <= at < text_section[3] + text_section[5]:
             target_section = ".text"
         for sec_name, sec in elf.secs.items():
             if sec[3] <= at < sec[3] + sec[5] and sec_name != ".text":
@@ -263,11 +289,18 @@ def analyze_relocations(elf):
         }
 
         # For lddw relocations in .text, resolve the pointer value
-        if target_section == ".text" and typ == 8 and elf.b[at] == 0x18:
-            imm_lo = struct.unpack_from("<I", elf.b, at + 4)[0]
-            imm_hi = struct.unpack_from("<I", elf.b, at + 12)[0]
-            resolved = imm_lo | (imm_hi << 32)
-            entry["resolved_value"] = hex(resolved)
+        if target_section == ".text" and typ == 8:
+            text_offset = at - text_section[3]
+            file_offset = text_section[4] + text_offset
+            if file_offset >= len(elf.b):
+                raise ValueError("relocation target exceeds captured file")
+            if elf.b[file_offset] == 0x18:
+                if text_offset + 16 > text_section[5] or file_offset + 16 > len(elf.b):
+                    raise ValueError("truncated lddw relocation target")
+                imm_lo = struct.unpack_from("<I", elf.b, file_offset + 4)[0]
+                imm_hi = struct.unpack_from("<I", elf.b, file_offset + 12)[0]
+                resolved = imm_lo | (imm_hi << 32)
+                entry["resolved_value"] = hex(resolved)
 
         entries.append(entry)
 
@@ -385,29 +418,45 @@ def recover_anchor_idl(elf):
     entry = struct.unpack_from("<Q", b, 24)[0]
 
     # 1. Extract instruction discriminators (sighash values)
-    # Anchor uses sha256("global:<name>")[..8] as 8-byte selectors
+    # Anchor uses sha256("global:<name>")[..8] as 8-byte selectors.
+    # The old scan started at the entrypoint and accepted any lddw followed
+    # by an unrelated conditional jump: the real dispatch tables sit before
+    # the entrypoint, so every published "discriminator" was a stack-bound
+    # constant. With an archived IDL the selectors themselves are the filter
+    # (the deep_disassembly.recover_idl_dispatch approach); without one, a
+    # candidate must be followed by a conditional jump that compares the
+    # loaded register.
     discriminators = []
-    if elf.lo <= entry < elf.hi:
-        scan_end = min(entry + 8000, elf.hi)
-        offset = entry
-        while offset < scan_end:
-            if b[offset] == 0x18:  # lddw
-                imm_lo = struct.unpack_from("<I", b, offset + 4)[0]
-                imm_hi = struct.unpack_from("<I", b, offset + 12)[0]
-                val = imm_lo | (imm_hi << 32)
-                if val != 0 and val < 0xFFFFFFFFFFFFFFFF:
-                    # Look ahead for comparison or call
+    idl_selectors = load_idl_discriminators(elf)
+    seen = set()
+    offset = elf.lo
+    while offset + 16 <= elf.hi:
+        if b[offset] == 0x18:  # lddw
+            imm_lo = struct.unpack_from("<I", b, offset + 4)[0]
+            imm_hi = struct.unpack_from("<I", b, offset + 12)[0]
+            val = imm_lo | (imm_hi << 32)
+            if val != 0 and val < 0xFFFFFFFFFFFFFFFF:
+                keep = False
+                if idl_selectors and val.to_bytes(8, "little") in idl_selectors:
+                    keep = True
+                elif not idl_selectors:
+                    dst_reg = b[offset + 1] & 0xF
                     next_off = offset + 16
-                    if next_off < scan_end:
-                        if b[next_off] in (0x1d, 0x5d, 0x15, 0x55):
-                            discriminators.append({
-                                "value": hex(val),
-                                "bytes": val.to_bytes(8, "little").hex(),
-                                "found_at": hex(offset),
-                            })
-                offset += 16
-            else:
-                offset += 8
+                    if next_off + 8 <= elf.hi and b[next_off] in (0x1d, 0x5d, 0x15, 0x55):
+                        jregs = b[next_off + 1]
+                        keep = (jregs & 0xF) == dst_reg or (
+                            b[next_off] in (0x1d, 0x5d) and (jregs >> 4) == dst_reg
+                        )
+                if keep and val not in seen:
+                    seen.add(val)
+                    discriminators.append({
+                        "value": hex(val),
+                        "bytes": val.to_bytes(8, "little").hex(),
+                        "found_at": hex(offset),
+                    })
+            offset += 16
+        else:
+            offset += 8
 
     # 2. Account struct size inference from allocation patterns
     # Look for alloc_free calls preceded by size loading
@@ -420,7 +469,11 @@ def recover_anchor_idl(elf):
                 for back in range(1, 6):
                     prev = at - back * 8
                     if prev >= elf.lo:
-                        if b[prev] in (0xb7, 0xb4) and b[prev + 1] & 0xF == 1:  # mov imm into size argument r1
+                        # Only cross immediate argument setup: other operations
+                        # may overwrite r1 or change the incoming control flow.
+                        if b[prev] not in (0xb7, 0xb4):
+                            break
+                        if b[prev + 1] & 0xF == 1:  # mov imm into size argument r1
                             size_val = struct.unpack_from("<i", b, prev + 4)[0]
                             if 8 < size_val < 100000:
                                 account_sizes.append({
@@ -633,19 +686,38 @@ def analyze_math_patterns(elf):
 # Main
 # ──────────────────────────────────────────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--program", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
+def prepare_destination(output_dir):
+    output_dir = Path(output_dir)
+    if linked(output_dir):
+        raise ValueError("output directory is a link")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise ValueError("output path is not a directory")
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    deployed_path = REPO / "evidence" / "original" / args.program / "deployed.so"
+    # The manifest hashes every file here and verify.py requires exactly the
+    # generated set, so reject leftovers from another run before writing.
+    packet_files = {
+        "README.md", "layer1-data-layout.json", "layer2-relocation-map.json",
+        "layer3-cross-section.json", "layer4-anchor-idl.json", "layer5-math-analysis.json",
+        "manifest.json", "summary.json", "verify.py",
+    }
+    existing = list(output_dir.iterdir()) if output_dir.exists() else []
+    unexpected = sorted(path.name for path in existing if path.name not in packet_files)
+    if unexpected:
+        raise ValueError("unexpected packet entry: " + ", ".join(unexpected))
+    invalid = sorted(name for name in packet_files
+                     if linked(output_dir / name)
+                     or ((output_dir / name).exists() and not (output_dir / name).is_file()))
+    if invalid:
+        raise ValueError("packet entry is not a regular file: " + ", ".join(invalid))
+    return output_dir, packet_files, directory_identity(output_dir)
+
+
+def build_packet(program, output_dir, output_label):
+    deployed_path = REPO / "evidence" / "original" / program / "deployed.so"
     if not deployed_path.exists():
         print(f"ERROR: {deployed_path} not found")
         return 1
-
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[deep] Reading {deployed_path}")
     elf = Elf(deployed_path)
@@ -673,20 +745,20 @@ def main():
     # --- Write outputs ---
 
     (output_dir / "layer1-data-layout.json").write_text(
-        json.dumps(data_layout, indent=2) + "\n", encoding="utf-8")
+        json.dumps(data_layout, indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "layer2-relocation-map.json").write_text(
-        json.dumps(reloc_map, indent=2) + "\n", encoding="utf-8")
+        json.dumps(reloc_map, indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "layer3-cross-section.json").write_text(
-        json.dumps(cross_section, indent=2) + "\n", encoding="utf-8")
+        json.dumps(cross_section, indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "layer4-anchor-idl.json").write_text(
-        json.dumps(idl_recovery, indent=2) + "\n", encoding="utf-8")
+        json.dumps(idl_recovery, indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "layer5-math-analysis.json").write_text(
-        json.dumps(math_analysis, indent=2) + "\n", encoding="utf-8")
+        json.dumps(math_analysis, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # Summary
     text_bytes = elf.hi - elf.lo
     summary = {
-        "program": args.program,
+        "program": program,
         "deployed_sha256": sha256_bytes(elf.b),
         "text_bytes": text_bytes,
         "layer1_data_layout": {
@@ -717,7 +789,7 @@ def main():
             "overflow_protected": math_analysis["windows_with_overflow_checks"],
         },
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # README
     l1 = summary["layer1_data_layout"]
@@ -725,10 +797,10 @@ def main():
     l3 = summary["layer3_cross_section"]
     l4 = summary["layer4_anchor_idl"]
     l5 = summary["layer5_math"]
-    readme = f"""# {args.program} — 5-Layer Deep Section Analysis
+    readme = f"""# {program} — 5-Layer Deep Section Analysis
 
 ## Scope
-Comprehensive cross-section analysis of the deployed {args.program} binary,
+Comprehensive cross-section analysis of the deployed {program} binary,
 covering data layout, relocations, data dependencies, Anchor IDL recovery,
 and mathematical pattern extraction.
 
@@ -780,7 +852,7 @@ and mathematical pattern extraction.
 python3 verify.py
 ```
 """
-    (output_dir / "README.md").write_text(readme, encoding="utf-8")
+    (output_dir / "README.md").write_text(readme, encoding="utf-8", newline="\n")
 
     verify_py = '''#!/usr/bin/env python3
 import hashlib, json, os, sys
@@ -792,6 +864,8 @@ def sha256_file(p):
         for c in iter(lambda: f.read(65536), b""): h.update(c)
     return h.hexdigest()
 def main():
+    if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
+        print("FAIL: packet directory entry set mismatch"); return 1
     m = json.load(open(os.path.join(PACKET, "manifest.json"), encoding="utf-8"))
     if not isinstance(m, dict) or set(m) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
@@ -815,7 +889,7 @@ if __name__ == "__main__": sys.exit(main())
         'layer3-cross-section.json', 'layer4-anchor-idl.json', 'layer5-math-analysis.json',
         'summary.json', 'verify.py',
     ]))
-    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8")
+    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8", newline="\n")
 
     manifest = {}
     for name in sorted(os.listdir(output_dir)):
@@ -824,13 +898,33 @@ if __name__ == "__main__": sys.exit(main())
         path = output_dir / name
         if path.is_file():
             manifest[name] = sha256_file(str(path))
-    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     total_lines = sum(
         sum(1 for _ in open(output_dir / name, encoding="utf-8"))
         for name in os.listdir(output_dir) if (output_dir / name).is_file()
     )
-    print(f"[deep] wrote {len(manifest)+1} files, ~{total_lines:,} lines to {output_dir}")
+    print(f"[deep] wrote {len(manifest)+1} files, ~{total_lines:,} lines to {output_label}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--program", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    output_dir, _, expected_identity = prepare_destination(args.output)
+    staging = temporary_sibling(output_dir, "staging")
+    try:
+        result = build_packet(args.program, staging, output_dir)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    if result != 0:
+        shutil.rmtree(staging, ignore_errors=True)
+        return result
+    publish_packet(staging, output_dir, expected_identity)
     return 0
 
 

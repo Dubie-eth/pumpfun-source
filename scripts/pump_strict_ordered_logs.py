@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
-"""Read-only ordered whole-log audit of an actual Pump report; only compute-meter lines excluded."""
+"""Read-only ordered whole-log audit; only compute-meter lines excluded.
+
+A completed receipt remains published if a subsequent input check fails. Its
+digests identify the audited bytes; a later writer may already own the output.
+"""
 from pathlib import Path
-import argparse,gzip,hashlib,json,re
+import argparse,gzip,hashlib,json,os,re,tempfile
 ORIGINAL='7a19affaa2c6187e04a5fe0ea298cee81fa5eb8c24cfcc30d85f615e89f7b02d'
 # A compute-meter line names a pubkey. One character also matches the old
 # class, so a real log could be dropped as if it were a meter line.
 UNITS=re.compile(r'^Program [1-9A-HJ-NP-Za-km-z]{32,44} consumed [0-9]+ of [0-9]+ compute units$')
 def require(ok,message):
  if not ok:raise ValueError(message)
+def publish_file(staged, output):
+ """Publish without replacement; return whether staging was consumed."""
+ if os.name == 'nt':
+  # Windows sandboxes refuse hard links (WinError 5); same-directory
+  # rename refuses an existing destination, preserving no-replace.
+  os.rename(staged, output)
+  return True
+ os.link(staged, output)
+ return False
 def audit(report,candidate_sha256,expected_pairs=None):
  require(report['original_sha256']==ORIGINAL and report['candidate_sha256']==candidate_sha256,'Actual report/image binding differs');expected=report['case_count']if expected_pairs is None else expected_pairs;require(type(expected)is int and expected>0 and type(report['case_count'])is int and report['case_count']==expected,'Expected actual case count differs');pairs=0;mismatches=[]
  def getlogs(outcome):
@@ -28,5 +41,20 @@ def audit(report,candidate_sha256,expected_pairs=None):
  walk(report['suites'],[]);require(pairs==expected,'Report pair/log coverage differs')
  return {'scope':__doc__,'candidate_sha256':candidate_sha256,'original_sha256':ORIGINAL,'case_pairs':pairs,'strict_ordered_log_mismatch_cases':len(mismatches),'source_normalization':None,'excluded_log_category':'Only complete runtime compute-meter lines matching UNITS; all other log text/order preserved.','mismatches':mismatches,'new_execution_or_signature_coverage_claimed':False}
 def main():
- p=argparse.ArgumentParser();p.add_argument('--report',type=Path,required=True);p.add_argument('--candidate',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--expected-pairs',type=int);a=p.parse_args();raw=a.report.read_bytes();report=json.loads(gzip.decompress(raw)if raw.startswith(b'\x1f\x8b')else raw);candidate=a.candidate.read_bytes();result=audit(report,hashlib.sha256(candidate).hexdigest(),a.expected_pairs);result['source_report_sha256']=hashlib.sha256(raw).hexdigest();result['checker_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest();require(not a.output.exists(),'Output already exists');a.output.write_text(json.dumps(result,indent=2)+'\n');require(a.report.read_bytes()==raw and a.candidate.read_bytes()==candidate,'Input changed during audit');print(json.dumps({k:v for k,v in result.items()if k!='mismatches'},indent=2));require(not result['mismatches'],'Strict ordered logs differ')
+ p=argparse.ArgumentParser();p.add_argument('--report',type=Path,required=True);p.add_argument('--candidate',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--expected-pairs',type=int);a=p.parse_args()
+ raw=a.report.read_bytes();report=json.loads(gzip.decompress(raw)if raw.startswith(b'\x1f\x8b')else raw);candidate=a.candidate.read_bytes();result=audit(report,hashlib.sha256(candidate).hexdigest(),a.expected_pairs);result['source_report_sha256']=hashlib.sha256(raw).hexdigest();result['checker_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest();require(not a.output.exists(),'Output already exists')
+ a.output.parent.mkdir(parents=True,exist_ok=True);staged=None;published=False
+ try:
+  with tempfile.NamedTemporaryFile('w',dir=a.output.parent,prefix='.'+a.output.name+'.',delete=False,encoding='utf-8',newline='\n')as stream:
+   staged=Path(stream.name);stream.write(json.dumps(result,indent=2)+'\n');stream.flush();os.fsync(stream.fileno())
+  require(a.report.read_bytes()==raw and a.candidate.read_bytes()==candidate,'Input changed during audit')
+  if publish_file(staged,a.output):staged=None
+  published=True
+  require(a.report.read_bytes()==raw and a.candidate.read_bytes()==candidate,'Input changed during audit')
+ except BaseException as error:
+  if published:error.add_note('Audit output was already published; leaving output path untouched: '+str(a.output))
+  raise
+ finally:
+  if staged is not None:staged.unlink(missing_ok=True)
+ print(json.dumps({k:v for k,v in result.items()if k!='mismatches'},indent=2));require(not result['mismatches'],'Strict ordered logs differ')
 if __name__=='__main__':main()

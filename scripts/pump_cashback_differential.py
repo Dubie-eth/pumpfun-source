@@ -3,11 +3,13 @@
 import argparse,base64,gzip,hashlib,json,struct
 from solders.rent import Rent
 import pump_trade_fixture as f
+from pump_amm_reusable_harness import pin_program
+from pump_differential_output import PumpReport
 R=f.R; P=f.Pubkey.from_string(f.x['program']);USER=f.Keypair.from_seed(bytes([229])*32);PAYER=f.Keypair.from_seed(bytes([228])*32)
 TOKEN=f.Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');TOKEN22=f.Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');ATA=f.Pubkey.from_string('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');WSOL=f.Pubkey.from_string('So11111111111111111111111111111111111111112');QUOTE=f.Pubkey(bytes([71])*32)
-IDL=json.loads((R/'evidence/upstream/pump.json').read_text());IX={x['name']:x for x in IDL['instructions']}
+IDL=json.loads((R/'evidence/upstream/pump.json').read_text(encoding='utf-8'));IX={x['name']:x for x in IDL['instructions']}
 def run(c,binary=None):
- vm=f.LiteSVM().with_transaction_history(0).with_sigverify(True);vm.add_program_from_file(P,binary or R/'evidence/original/pump/deployed.so')
+ vm=f.LiteSVM().with_transaction_history(0).with_sigverify(True);vm.add_program_from_file(P,pin_program(binary or R/'evidence/original/pump/deployed.so'))
  for name in ['spl_token','spl_token_2022','associated_token']:
   cap=json.loads((R/f'evidence/dependencies/{name}/capture.json').read_text());vm.add_program_from_file(f.Pubkey.from_string(cap['program']),R/f'evidence/dependencies/{name}/deployed.so')
  user=USER.pubkey();vol=f.Pubkey.find_program_address([b'user_volume_accumulator',bytes(user)],P)[0];mint=QUOTE if c.get('token_quote') else WSOL;tp=TOKEN22 if c.get('token22') else TOKEN
@@ -79,7 +81,9 @@ def panic_messages(result):
  return [line.split("\n",1)[-1] for line in result["logs"] if line.startswith("Program log: panicked at ")]
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);a=ap.parse_args();rows=[]
+ ap=argparse.ArgumentParser();ap.add_argument('--candidate',type=f.pathlib.Path);ap.add_argument('--output',type=f.pathlib.Path,required=True);a=ap.parse_args()
+ publisher=PumpReport(a.output,R,a.candidate,__file__,extra_inputs=f.REPORT_INPUTS)
+ rows=[]
  for c in cases():
   o=run(c);r={'case':c,'original':o}
   if a.candidate:
@@ -87,6 +91,6 @@ def main():
    if panic_messages(o)!=panic_messages(b):diff.append('panic_message')
    r.update(candidate=b,match=not diff,different_fields=diff)
   rows.append(r)
- d={'scope':'Ordinary test payer signatures; synthetic offline cashback balances, genuine program CPIs; no incentive administration or token incentive claims. Byte identity unproven.','original_sha256':hashlib.sha256((R/'evidence/original/pump/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(a.candidate.read_bytes()).hexdigest() if a.candidate else None,'harness_sha256':hashlib.sha256(f.pathlib.Path(__file__).read_bytes()).hexdigest(),'case_count':len(rows),'cases':rows,'mismatches':[i for i,r in enumerate(rows) if r.get('match') is False]};a.output.parent.mkdir(parents=True,exist_ok=True);raw=(json.dumps(d,indent=2)+'\n').encode();a.output.write_bytes(gzip.compress(raw,mtime=0) if a.output.suffix=='.gz' else raw);print(json.dumps({'cases':len(rows),'mismatches':d['mismatches']}))
+ d={'scope':'Ordinary test payer signatures; synthetic offline cashback balances, genuine program CPIs; no incentive administration or token incentive claims. Byte identity unproven.','original_sha256':hashlib.sha256(pin_program(R/'evidence/original/pump/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(pin_program(a.candidate).read_bytes()).hexdigest() if a.candidate else None,'harness_sha256':hashlib.sha256(f.pathlib.Path(__file__).read_bytes()).hexdigest(),'case_count':len(rows),'cases':rows,'mismatches':[i for i,r in enumerate(rows) if r.get('match') is False]};raw=(json.dumps(d,indent=2)+'\n').encode();publisher.write(gzip.compress(raw,mtime=0) if a.output.suffix=='.gz' else raw);print(json.dumps({'cases':len(rows),'mismatches':d['mismatches']}))
  if d['mismatches']:raise SystemExit(1)
 if __name__=='__main__':main()

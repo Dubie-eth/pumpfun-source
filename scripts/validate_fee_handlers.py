@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Execute recovered query handlers and captured original independently in LiteSVM."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse,gzip,hashlib,json,pathlib,struct
 from fee_recovery_fixture import *
 p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);args=p.parse_args()
@@ -25,7 +27,7 @@ def run(name,data,raw=None,owner=None,key=None,count=2):
   after=f.vm.get_account(actual_key)
   assert before.data==after.data and before.lamports==after.lamports,(name,'query mutated account')
  record(name,results)
-receipt=ROOT/'repro/experiments/quote-selector-differential.json.gz'
+receipt=ROOT/'research/fees-query-inputs/quote-selector-cases.json.gz'
 cases=json.loads(gzip.decompress(receipt.read_bytes()))['cases']
 for i,c in enumerate(cases):
  results=[]
@@ -36,8 +38,8 @@ for i,c in enumerate(cases):
   after=f.vm.get_account(f.key)
   assert before.data==after.data and before.lamports==after.lamports
  record('quote-'+str(i),results)
-tier_receipt=ROOT/'repro/experiments/fee-selector-differential.json'
-tier_cases=json.loads(tier_receipt.read_text())['cases']
+tier_receipt=ROOT/'research/fees-query-inputs/fee-selector-cases.json.gz'
+tier_cases=json.loads(gzip.decompress(tier_receipt.read_bytes()))['cases']
 tier_disc=bytes(next(i['discriminator'] for i in original.idl['instructions'] if i['name']=='get_fees'))
 for i,c in enumerate(tier_cases):
  original.config(c['tiers'],c['stable_tiers'],(1,2,3),(1000,2000,3000))
@@ -77,4 +79,5 @@ for size in [2511,2512,4072,4073,4096,4097,5000]:
   data=legacy_base[:109]+count.to_bytes(4,'little')+legacy_base[113:]
   run('legacy-stable-count-'+str(size)+'-'+str(count),data[:size])
 report={'scope':'Two independently executing full query handlers only; other handlers unsupported. Error numbers/return bytes and read-only state tested; logs, compute, full byte identity not asserted.','original_sha256':hashlib.sha256((ROOT/'evidence/original/pump_fees/deployed.so').read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(args.candidate.read_bytes()).hexdigest(),'input_receipt_sha256':hashlib.sha256(receipt.read_bytes()).hexdigest(),'tier_input_receipt_sha256':hashlib.sha256(tier_receipt.read_bytes()).hexdigest(),'case_count':len(rows),'mismatch_count':len(failures),'failures':failures,'cases':rows}
-args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2)+'\n');print('Cases',len(rows),'mismatches',len(failures));print(json.dumps(failures[:10],indent=2));assert not failures
+args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8',newline='\n');print('Cases',len(rows),'mismatches',len(failures));print(json.dumps(failures[:10],indent=2))
+if failures:raise SystemExit(1)

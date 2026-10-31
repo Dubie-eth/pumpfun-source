@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Original-only normal-signed local SocialFeePda v2 claim probes."""
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import sys,json,base64,hashlib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from fees_social_claim_differential import *
+from pump_differential_output import PumpReport
 from solders.compute_budget import set_compute_unit_limit
 TOKEN=Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
 TOKEN22=Pubkey.from_string('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb')
@@ -13,8 +16,8 @@ WSOL=Pubkey.from_string('So11111111111111111111111111111111111111112')
 USDC=Pubkey.from_bytes(bytes([198,250,122,243,190,219,173,58,61,101,243,106,171,201,116,49,177,187,228,194,210,246,224,228,124,166,2,3,69,47,93,97]))
 IX=next(x for x in IDL['instructions'] if x['name']=='claim_social_fee_pda_v2')
 ORIGINAL=ROOT/'evidence/original/pump_fees/deployed.so'
-def run(c,binary=ORIGINAL):
- vm=LiteSVM().with_transaction_history(0);vm.add_program_from_file(PROGRAM,binary)
+def run(c,image):
+ vm=LiteSVM().with_transaction_history(0);vm.add_program(PROGRAM,image)
  for name,key in [('spl_token',TOKEN),('spl_token_2022',TOKEN22),('associated_token',ATA)]:vm.add_program_from_file(key,ROOT/f'evidence/dependencies/{name}/deployed.so')
  vm.set_clock(Clock(1000,0,0,0,c.get('time',1700000000)))
  uid=c.get('user_id','12345').encode();platform=c.get('platform',0);social,bump=Pubkey.find_program_address([b'social-fee-pda',uid,bytes([platform])],PROGRAM)
@@ -81,12 +84,14 @@ def cases():
  rows += [{'name':'negative-time-'+branch,'quote':str(quote),'time':-1} for branch,quote in [('native',WSOL),('stable',USDC)]]
  return rows
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();rows=[];bad=[]
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=Path);p.add_argument('--output',type=Path,required=True);a=p.parse_args();publisher=PumpReport(a.output,ROOT,a.candidate,__file__);rows=[];bad=[]
+ # Read each image once, so every case and the receipt use the same bytes.
+ original=ORIGINAL.read_bytes();candidate=a.candidate.read_bytes() if a.candidate else None
  for c in cases():
-  x=run(c);y=run(c,a.candidate) if a.candidate else None;match=all(x[k]==y[k] for k in ['error','before','after','events','inner','return']) if y else None
+  x=run(c,original);y=run(c,candidate) if a.candidate else None;match=all(x[k]==y[k] for k in ['error','before','after','events','inner','return']) if y else None
   rows.append({'case':c,'original':x,'candidate':y,'match':match})
   if match is False:bad.append(c['name'])
- report={'scope':'Signed synthetic local social claimv2 fixtures; not full byte identity.','original_sha256':hashlib.sha256(ORIGINAL.read_bytes()).hexdigest(),'candidate_sha256':hashlib.sha256(a.candidate.read_bytes()).hexdigest() if a.candidate else None,'cases':rows,'mismatches':bad}
- a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(report,indent=2)+'\n');print('Cases',len(rows),'mismatches',bad)
+ report={'scope':'Signed synthetic local social claimv2 fixtures; not full byte identity.','original_sha256':hashlib.sha256(original).hexdigest(),'candidate_sha256':hashlib.sha256(candidate).hexdigest() if a.candidate else None,'cases':rows,'mismatches':bad}
+ publisher.write((json.dumps(report,indent=2)+'\n').encode('utf-8'));print('Cases',len(rows),'mismatches',bad)
  if bad:raise SystemExit(1)
 if __name__=='__main__':main()

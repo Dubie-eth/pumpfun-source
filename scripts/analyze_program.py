@@ -4,20 +4,28 @@
 Produces a detailed window inventory, call graph, function size distribution,
 and cross-referencing data for reconstruction work.
 
+Regeneration retains the prior packet in a printed sibling .previous-* directory.
+Publication uses the shared native exchange/no-replace helpers; unsupported hosts
+fail closed.
+
 Usage:
     python3 scripts/analyze_program.py --program pump --output research/pump-window-analysis-20261028
     python3 scripts/analyze_program.py --program pump_amm --output research/amm-window-analysis-20261028
 """
 import argparse
+import bisect
 import collections
 import hashlib
 import json
+import shutil
+import stat
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 from window_elf_reader import Elf
+from deep_disassembly import directory_identity, publish_packet, temporary_sibling
 
 PACKET_FILES = frozenset({
     "README.md",
@@ -31,6 +39,18 @@ PACKET_FILES = frozenset({
 })
 
 
+def linked(path):
+    """Recognize symlinks and Windows reparse-point aliases without following them."""
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return False
+    return (stat.S_ISLNK(metadata.st_mode) or
+            bool(getattr(metadata, "st_file_attributes", 0) &
+                 getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)) or
+            bool(getattr(metadata, "st_reparse_tag", 0)))
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -41,19 +61,27 @@ def sha256_file(path):
 
 def prepare_output_directory(output_dir):
     """Reject stale packet entries before any analysis output is replaced."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    unexpected = sorted(path.name for path in output_dir.iterdir()
+    output_dir = Path(output_dir)
+    if linked(output_dir):
+        raise ValueError("output directory is a link")
+    if output_dir.exists() and not output_dir.is_dir():
+        raise ValueError("output path is not a directory")
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    existing = list(output_dir.iterdir()) if output_dir.exists() else []
+    unexpected = sorted(path.name for path in existing
                         if path.name not in PACKET_FILES)
     if unexpected:
         raise ValueError("unexpected packet entry: " + ", ".join(unexpected))
     invalid = sorted(name for name in PACKET_FILES
-                     if (output_dir / name).exists()
-                     and not (output_dir / name).is_file())
+                     if linked(output_dir / name)
+                     or ((output_dir / name).exists()
+                         and not (output_dir / name).is_file()))
     if invalid:
         raise ValueError("packet entry is not a regular file: " + ", ".join(invalid))
+    return output_dir, directory_identity(output_dir)
 
 
-def analyze_program(program_name, output_dir):
+def _build_packet(program_name, output_dir, output_label):
     deployed_path = REPO / "evidence" / "original" / program_name / "deployed.so"
     if not deployed_path.exists():
         print(f"ERROR: {deployed_path} not found")
@@ -63,54 +91,58 @@ def analyze_program(program_name, output_dir):
     elf = Elf(deployed_path)
 
     output_dir = Path(output_dir)
-    prepare_output_directory(output_dir)
 
     # --- Window inventory ---
     windows = []
     entries = elf.entries
     boundaries = entries + [elf.hi]
+    function_names = {}
+    for function in elf.funcs:
+        function_names.setdefault(function["start"], function["name"])
+    outgoing = collections.defaultdict(list)
+    incoming = collections.defaultdict(list)
+    relocations = collections.defaultdict(list)
+    for at, target in elf.calls.items():
+        index = bisect.bisect_right(entries, at) - 1
+        if index >= 0 and at < elf.hi:
+            outgoing[entries[index]].append((at, target))
+        incoming[target].append(at)
+    for at, relocation in sorted(elf.relocations.items()):
+        index = bisect.bisect_right(entries, at) - 1
+        if index >= 0 and at < elf.hi:
+            relocations[entries[index]].append(
+                {"offset": at - entries[index], **relocation})
 
     for i, start in enumerate(entries):
         end = boundaries[i + 1]
         size = end - start
         # Find function name if any
-        name = None
-        for f in elf.funcs:
-            if f["start"] == start:
-                name = f["name"]
-                break
+        name = function_names.get(start)
 
         # Analyze calls from this window
         calls_out = []
-        for at, target in elf.calls.items():
-            if start <= at < end:
-                target_name = None
-                for f in elf.funcs:
-                    if f["start"] == target:
-                        target_name = f["name"]
-                        break
-                calls_out.append({
-                    "offset": at - start,
-                    "target_address": hex(target),
-                    "target_name": target_name,
-                })
+        for at, target in outgoing.get(start, ()):
+            calls_out.append({
+                "offset": at - start,
+                "target_address": hex(target),
+                "target_name": function_names.get(target),
+            })
 
         # Analyze calls into this window
         calls_in = []
-        for at, target in elf.calls.items():
-            if target == start:
-                caller_name = None
-                for f in elf.funcs:
-                    if f["start"] <= at < f["start"] + f["size"]:
-                        caller_name = f["name"]
-                        break
-                calls_in.append({
-                    "caller_address": hex(at),
-                    "caller_name": caller_name,
-                })
+        for at in incoming.get(start, ()):
+            caller_name = None
+            for f in elf.funcs:
+                if f["start"] <= at < f["start"] + f["size"]:
+                    caller_name = f["name"]
+                    break
+            calls_in.append({
+                "caller_address": hex(at),
+                "caller_name": caller_name,
+            })
 
         # Relocation analysis
-        relocs = elf.pattern(start, size)
+        relocs = relocations.get(start, [])
 
         # Compute normalized hash for this window
         norm_bytes = elf.normalized[start:end]
@@ -202,21 +234,21 @@ def analyze_program(program_name, output_dir):
     # --- Write outputs ---
     # 1. Summary
     summary_path = output_dir / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"[analyze] summary: {len(windows)} windows, {total_text:,} text bytes")
 
     # 2. Full window inventory
     inventory_path = output_dir / "window-inventory.json"
-    inventory_path.write_text(json.dumps(windows, indent=2) + "\n", encoding="utf-8")
+    inventory_path.write_text(json.dumps(windows, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 3. Call graph
     callgraph_path = output_dir / "call-graph.json"
-    callgraph_path.write_text(json.dumps(call_graph_edges, indent=2) + "\n", encoding="utf-8")
+    callgraph_path.write_text(json.dumps(call_graph_edges, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 4. Function index (name -> address mapping)
     func_index = {f["name"]: hex(f["start"]) for f in elf.funcs if f["name"]}
     func_index_path = output_dir / "function-index.json"
-    func_index_path.write_text(json.dumps(func_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    func_index_path.write_text(json.dumps(func_index, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
     # 5. Section layout
     section_layout = {}
@@ -230,7 +262,7 @@ def analyze_program(program_name, output_dir):
             "sha256": hashlib.sha256(elf.b[s[4]:s[4] + s[5]]).hexdigest() if s[1] != 8 else None,
         }
     layout_path = output_dir / "section-layout.json"
-    layout_path.write_text(json.dumps(section_layout, indent=2) + "\n", encoding="utf-8")
+    layout_path.write_text(json.dumps(section_layout, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 6. README
     readme = f"""# {program_name} — Deployed Binary Analysis
@@ -243,7 +275,7 @@ def analyze_program(program_name, output_dir):
 ## .text Section
 - Start: `{hex(elf.lo)}`
 - End: `{hex(elf.hi)}`
-- Size: {total_text:,} bytes ({total_text // 8:,} BPF instructions)
+- Size: {total_text:,} bytes ({total_text // 8:,} 8-byte instruction slots)
 
 ## Window Summary
 | Metric | Value |
@@ -260,7 +292,7 @@ def analyze_program(program_name, output_dir):
 {chr(10).join(f'| {k} | {v} |' for k, v in buckets.items())}
 
 ## Largest Windows (potential handler bodies)
-| Address | Size (bytes) | BPF Instructions | Name |
+| Address | Size (bytes) | 8-byte Slots | Name |
 |---------|-------------|-----------------|------|
 {chr(10).join(f'| {w["address"]} | {w["size"]:,} | {w["size"]//8:,} | {w["name"] or "(unnamed)"} |' for w in large_windows[:20])}
 
@@ -278,7 +310,7 @@ def analyze_program(program_name, output_dir):
 python3 verify.py
 ```
 """
-    (output_dir / "README.md").write_text(readme, encoding="utf-8")
+    (output_dir / "README.md").write_text(readme, encoding="utf-8", newline="\n")
 
     # 7. Verify script
     verify_py = '''#!/usr/bin/env python3
@@ -296,6 +328,8 @@ def sha256_file(path):
     return h.hexdigest()
 
 def main():
+    if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
+        print("FAIL: packet directory entry set mismatch"); return 1
     manifest = json.load(open(os.path.join(PACKET, "manifest.json"), encoding="utf-8"))
     if not isinstance(manifest, dict) or set(manifest) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
@@ -327,19 +361,34 @@ if __name__ == "__main__":
         'README.md', 'call-graph.json', 'function-index.json', 'section-layout.json',
         'summary.json', 'verify.py', 'window-inventory.json',
     ]))
-    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8")
+    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8", newline="\n")
 
     # 8. Manifest
     manifest = {
         name: sha256_file(str(output_dir / name))
         for name in sorted(PACKET_FILES - {"manifest.json"})
     }
-    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     total_lines = sum(
         len((output_dir / name).read_text(encoding="utf-8").splitlines()) for name in manifest
     )
-    print(f"[analyze] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_dir}")
+    print(f"[analyze] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_label}")
+    return 0
+
+
+def analyze_program(program_name, output_dir):
+    output_dir, expected_identity = prepare_output_directory(output_dir)
+    staging = temporary_sibling(output_dir, "staging")
+    try:
+        result = _build_packet(program_name, staging, output_dir)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    if result != 0:
+        shutil.rmtree(staging, ignore_errors=True)
+        return result
+    publish_packet(staging, output_dir, expected_identity)
     return 0
 
 

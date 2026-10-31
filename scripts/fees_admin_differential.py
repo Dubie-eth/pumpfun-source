@@ -8,6 +8,7 @@ from solders.litesvm import LiteSVM
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 from solders.transaction_metadata import FailedTransactionMetadata
+from pump_differential_output import PumpReport
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 IDL=json.loads((ROOT/'evidence/upstream/pump_fees.json').read_text())
 PROGRAM=Pubkey.from_string(IDL['address']);GLOBAL,BUMP=Pubkey.find_program_address([b'fee-program-global'],PROGRAM);EVENT=Pubkey.find_program_address([b'__event_authority'],PROGRAM)[0]
@@ -16,7 +17,9 @@ DISC=bytes(next(x['discriminator'] for x in IDL['accounts'] if x['name']=='FeePr
 BASE=DISC+bytes([BUMP])+bytes(AUTH.pubkey())+bytes([17])+bytes([44])*32+(123).to_bytes(8,'little')+bytes(256)
 class Fixture:
  def __init__(self,binary):
-  self.vm=LiteSVM().with_transaction_history(0);self.vm.add_program_from_file(PROGRAM,binary)
+  image=pathlib.Path(binary).read_bytes()
+  self.program_sha256=hashlib.sha256(image).hexdigest()
+  self.vm=LiteSVM().with_transaction_history(0);self.vm.add_program(PROGRAM,image)
   for key in [AUTH,OTHER,PAYER]:self.vm.airdrop(key.pubkey(),10**12)
  def run(self,c):
   data=bytearray(BASE);owner=PROGRAM;key=GLOBAL;authority=AUTH;sign=True;write=True;authority_write=True;event=EVENT;program=PROGRAM;lamports=10**9
@@ -53,14 +56,14 @@ def cases():
   out.append({'name':name+'-extra-args','instruction':name,'arg':(values[-1]+bytes([255])*16).hex()})
  return out
 def main():
- p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--candidate',type=pathlib.Path);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args();publisher=PumpReport(a.output,ROOT,a.candidate,__file__)
  orig=ROOT/'evidence/original/pump_fees/deployed.so';o=Fixture(orig);b=Fixture(a.candidate) if a.candidate else None;rows=[];failures=[]
  for c in cases():
   x=o.run(c);y=b.run(c) if b else None
   matched=all(x[k]==y[k] for k in ['error','data_hex','lamports','owner','payer_delta','events','inner_instructions']) if b else None
   rows.append({'case':c,'original':x,'candidate':y,'match':matched})
   if matched is False:failures.append(c['name'])
- sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
- report={'scope':'Four administrative handlers only; local synthetic accounts, errors/state/lamports/events/inner instructions compared. No full byte identity or audit completion.','original_sha256':sha(orig),'candidate_sha256':sha(a.candidate) if a.candidate else None,'case_count':len(rows),'mismatches':failures,'cases':rows}
- a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(report,separators=(',',':'))+'\n');print(json.dumps({'case_count':len(rows),'mismatches':failures}));assert not failures
+ report={'scope':'Four administrative handlers only; local synthetic accounts, errors/state/lamports/events/inner instructions compared. No full byte identity or audit completion.','original_sha256':o.program_sha256,'candidate_sha256':b.program_sha256 if b else None,'case_count':len(rows),'mismatches':failures,'cases':rows}
+ publisher.write((json.dumps(report,separators=(',',':'))+'\n').encode('utf-8'));print(json.dumps({'case_count':len(rows),'mismatches':failures}))
+ if failures:raise SystemExit(1)
 if __name__=='__main__':main()

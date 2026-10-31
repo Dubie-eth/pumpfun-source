@@ -27,6 +27,8 @@ valid transaction can be built with locally-owned state (donations, reserved IDL
 ops, and donation rejections). The swap/distribute family needs an external
 Jupiter-style CPI target and is out of scope for this oracle.
 """
+if not __debug__:
+    raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 import argparse, base64, hashlib, json, re
 from pathlib import Path
 from solders.account import Account
@@ -362,7 +364,7 @@ def execute(candidate, group, output):
                   'byte-compared error/logs/inner-instructions/return-data/before/after + independent effect check',
     }
     Path(output).parent.mkdir(parents=True, exist_ok=True)
-    Path(output).write_text(json.dumps(report, indent=2) + '\n')
+    Path(output).write_text(json.dumps(report, indent=2) + '\n',encoding='utf-8',newline='\n')
     print(json.dumps({k: report[k] for k in ['group', 'case_count', 'differential_matched', 'mismatched_cases',
                                              'original_sha256', 'candidate_sha256']}, indent=2))
     return report['differential_matched'] == report['case_count']

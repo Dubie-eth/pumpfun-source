@@ -11,12 +11,13 @@ Prints counts and gains/losses vs the baseline (default: pump-main/baseline/scor
 A missing baseline file is an error: gains/losses against an empty baseline would report
 every matched window as a gain and no losses. Pass --no-baseline to score without one.
 """
-import argparse, csv, hashlib, json, re, struct, subprocess, sys, tempfile
+import argparse, csv, hashlib, json, os, re, struct, subprocess, sys, tempfile
 from pathlib import Path
 from llvm_tools import objdump
 from original_input import resolve_original
 from functools import lru_cache
 import io
+import secrets
 
 H = Path(__file__).resolve().parent
 SC = H.parent
@@ -76,6 +77,8 @@ def _window_rows(orig, inventory):
     rows = []
     seen = set()
     text = os_['.text']
+    from instruction_stream import instruction_boundaries
+    boundaries = instruction_boundaries(body(orig, os_, text['addr'], text['size']))
     for r in reader:
         if r['program'] != 'pump' or r['variant'] != 'selected':
             continue
@@ -83,6 +86,8 @@ def _window_rows(orig, inventory):
         if (start in seen or start % 8 or end % 8 or end <= start
                 or start < text['addr'] or end > text['addr'] + text['size']):
             raise ValueError(f'invalid or duplicate selected window: {start}:{end}')
+        if start - text['addr'] not in boundaries or end - text['addr'] not in boundaries:
+            raise ValueError(f'selected window must follow logical instruction boundaries: {start}:{end}')
         seen.add(start)
         raw = body(orig, os_, start, end - start)
         if len(raw) != end - start:
@@ -90,6 +95,11 @@ def _window_rows(orig, inventory):
         rows.append((start, end - start, raw, normalize(raw, start, os_)))
     if not rows:
         raise ValueError('window inventory contains no selected Pump windows')
+    previous_end = text['addr']
+    for start, length, _, _ in sorted(rows, key=lambda row: row[0]):
+        if start < previous_end:
+            raise ValueError(f'overlapping window range: {start}')
+        previous_end = start + length
     return tuple(rows)
 
 
@@ -118,10 +128,20 @@ def score_with_hash(cand_path):
         snapshot = Path(temporary) / 'candidate.so'
         snapshot.write_bytes(cand)
         funcs = candidate_functions(snapshot)
+    if not funcs:
+        raise ValueError('candidate has no function symbols; use an unstripped ELF for scoring')
     by = {}
+    ranges = {}
     for start, length, name in funcs:
-        raw = body(cand, cs, start, length)
-        by.setdefault((length, hashlib.sha256(normalize(raw, start, cs)).digest()), []).append((start, name, raw))
+        location = (start, length)
+        cached = ranges.get(location)
+        if cached is None:
+            raw = body(cand, cs, start, length)
+            key = (length, hashlib.sha256(normalize(raw, start, cs)).digest())
+            ranges[location] = (key, raw)
+        else:
+            key, raw = cached
+        by.setdefault(key, []).append((start, name, raw))
     res = {}
     for w in original_windows():
         ms = by.get((w['bytes'], hashlib.sha256(w['norm']).digest()), [])
@@ -135,23 +155,33 @@ def score_with_hash(cand_path):
 def write_report(path, text):
     """Publish without truncating an input linked to the destination mid-score."""
     path = Path(path)
-    temporary = None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Plain exclusive open preserves the normal umask-derived report mode.
+    # Do not enter cleanup until we own the staging file: a leftover receipt
+    # from PID reuse, or another writer, must never be removed on open failure.
+    for _ in range(100):
+        temporary = path.parent / f'.score-{os.getpid()}-{secrets.token_hex(8)}'
+        try:
+            stream = temporary.open('x', encoding='utf-8', newline='\n')
+        except FileExistsError:
+            continue
+        break
+    else:
+        raise FileExistsError('could not create a unique score report staging file')
     try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
-                                         dir=path.parent, prefix='.score-', delete=False) as stream:
-            temporary = Path(stream.name)
+        with stream:
             stream.write(text)
         temporary.replace(path)
     finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('candidate', type=Path)
-    ap.add_argument('--baseline', type=Path, default=DEFAULT_BASELINE)
-    ap.add_argument('--no-baseline', action='store_true', help='report counts only; gains/losses are relative to an empty baseline')
+    baseline_options = ap.add_mutually_exclusive_group()
+    baseline_options.add_argument('--baseline', type=Path, default=DEFAULT_BASELINE)
+    baseline_options.add_argument('--no-baseline', action='store_true', help='report counts only; gains/losses are relative to an empty baseline')
     ap.add_argument('--json', type=Path)
     ap.add_argument('--quiet', action='store_true')
     a = ap.parse_args()
@@ -162,7 +192,8 @@ def main():
     else:
         print(f'score.py: baseline not found: {a.baseline} (pass --no-baseline to score without one)', file=sys.stderr)
         sys.exit(2)
-    inputs = [a.candidate, BASE / 'original.so', BASE / 'functions.tsv']
+    inputs = [a.candidate, BASE / 'original.so', resolve_original(BASE / 'original.so'),
+              BASE / 'functions.tsv']
     if base is not None:
         inputs.insert(1, a.baseline)
     report_destination(a.json, inputs)

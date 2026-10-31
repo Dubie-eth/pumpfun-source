@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Reproduce archived673 with its unchanged portable cold builder on native macOS."""
+if not __debug__:
+    raise SystemExit("Normal Python is required; do not use -O or PYTHONOPTIMIZE.")
 import argparse
 import gzip
 import hashlib
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +33,32 @@ def sha(path):
 
 
 def write(path, value):
-    path.write_text(json.dumps(value, indent=2) + '\n')
+    path.write_text(json.dumps(value, indent=2) + '\n',encoding='utf-8',newline='\n')
+
+
+def download_archive(url, expected_sha256, destination):
+    """Download an archive without publishing bytes that fail authentication."""
+    destination = Path(destination)
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(destination)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                prefix='.' + destination.name + '.', dir=destination.parent,
+                delete=False) as output:
+            temporary = Path(output.name)
+            with urllib.request.urlopen(url, timeout=120) as response:
+                shutil.copyfileobj(response, output)
+        observed = sha(temporary)
+        if observed != expected_sha256:
+            raise ValueError(destination.stem + ' archive hash mismatch')
+        # Link only to an absent name: a file created during the download
+        # belongs to its writer and must not be replaced.
+        os.link(temporary, destination)
+        return observed
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def inspect(source_directory=None):
@@ -77,7 +105,12 @@ def retain(build):
             if (build / name).is_file():
                 (EVIDENCE / (name + '.gz')).write_bytes(gzip.compress((build / name).read_bytes(), mtime=0))
         if (build / 'source').is_dir():
-            with tarfile.open(EVIDENCE / 'compiled-source.tar.gz', 'w:gz') as archive:
+            # Pin the gzip header mtime: the archive is hashed into the
+            # manifest, and a wall-clock header made identical inputs hash
+            # differently per run.
+            with open(EVIDENCE / 'compiled-source.tar.gz', 'wb') as raw_archive, gzip.GzipFile(
+                    filename='', fileobj=raw_archive, mode='wb', mtime=0) as compressed, tarfile.open(
+                    fileobj=compressed, mode='w') as archive:
                 for path in sorted((build / 'source').rglob('*')):
                     if path.is_file():
                         archive.add(path, arcname=path.relative_to(build / 'source'), recursive=False)
@@ -91,7 +124,6 @@ def main():
     parser.add_argument('--source-directory', type=Path, default=SOURCE_DIRECTORY,
                         help='Archived673 primary source; all65 existing hashes must match')
     args = parser.parse_args()
-    assert __debug__, 'Optimized Python is unsupported'
     spec, cold, source, source_before, expected = inspect(args.source_directory)
     if args.inspect:
         print(json.dumps({'source_files': len(source_before), 'authenticated_cold_builder': spec['builder_sha256'],
@@ -114,9 +146,7 @@ def main():
         downloads = {}
         for label, pin in spec['archives'].items():
             archive_path = WORK / (label + '.tar.bz2')
-            with urllib.request.urlopen(pin['url'], timeout=120) as response, archive_path.open('wb') as f:
-                shutil.copyfileobj(response, f)
-            assert sha(archive_path) == pin['sha256'], label + ' archive hash mismatch'
+            download_archive(pin['url'], pin['sha256'], archive_path)
             destination = WORK / label
             destination.mkdir()
             with tarfile.open(archive_path) as archive:

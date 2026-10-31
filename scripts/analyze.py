@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline ELF layout, string provenance and public-interface inventory."""
-import hashlib,json,pathlib,re,struct
+import hashlib,json,os,pathlib,re,struct,uuid
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 IDL_INTERNAL_NAMES = (
     'IdlCreateAccount', 'IdlResizeAccount', 'IdlCloseAccount',
@@ -28,11 +28,16 @@ def program_names(root=None):
     path = root / 'repro/programs.json'
     if path.is_file():
         return json.loads(path.read_text())
-    order = ('pump', 'pump_amm', 'pump_fees', 'mayhem')
+    order = ('pump', 'pump_amm', 'pump_fees', 'mayhem', 'donation_relay')
     return [
         name for name in order
-        if (root / 'evidence/original' / name / 'deployed.so').is_file()
+        if (capture_directory(root, name) / 'deployed.so').is_file()
     ]
+
+
+def capture_directory(root, name):
+    group = 'dependencies' if name == 'donation_relay' else 'original'
+    return root / 'evidence' / group / name
 
 
 def program_addresses():
@@ -42,7 +47,7 @@ def program_addresses():
         return json.loads(path.read_text())
     return {
         name: json.loads(
-            (ROOT / 'evidence/original' / name / 'capture.json').read_text()
+            (capture_directory(ROOT, name) / 'capture.json').read_text()
         )['program']
         for name in program_names()
     }
@@ -75,6 +80,38 @@ def instruction_log_names(b, known=()):
     return sorted(names)
 
 
+def publish_reports(reports):
+    """Admit every report destination before replacing either prior report."""
+    seen = set()
+    for path, _ in reports:
+        path = pathlib.Path(path)
+        if path in seen:
+            raise ValueError(f'duplicate report destination: {path}')
+        seen.add(path)
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise ValueError(f'report destination is not a regular file: {path}')
+        if not path.parent.is_dir() or path.parent.is_symlink():
+            raise FileNotFoundError(f'report parent is not a regular directory: {path.parent}')
+    staged = []
+    try:
+        for path, text in reports:
+            path = pathlib.Path(path)
+            temporary = path.with_name(f'.{path.name}.{uuid.uuid4().hex}')
+            # Ordinary file creation lets the kernel apply the caller's umask.
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                                 | getattr(os, 'O_BINARY', 0), 0o666)
+            # Register the temporary before writing, so a failed stage is
+            # removed alongside the earlier complete stages.
+            staged.append((pathlib.Path(temporary), path))
+            with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+                stream.write(text)
+        for temporary, path in staged:
+            os.replace(temporary, path)
+    finally:
+        for temporary, _ in staged:
+            temporary.unlink(missing_ok=True)
+
+
 def elf_layout(b):
     if b[:6]!=b'\x7fELF\x02\x01': raise ValueError('Unsupported ELF identity')
     h=struct.unpack_from('<HHIQQQIHHHHHH',b,16)
@@ -102,7 +139,7 @@ def elf_layout(b):
 def analyze():
     out={}
     for name in program_names():
-        b=(ROOT/f'evidence/original/{name}/deployed.so').read_bytes(); r=elf_layout(b)
+        b=(capture_directory(ROOT,name)/'deployed.so').read_bytes(); r=elf_layout(b)
         r['source_path_evidence']=[{'offset':m.start(),'path':m.group().decode()} for m in re.finditer(rb'(?:programs|/home/runner/work/platform-tools)[a-zA-Z0-9_./-]+?\.rs',b)]
         r['instruction_log_names']=instruction_log_names(b, known_instruction_names(name))
         r['compiler_version']='unresolved'; r['dependency_versions']='unresolved'; out[name]=r
@@ -115,11 +152,17 @@ def analyze():
                 walk(a.get('accounts',[]),ix)
         for ix in d['instructions']: walk(ix['accounts'],ix['name'])
         inventory[f.stem]={'address':d['address'],'metadata':d.get('metadata'),'instructions':len(d['instructions']),'fixed_addresses':addresses}
+    # A partial checkout or a moved evidence tree would otherwise replace the
+    # tracked reports with empty objects; refuse that publication.
+    if not out or not inventory:
+        raise SystemExit('no captured programs or upstream IDLs; refusing to publish empty reports')
     # Admit every ELF and IDL, and serialize both reports, before replacing
     # either prior report. An invalid later IDL must not publish half a run.
     binary_report=json.dumps(out,indent=2)+'\n'
     interface_report=json.dumps(inventory,indent=2)+'\n'
-    (ROOT/'evidence/binary-analysis.json').write_text(binary_report)
-    (ROOT/'evidence/interface-inventory.json').write_text(interface_report)
+    publish_reports([
+        (ROOT/'evidence/binary-analysis.json', binary_report),
+        (ROOT/'evidence/interface-inventory.json', interface_report),
+    ])
     for n,r in out.items(): print(n,'ELF',r['elf_extent'],'padding',r['trailing_bytes'],'zero',r['trailing_all_zero'])
 if __name__=='__main__': analyze()

@@ -8,12 +8,19 @@ Usage:
     python3 scripts/revalidate_all.py --output research/revalidation-audit-20261028
 """
 import argparse
+import ctypes
+import errno
 import hashlib
 import json
 import os
+import re
+from pathlib import PureWindowsPath
+import shutil
 import subprocess
+import stat
 import sys
 import time
+import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -36,6 +43,40 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def linked(path):
+    """Recognize symlinks and Windows reparse-point aliases without following them."""
+    metadata = path.lstat()
+    return (stat.S_ISLNK(metadata.st_mode) or
+            bool(getattr(metadata, "st_file_attributes", 0) &
+                 getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)))
+
+
+def manifest_file(packet_dir, name):
+    """Resolve one manifest entry inside packet_dir without admitting aliases."""
+    windows_path = PureWindowsPath(name)
+    relative = Path(name)
+    if (windows_path.anchor or windows_path.drive or "\\" in name or
+            relative.anchor or not relative.parts or ".." in relative.parts):
+        return None, "unsafe_path"
+
+    full = packet_dir / relative
+    try:
+        for path in (full, *full.parents):
+            if linked(path):
+                return None, "linked_path"
+            if path == packet_dir:
+                break
+        if not full.exists():
+            return None, "missing"
+        if not stat.S_ISREG(full.lstat().st_mode):
+            return None, "not_a_file"
+    except FileNotFoundError:
+        return None, "missing"
+    except (OSError, ValueError):
+        return None, "unreadable"
+    return full, None
+
+
 def manifest_paths(packet_dir):
     """Recognize retained manifest filenames by exact directory-entry spelling."""
     return sorted(path for path in packet_dir.iterdir()
@@ -43,13 +84,21 @@ def manifest_paths(packet_dir):
 
 
 def manifest_records(manifest):
-    """Read retained flat hash maps or files records with optional byte counts."""
+    """Read retained flat hash maps, path-keyed records or files records.
+
+    Records may carry optional byte counts.
+    """
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be an object")
     if set(manifest) == {"files"} and isinstance(manifest["files"], list):
         records = manifest["files"]
     else:
-        records = [{"path": name, "sha256": digest} for name, digest in manifest.items()]
+        records = []
+        for name, value in manifest.items():
+            if isinstance(value, dict) and "path" in value:
+                raise ValueError("path-keyed record repeats its path: " + name)
+            fields = value if isinstance(value, dict) else {"sha256": value}
+            records.append({"path": name, **fields})
     names = set()
     for row in records:
         if not isinstance(row, dict) or not {"path", "sha256"} <= row.keys():
@@ -77,22 +126,28 @@ def check_manifest(packet_dir):
         return {"status": "no_manifest", "errors": []}
     if len(paths) != 1:
         return {"status": "fail", "errors": ["ambiguous manifest filenames"]}
+    if linked(paths[0]):
+        return {"status": "fail", "errors": [f"linked_path: {paths[0].name}"]}
     try:
+        if not stat.S_ISREG(paths[0].lstat().st_mode):
+            return {"status": "fail", "errors": [f"not_a_file: {paths[0].name}"]}
         manifest = json.loads(paths[0].read_text(encoding="utf-8"))
         records = manifest_records(manifest)
     except Exception as e:
         return {"status": "manifest_parse_error", "errors": [str(e)]}
 
+    if not records:
+        # A manifest that declares no files verifies nothing.
+        return {"status": "fail", "files_checked": 0,
+                "files_expected": 0, "errors": ["manifest declares no files"]}
+
     errors = []
     checked = 0
     for row in records:
         name, expected = row["path"], row["sha256"]
-        full = packet_dir / name
-        if not full.exists():
-            errors.append(f"missing: {name}")
-            continue
-        if not full.is_file():
-            errors.append(f"not_a_file: {name}")
+        full, path_error = manifest_file(packet_dir, name)
+        if path_error:
+            errors.append(f"{path_error}: {name}")
             continue
         actual = sha256_file(str(full))
         if actual != expected:
@@ -109,11 +164,48 @@ def check_manifest(packet_dir):
     }
 
 
+def required_arguments(stderr):
+    """Recognize argparse's missing-argument diagnostic, not arbitrary output.
+
+    This observes a usage failure; the process may already have performed setup
+    or checks before calling parse_args. It is not proof of non-execution.
+    """
+    lines = stderr.splitlines()
+    for line in lines:
+        match = re.fullmatch(r"(.+): error: the following arguments are required: (.+)", line)
+        if not match:
+            continue
+        program, listed = match.groups()
+        if not any(value.startswith("usage: " + program + " ") or value == "usage: " + program
+                   for value in lines):
+            continue
+        names = [part.strip() for part in listed.split(",")]
+        if all(names):
+            return names
+    return []
+
+
 def run_verify(packet_dir):
     """Run the packet's verify.py script."""
+    try:
+        root_is_link = linked(packet_dir)
+    except FileNotFoundError:
+        return {"status": "fail", "output": "packet root is not a real directory"}
+    except OSError as error:
+        return {"status": "fail", "output": "packet root is unreadable: " + str(error)}
+    if root_is_link:
+        return {"status": "fail", "output": "packet root is not a real directory"}
     verify_path = packet_dir / "verify.py"
-    if not verify_path.exists():
+    try:
+        metadata = verify_path.lstat()
+    except FileNotFoundError:
         return {"status": "no_verify_script", "output": ""}
+    except OSError as error:
+        return {"status": "fail", "output": "verify.py is unreadable: " + str(error)}
+    if (stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+            or bool(getattr(metadata, "st_file_attributes", 0) &
+                    getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))):
+        return {"status": "fail", "output": "verify.py is not a regular file"}
 
     command = [sys.executable, "-B", str(verify_path)]
     try:
@@ -133,6 +225,16 @@ def run_verify(packet_dir):
         )
         output = (result.stdout + result.stderr).strip()
         passed = result.returncode == 0
+        # Keep missing-argument failures distinct while retaining the process
+        # output. A verifier may perform work before argument parsing.
+        required = required_arguments(result.stderr) if result.returncode == 2 else []
+        if required:
+            return {
+                "status": "invocation_error",
+                "returncode": result.returncode,
+                "required": required,
+                "output": output[-500:] if len(output) > 500 else output,
+            }
         return {
             "status": "pass" if passed else "fail",
             "returncode": result.returncode,
@@ -144,93 +246,13 @@ def run_verify(packet_dir):
         return {"status": "error", "output": str(e)}
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    output_dir = Path(args.output)
-
-    research_dir = REPO / "research"
-    packets = sorted([
-        d for d in research_dir.iterdir()
-        if d.is_dir() and not d.name.startswith(".")
-    ])
-
-    # Snapshot inputs before creating an audit beneath research/, and preserve
-    # prior reports by refusing an existing output before running any verifier.
-    output_dir.mkdir(parents=True, exist_ok=False)
-
-    print(f"[revalidate] Found {len(packets)} research packets")
-
-    results = []
-    pass_count = 0
-    fail_count = 0
-    skip_count = 0
-    manifest_only = 0
-    start_time = time.time()
-
-    for i, packet in enumerate(packets):
-        has_verify = (packet / "verify.py").exists()
-        has_manifest = bool(manifest_paths(packet))
-
-        if not has_verify and not has_manifest:
-            results.append({
-                "packet": packet.name,
-                "has_verify": False,
-                "has_manifest": False,
-                "manifest_check": {"status": "skipped"},
-                "verify_check": {"status": "skipped"},
-                "overall": "no_verification",
-            })
-            skip_count += 1
-            continue
-
-        # Check manifest
-        manifest_result = check_manifest(packet) if has_manifest else {"status": "skipped"}
-
-        # Run verify.py
-        verify_result = run_verify(packet) if has_verify else {"status": "skipped"}
-
-        # Determine overall status
-        checks = [result for enabled, result in (
-            (has_manifest, manifest_result), (has_verify, verify_result)
-        ) if enabled]
-        if all(result["status"] == "pass" for result in checks):
-            overall = "pass"
-            pass_count += 1
-        elif any(result["status"] in {
-            "fail", "manifest_parse_error", "timeout", "error"
-        } for result in checks):
-            overall = "fail"
-            fail_count += 1
-        else:
-            overall = "inconclusive"
-            skip_count += 1
-
-        results.append({
-            "packet": packet.name,
-            "has_verify": has_verify,
-            "has_manifest": has_manifest,
-            "manifest_check": manifest_result,
-            "verify_check": verify_result,
-            "overall": overall,
-        })
-
-        if (i + 1) % 50 == 0:
-            elapsed = time.time() - start_time
-            print(f"[revalidate] {i+1}/{len(packets)} "
-                  f"({pass_count} pass, {fail_count} fail, {skip_count} skip) "
-                  f"[{elapsed:.0f}s]")
-
-    elapsed = time.time() - start_time
-    print(f"[revalidate] Done: {len(packets)} packets in {elapsed:.0f}s")
-    print(f"[revalidate] {pass_count} pass, {fail_count} fail, {skip_count} skip/inconclusive")
-
+def write_reports(output_dir, packets, results, pass_count, fail_count,
+                  skip_count, elapsed, invocation_error_count=0):
+    """Write all audit artifacts into an unpublished directory."""
     # --- Write outputs ---
 
     # 1. Full results
-    (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+    (output_dir / "results.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 2. Summary
     summary = {
@@ -240,6 +262,7 @@ def main():
         "pass": pass_count,
         "fail": fail_count,
         "skip_or_inconclusive": skip_count,
+        "invocation_error": invocation_error_count,
         "elapsed_seconds": round(elapsed, 1),
         "failed_packets": [
             {"packet": r["packet"],
@@ -247,19 +270,28 @@ def main():
              "verify_output": r["verify_check"].get("output", "")}
             for r in results if r["overall"] == "fail"
         ],
+        "invocation_error_packets": [
+            {"packet": r["packet"],
+             "required": r["verify_check"].get("required", [])}
+            for r in results if r["overall"] == "invocation_error"
+        ],
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 3. Pass/fail lists
     (output_dir / "passed.json").write_text(json.dumps(
         [r["packet"] for r in results if r["overall"] == "pass"],
-        indent=2) + "\n")
+        indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "failed.json").write_text(json.dumps(
         [r["packet"] for r in results if r["overall"] == "fail"],
-        indent=2) + "\n")
+        indent=2) + "\n", encoding="utf-8", newline="\n")
+    (output_dir / "invocation-errors.json").write_text(json.dumps(
+        [r["packet"] for r in results if r["overall"] == "invocation_error"],
+        indent=2) + "\n", encoding="utf-8", newline="\n")
     (output_dir / "skipped.json").write_text(json.dumps(
-        [r["packet"] for r in results if r["overall"] not in ("pass", "fail")],
-        indent=2) + "\n")
+        [r["packet"] for r in results
+         if r["overall"] not in ("pass", "fail", "invocation_error")],
+        indent=2) + "\n", encoding="utf-8", newline="\n")
 
     # 4. README
     readme = f"""# Research Packet Revalidation Audit — {time.strftime('%Y-%m-%d')}
@@ -279,6 +311,7 @@ verify.py (standalone verification script).
 | **Pass** | **{pass_count}** |
 | **Fail** | **{fail_count}** |
 | Skip/inconclusive | {skip_count} |
+| Invocation error (missing required arguments) | {invocation_error_count} |
 | Elapsed | {elapsed:.0f}s |
 
 ## Failed Packets
@@ -286,6 +319,17 @@ verify.py (standalone verification script).
     f"- `{f['packet']}`: {'; '.join(f['manifest_errors'][:3]) or f['verify_output'][:100]}"
     for f in summary["failed_packets"][:30]
 )}
+
+## Invocation Errors
+{"_None._" if invocation_error_count == 0 else chr(10).join(
+    f"- `{f['packet']}`: requires {', '.join(f['required']) or 'an undeclared argument'}"
+    for f in summary["invocation_error_packets"][:30]
+)}
+
+These processes reported an argparse-style missing-argument error and remain
+unverified. Setup or checks may have run before parsing; this category does not
+prove that the verifier was never invoked. Other nonzero exits remain failures,
+and a failed manifest check takes precedence over an invocation error.
 
 ## Files
 | File | Description |
@@ -295,13 +339,14 @@ verify.py (standalone verification script).
 | passed.json | List of passing packet names |
 | failed.json | List of failing packet names |
 | skipped.json | List of packets without verification |
+| invocation-errors.json | List of missing-argument invocation errors |
 
 ## Verification
 ```bash
 python3 verify.py
 ```
 """
-    (output_dir / "README.md").write_text(readme)
+    (output_dir / "README.md").write_text(readme, encoding="utf-8", newline="\n")
 
     # 5. Verify script
     verify_py = '''#!/usr/bin/env python3
@@ -337,7 +382,7 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 '''
-    (output_dir / "verify.py").write_text(verify_py)
+    (output_dir / "verify.py").write_text(verify_py, encoding="utf-8", newline="\n")
 
     # 6. Manifest
     manifest = {}
@@ -347,14 +392,171 @@ if __name__ == "__main__":
         path = output_dir / name
         if path.is_file():
             manifest[name] = sha256_file(str(path))
-    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     total_lines = sum(
-        sum(1 for _ in open(output_dir / name))
+        len((output_dir / name).read_text(encoding="utf-8").splitlines())
         for name in os.listdir(output_dir) if (output_dir / name).is_file()
     )
     print(f"[revalidate] wrote {len(manifest)+1} files, ~{total_lines:,} lines")
 
+
+def standalone_temporary_sibling(output_dir, label):
+    # Match the shared publisher's bounded, whole-character name prefix.
+    prefix = output_dir.name[:64]
+    while len(os.fsencode(prefix)) > 64:
+        prefix = prefix[:-1]
+    while True:
+        staging = output_dir.parent / (
+            f".{prefix}.{label}-{os.getpid()}-{uuid.uuid4().hex}")
+        try:
+            staging.mkdir()
+        except FileExistsError:
+            continue
+        return staging
+
+
+def standalone_rename_directory(source, destination):
+    """Publish a directory without replacing a late writer."""
+    if os.name == "nt":
+        source.rename(destination)
+        return
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = getattr(library, "renamex_np", None)
+        args = (os.fsencode(source), os.fsencode(destination), 4)
+        types = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+    elif sys.platform.startswith("linux"):
+        rename = getattr(library, "renameat2", None)
+        args = (-100, os.fsencode(source), -100, os.fsencode(destination), 1)
+        types = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                 ctypes.c_char_p, ctypes.c_uint]
+    else:
+        rename = None
+    if rename is None:
+        raise OSError(errno.ENOTSUP,
+                      "atomic audit publication unavailable; use a supported host")
+    rename.argtypes = types
+    rename.restype = ctypes.c_int
+    if rename(*args) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(destination))
+
+
+def publication_operations():
+    """Use the shared publisher when present and remain copyable otherwise."""
+    try:
+        from deep_disassembly import rename_directory, temporary_sibling
+    except ModuleNotFoundError as error:
+        if error.name != "deep_disassembly":
+            raise
+        return standalone_rename_directory, standalone_temporary_sibling
+    return rename_directory, temporary_sibling
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    output_dir = Path(args.output)
+
+    research_dir = REPO / "research"
+    packets = sorted([
+        d for d in research_dir.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    ])
+
+    # Snapshot inputs before creating an audit beneath research/, and preserve
+    # prior reports by refusing an existing output before running any verifier.
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists() or output_dir.is_symlink():
+        raise FileExistsError(output_dir)
+
+    print(f"[revalidate] Found {len(packets)} research packets")
+
+    results = []
+    pass_count = 0
+    fail_count = 0
+    skip_count = 0
+    invocation_error_count = 0
+    manifest_only = 0
+    start_time = time.time()
+
+    for i, packet in enumerate(packets):
+        has_verify = os.path.lexists(packet / "verify.py")
+        has_manifest = bool(manifest_paths(packet))
+
+        if not has_verify and not has_manifest:
+            results.append({
+                "packet": packet.name,
+                "has_verify": False,
+                "has_manifest": False,
+                "manifest_check": {"status": "skipped"},
+                "verify_check": {"status": "skipped"},
+                "overall": "no_verification",
+            })
+            skip_count += 1
+            continue
+
+        # Check manifest
+        manifest_result = check_manifest(packet) if has_manifest else {"status": "skipped"}
+
+        # Run verify.py
+        verify_result = run_verify(packet) if has_verify else {"status": "skipped"}
+
+        # Determine overall status
+        checks = [result for enabled, result in (
+            (has_manifest, manifest_result), (has_verify, verify_result)
+        ) if enabled]
+        if all(result["status"] == "pass" for result in checks):
+            overall = "pass"
+            pass_count += 1
+        elif any(result["status"] in {
+            "fail", "manifest_parse_error", "timeout", "error"
+        } for result in checks):
+            overall = "fail"
+            fail_count += 1
+        elif any(result["status"] == "invocation_error" for result in checks):
+            overall = "invocation_error"
+            invocation_error_count += 1
+        else:
+            overall = "inconclusive"
+            skip_count += 1
+
+        results.append({
+            "packet": packet.name,
+            "has_verify": has_verify,
+            "has_manifest": has_manifest,
+            "manifest_check": manifest_result,
+            "verify_check": verify_result,
+            "overall": overall,
+        })
+
+        if (i + 1) % 50 == 0:
+            elapsed = time.time() - start_time
+            print(f"[revalidate] {i+1}/{len(packets)} "
+                  f"({pass_count} pass, {fail_count} fail, "
+                  f"{invocation_error_count} invocation errors, {skip_count} skip) "
+                  f"[{elapsed:.0f}s]")
+
+    elapsed = time.time() - start_time
+    print(f"[revalidate] Done: {len(packets)} packets in {elapsed:.0f}s")
+    print(f"[revalidate] {pass_count} pass, {fail_count} fail, "
+          f"{invocation_error_count} invocation errors, {skip_count} skip/inconclusive")
+
+    rename_directory, temporary_sibling = publication_operations()
+    staging = temporary_sibling(output_dir, "staging")
+    published = False
+    try:
+        write_reports(
+            staging, packets, results, pass_count, fail_count,
+            skip_count, elapsed, invocation_error_count=invocation_error_count)
+        rename_directory(staging, output_dir)
+        published = True
+    finally:
+        if not published:
+            shutil.rmtree(staging, ignore_errors=True)
 
 if __name__ == "__main__":
     main()

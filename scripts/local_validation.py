@@ -15,9 +15,18 @@ def program_addresses(root=None):
     root=ROOT if root is None else pathlib.Path(root)
     archived=root/'repro/programs.json'
     if archived.is_file():
-        selected=json.loads(archived.read_text())
+        selected=json.loads(archived.read_text(encoding="utf-8"))
         if not isinstance(selected,dict):
             raise ValueError('repro/programs.json must map program names to addresses')
+        # An empty or malformed selector would publish a receipt that validates
+        # nothing, so refuse it here rather than in the report writer.
+        if not selected:
+            raise ValueError('repro/programs.json selects no programs')
+        for name,address in selected.items():
+            if not isinstance(name,str) or not name.strip():
+                raise ValueError('repro/programs.json has a non-string program name')
+            if not isinstance(address,str) or not address.strip():
+                raise ValueError(f'repro/programs.json has no address for {name!r}')
         return selected
     selected={}
     for name in _CAPTURE_ORDER:
@@ -25,8 +34,8 @@ def program_addresses(root=None):
         if not binary.is_file():
             continue
         receipt_path=root/'evidence/original'/name/'capture.json'
-        program=json.loads(receipt_path.read_text()).get('program')
-        if not isinstance(program,str) or not program:
+        program=json.loads(receipt_path.read_text(encoding="utf-8")).get('program')
+        if not isinstance(program,str) or not program.strip():
             raise ValueError(f'{receipt_path} has no program address')
         selected[name]=program
     if not selected:
@@ -48,7 +57,7 @@ def main():
         tests=[('empty',b''),('short',b'\x01'*7),('unknown',b'\xff'*8)]
         idl=ROOT/f'evidence/upstream/{name}.json'
         if idl.exists():
-            for ix in json.loads(idl.read_text())['instructions']: tests.append((ix['name']+'-missing-accounts',bytes(ix['discriminator'])))
+            for ix in json.loads(idl.read_text(encoding="utf-8"))['instructions']: tests.append((ix['name']+'-missing-accounts',bytes(ix['discriminator'])))
         for i in range(64): tests.append((f'random-{i}',rng.randbytes(8+i)))
         rows=[]
         for label,data in tests:
@@ -59,6 +68,8 @@ def main():
         print(name,len(rows),results[name]['all_rejected'],flush=True)
     report=ROOT/'audit/local-validation.json'
     report.parent.mkdir(parents=True,exist_ok=True)
-    report.write_text(json.dumps({'runtime':'solders 0.27.1 / LiteSVM','scope':'Malformed instruction data and missing accounts only; no network or broadcast. No valid-state authorization/economic/CPI coverage.','programs':results},indent=2)+'\n')
-    assert all(x['all_rejected'] for x in results.values())
+    report.write_text(json.dumps({'runtime':'solders 0.27.1 / LiteSVM','scope':'Malformed instruction data and missing accounts only; no network or broadcast. No valid-state authorization/economic/CPI coverage.','programs':results},indent=2)+'\n',encoding='utf-8',newline='\n')
+    accepted=[name for name,x in results.items() if not x['all_rejected']]
+    # An explicit exit: a bare assert would vanish under python -O.
+    if accepted: raise SystemExit('malformed input accepted by: '+', '.join(accepted))
 if __name__=='__main__': main()

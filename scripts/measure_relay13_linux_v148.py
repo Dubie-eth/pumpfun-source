@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """SOURCE-ONLY PROPOSAL: one explicit Linux measurement, never a promotion tool."""
+if not __debug__:
+ raise SystemExit('Normal Python is required; do not use -O or PYTHONOPTIMIZE.')
 from pathlib import Path,PurePosixPath
 import argparse,datetime,gzip,hashlib,importlib.util,json,os,platform,re,shutil,shlex,struct,subprocess,sys,tarfile,tempfile,tomllib,traceback,urllib.request
 ASSETS={
@@ -33,7 +35,7 @@ MEASURED_COMPILER_ARCHIVE='a9d3157f937d5f6faf4321a35a8035e0f827114a663b0150db492
 H=lambda b:hashlib.sha256(b).hexdigest()
 J=lambda p:json.loads(Path(p).read_text())
 def write(path,value):
- path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+ path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n',encoding='utf-8',newline='\n')
 def files(root):
  root=Path(root);out={}
  for p in sorted(root.rglob('*')):

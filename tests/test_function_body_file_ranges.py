@@ -8,7 +8,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-import pump_compare_function_bytes as comparison
 import pump_quote_control_function_match as matcher
 
 
@@ -27,7 +26,7 @@ class FunctionBodyRangeTests(unittest.TestCase):
     def test_all_real_inventory_windows_return_their_complete_bytes(self):
         for start, end in self.windows:
             expected_offset = self.text['offset'] + start - self.text['addr']
-            raw = comparison.body(self.image, self.sections, start, end - start)
+            raw = matcher.function_body(self.image, self.sections, start, end - start)
             self.assertEqual(len(raw), end - start)
             self.assertEqual(raw, self.image[expected_offset:expected_offset + end - start])
 
@@ -52,31 +51,39 @@ class FunctionBodyRangeTests(unittest.TestCase):
         sections = matcher.sections(mutant)
         self.assertEqual(sections['.text']['size'], self.text['size'])
         with self.assertRaises(ValueError):
-            comparison.body(mutant, sections, start, end - start)
+            matcher.function_body(mutant, sections, start, end - start)
 
     def test_section_file_offset_beyond_eof_is_rejected(self):
         mutant = self.mutant_text_offset(len(self.image) + 8)
         start, end = self.windows[0]
         with self.assertRaises(ValueError):
-            comparison.body(mutant, matcher.sections(mutant), start, end - start)
+            matcher.function_body(mutant, matcher.sections(mutant), start, end - start)
 
     def test_virtual_out_of_section_ranges_remain_rejected_under_optimization(self):
         start, size = self.text['addr'], self.text['size']
         for address, length in ((start - 8, 8), (start + size, 8),
                                 (start, size + 8), (start, 0), (start, -8)):
             with self.subTest(address=address, length=length), self.assertRaises((ValueError, AssertionError)):
-                comparison.body(self.image, self.sections, address, length)
+                matcher.function_body(self.image, self.sections, address, length)
 
     def test_partial_instruction_slots_are_rejected(self):
         start = self.text['addr']
         for address, length in ((start + 1, 8), (start, 1), (start, 9)):
             with self.subTest(address=address, length=length), self.assertRaises(ValueError):
-                comparison.body(self.image, self.sections, address, length)
+                matcher.function_body(self.image, self.sections, address, length)
 
-    def test_shared_matcher_reader_returns_the_same_captured_window(self):
+    @unittest.skipUnless(__debug__, "guarded CLI alias is checked by the normal-mode run")
+    def test_shared_matcher_reader_is_pinned_as_the_same_function(self):
+        # scripts/pump_compare_function_bytes.py imports function_body AS body
+        # from pump_quote_control_function_match, so comparing the two calls
+        # compared one function with itself. Pin the sharing intentionally:
+        # if either tool ever grows its own reader, this fails loudly and the
+        # byte-equality checks above become the real cross-reader evidence.
+        import pump_compare_function_bytes as comparison
         start, end = self.windows[0]
-        self.assertEqual(matcher.function_body(self.image, self.sections, start, end - start),
-                         comparison.body(self.image, self.sections, start, end - start))
+        self.assertIs(comparison.body, matcher.function_body)
+        self.assertEqual(comparison.body(self.image, self.sections, start, end - start),
+                         matcher.function_body(self.image, self.sections, start, end - start))
 
     def test_original_capture_is_unchanged(self):
         self.assertEqual(hashlib.sha256(self.path.read_bytes()).hexdigest(),
