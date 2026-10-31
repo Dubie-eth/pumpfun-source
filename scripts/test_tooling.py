@@ -2407,6 +2407,7 @@ from tests.test_revalidate_all_invocation import (
 from test_fees_error_messages_exit import FeesErrorMessageExitTests, FeesErrorMessageOptimizationTests
 FeesErrorMessageExitTests = requires_litesvm(FeesErrorMessageExitTests)
 from test_pump_window_inventory import WindowInventoryTests
+from test_pump_differential_output_fixture_inputs import FixtureInputs
 
 
 if __name__=='__main__': unittest.main()
