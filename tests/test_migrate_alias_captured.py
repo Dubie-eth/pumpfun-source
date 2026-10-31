@@ -45,7 +45,7 @@ ELF_SHA256 = {
 HOST_SOURCE = ROOT / 'programs/pump/recovered/migrate_alias_host.rs'
 
 IDL = json.loads((ROOT / 'evidence/upstream/pump.json').read_text(encoding='utf-8'))
-AMM_IDL = json.loads((ROOT / 'programs/pump/idls/pump_amm.json').read_text())
+AMM_IDL = json.loads((ROOT / 'programs/pump/idls/pump_amm.json').read_text(encoding='utf-8'))
 PUMP = Pubkey.from_string(IDL['address'])
 PUMP_AMM = Pubkey.from_string(AMM_IDL['address'])
 TOKEN = Pubkey.from_string('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
@@ -338,7 +338,10 @@ class MigrateAliasCapturedTests(unittest.TestCase):
             self.assertEqual(captured['error'], int(answer[6:]))
             return
         self.assertIsNone(captured['error'])
-        user_paid, key_change, extra_quote = map(int, answer.split(',')[1:])
+        fields = answer.split(',')
+        self.assertEqual(fields[0], 'ok')
+        self.assertEqual(len(fields), 4)
+        user_paid, key_change, extra_quote = map(int, fields[1:])
         self.assertEqual(captured['delta']['withdraw'], key_change - (TX_FEE if item['role'] == 'user' else 0))
         if item['role'] != 'user':
             self.assertEqual(captured['delta']['user'], -TX_FEE - user_paid)
@@ -361,12 +364,23 @@ class MigrateAliasCapturedTests(unittest.TestCase):
     def test_fixed_cases_match_captured_program(self):
         self.run_cases(fixed_cases())
 
+    def test_prefunded_lp_mint_at_rent_boundary(self):
+        # A start just above LP rent must not cover even one extra lamport.
+        cases = []
+        for route in ROUTES:
+            need = native_need(case(**route))
+            for fee in (need - 1_461_600 - 1, need - 1_461_600):
+                cases.append(case(role='lp_mint', start=1_461_601, fee=fee, **route))
+        self.run_cases(cases)
+
     def test_checker_rejects_changed_run(self):
         # Negative control: a passing run must fail once a lamport or the pool moves.
         item = case(role='pool_base_token_account', command='migrate_v2', quote='spl')
         answer = self.host_answers([item])[0]
         captured = self.bench.run(item)
         self.assert_matches(item, answer, captured)
+        with self.assertRaises(AssertionError):
+            self.assert_matches(item, answer.replace('ok,', 'unknown,', 1), captured)
         delta = dict(captured['delta'], withdraw=captured['delta']['withdraw'] + 1)
         other = dict(captured['delta'], user=captured['delta']['user'] + 1)
         for changed in (dict(captured, delta=delta), dict(captured, delta=other), dict(captured, pool=captured['pool'][:-1] + b'\x01')):
