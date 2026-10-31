@@ -147,6 +147,10 @@ def rustc_args(argv, env):
 
 def rustc_main(argv, env):
     command = rustc_args(argv, env)
+    if os.name == 'nt':
+        # The Windows CRT execv joins argv without the quoting provided by
+        # subprocess and does not preserve the child's exit status here.
+        raise SystemExit(subprocess.run(command).returncode)
     os.execv(command[0], command)
 
 
