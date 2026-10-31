@@ -81,10 +81,12 @@ def generate(root, output):
         raise FileExistsError('could not allocate a staging directory')
     try:
         module.generate_roadmap(stage)
-        (stage / 'attribution-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
+        (stage / 'attribution-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n',
+                                                             encoding='utf-8', newline='\n')
         manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(stage.iterdir())
                     if p.is_file() and p.name != 'manifest.json'}
-        (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+        (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n',
+                                             encoding='utf-8', newline='\n')
         for name, digest in bindings.items():
             path = Path(__file__) if name == 'adapter_sha256' else root / name
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
