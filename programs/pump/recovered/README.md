@@ -64,6 +64,13 @@ errors, lamport movements, stored reserves, delivered tokens, and TradeEvent
 fields with `legacy_buy_host.rs`. Mayhem, cashback, whitelist, and holder-reward
 paths are not modeled. This is not a byte-identity claim.
 
+`admin_cto.rs` models Pump `admin_cto`: argument decoding, the 26-account
+check order, the mayhem / holder / creator / fee gates, the rent top-up, and
+the curve bytes and `AdminCtoEvent` written on success. `tests/test_admin_cto_captured.py`
+runs the cases on `evidence/original/pump/deployed.so` with the captured Fees
+and PumpSwap programs. Nonzero vault sweeps and a sharing-config body the fees
+program rejects are outside this model. This is not a byte-identity claim.
+
 `legacy_sell.rs` models legacy `sell` for a regular SOL coin: guard order,
 the curve output, the market-cap fee tier and configurable creator-bps
 override, ceiling fees (an output of 1 lamport cannot carry both fees and
