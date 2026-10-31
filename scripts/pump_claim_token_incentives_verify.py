@@ -133,6 +133,8 @@ def main():
         if entry["name"] == "quote_control":
             check(selected["cases"] == entry["cases"] == len(selected["results"]), "claim verification failed: selected['cases'] == entry['cases'] == len(selected['results'])")
             check(selected["mismatches"] == 0, "claim verification failed: selected['mismatches'] == 0")
+            check(isinstance(selected.get("bound_inputs_sha256"), dict) and selected["bound_inputs_sha256"],
+                  "claim verification failed: quote-control receipt binds no input")
             for path, expected in selected["bound_inputs_sha256"].items():
                 if path == "work/claim-pr-candidate/pump_recovered.so":
                     check(expected == report["candidate_sha256"], "claim verification failed: expected == report['candidate_sha256']")
@@ -147,6 +149,8 @@ def main():
                 check(sum(suite["case_count"] for suite in selected["suites"].values()) == 7957, "claim verification failed: sum(suite['case_count'] for suite in selected['suites'].values()) == 7")
                 check(all(not suite.get("mismatches", suite.get("failures", []))
                            for suite in selected["suites"].values()), "claim verification failed: all(not suite.get('mismatches', suite.get('failures', []))")
+                check(isinstance(selected.get("script_sha256"), dict) and selected["script_sha256"],
+                      "claim verification failed: maintained receipt binds no script")
                 check(all(diff.sha((diff.ROOT / "scripts" / name).read_bytes()) == digest
                            for name, digest in selected["script_sha256"].items()), "claim verification failed: all(diff.sha((diff.ROOT / 'scripts' / name).read_bytes()) == digest")
             else:
