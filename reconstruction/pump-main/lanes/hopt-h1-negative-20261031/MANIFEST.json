@@ -1,0 +1,24 @@
+{
+  "status": "PREPARED_UNEXECUTED_PORTABLE_REPLAY",
+  "files": {
+    "NOTES.md": {
+      "bytes": 5813,
+      "sha256": "851a530a87b160e8e88d1ea18fa205a6e05621350c59d1bd721d2e75288297ec"
+    },
+    "verify.py": {
+      "bytes": 14370,
+      "sha256": "7b968cd7f8d2c8228b86ca1e46d986416e714eb2602aae397e471b4e717a23cf"
+    },
+    "SOURCE.patch": {
+      "bytes": 4368,
+      "sha256": "524b9cef2b9384cb889187d399df0f300795c570eabb6cf590e87e00364353b3"
+    },
+    "inputs.json": {
+      "bytes": 2468,
+      "sha256": "478146d56122d9cc6783ff71debf77445ffbfd51f4a17f8dd73bd7d202b09a00"
+    }
+  },
+  "verifierExecutions": 0,
+  "requiredTestsRunOnPacket": false,
+  "sourceExperiments": "Already completed and rejected; no new build/score/metric/VM."
+}
