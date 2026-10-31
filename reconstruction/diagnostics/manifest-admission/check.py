@@ -51,6 +51,10 @@ def check_manifest(packet_dir):
         # Validate the complete declaration before opening any payload.
         for name, digest in manifest.items():
             path = PurePosixPath(name)
+            # A colon can select an NTFS named/default stream instead of a
+            # packet member, even when PureWindowsPath(name).drive is empty.
+            if ':' in name:
+                raise ValueError('manifest paths must not select file streams')
             if (not name or '\\' in name or path.is_absolute()
                     or PureWindowsPath(name).drive or any(part in ('', '.', '..') for part in name.split('/'))
                     or not isinstance(digest, str) or re.fullmatch(r'[0-9a-f]{64}', digest) is None):
