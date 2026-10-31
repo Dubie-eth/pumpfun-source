@@ -183,6 +183,8 @@ class ByteComparisonInputTests(unittest.TestCase):
                 inputs.append(self.inventory)
             if script == 'pump_compare_function_bytes.py':
                 inputs.append(self.root / 'scripts/pump_exact_body_inventory.py')
+                # Imported at startup and executed to publish the report.
+                inputs.append(self.root / 'scripts/probe_report.py')
             for target in dict.fromkeys(inputs):
                 with self.subTest(script=script, target=target.name):
                     self.reject_alias(script, target, target, 'input:' + str(target.relative_to(self.root)))
