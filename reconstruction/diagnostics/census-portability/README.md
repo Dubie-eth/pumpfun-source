@@ -44,3 +44,13 @@ capture instruction bytes even without objdump, plus real capture disassembly
 `PUMP_BUILD_TEST_SDK`, it also compiles four real SBF fixtures differing in MOV or
 LDDW scalar arguments. Set `PUMP_OBJDUMP` to the real SDK objdump if needed.
 These diagnostics remain heuristic and do not change official score acceptance.
+
+Argument setup also stops at intervening external and indirect calls, even when
+the census selects only internal call sites for alignment. The retained Pump
+window `0x1ab918` calls through `r4` before setting `r1` and `r2` for its next
+internal call; its earlier `r3` and `r4` writes must not be carried across that
+call. `reconstruction/harness/test_census_call_barriers.py` checks this and a
+retained `sol_memcpy_` call, plus unchanged scalar/pointer controls. It invokes
+the production API with text decoded from actual capture bytes by the repository
+decoder, without replacing analysis functions. This API test does not qualify
+a complete SDK/objdump census run or establish argument liveness across branches.
