@@ -307,9 +307,6 @@ def _build_packet(output_dir, output_label=None):
 
     for prog_name in PROGRAMS:
         deployed_path = REPO / "evidence" / "original" / prog_name / "deployed.so"
-        if not deployed_path.exists():
-            print(f"[sigs] SKIP {prog_name}")
-            continue
 
         print(f"[sigs] Analyzing {prog_name}...")
         elf = Elf(deployed_path)
@@ -573,6 +570,12 @@ def main():
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     from deep_disassembly import publish_packet, temporary_sibling
+    # verify.py only expects the programs analyzed here, so a skipped ELF
+    # would publish a smaller packet that still verifies.
+    missing = [f"evidence/original/{program}/deployed.so" for program in PROGRAMS
+               if not (REPO / "evidence" / "original" / program / "deployed.so").is_file()]
+    if missing:
+        raise SystemExit("missing captured program ELF: " + ", ".join(missing))
     output_dir = Path(args.output)
     identity = prepare_destination(output_dir)
     staging = temporary_sibling(output_dir, "staging")
