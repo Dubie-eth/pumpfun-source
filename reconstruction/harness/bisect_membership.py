@@ -25,9 +25,19 @@ def narrow(revisions, evaluate, budget):
     if good_status != 'pass' or bad_status != 'fail':
         return {'status': 'invalid-endpoints', 'tested': {revisions[i]: s for i, s in seen.items()}}
     while high - low > 1:
-        choices = [i for i in range(low + 1, high) if i not in seen]
-        if not choices or len(seen) >= budget: break
-        middle = min(choices, key=lambda i: (abs(i - (low + high) / 2), i))
+        if len(seen) >= budget: break
+        # Search outwards from the midpoint instead of materializing the whole
+        # interval. Equal-distance choices still prefer the lower revision.
+        left, right = (low + high) // 2, (low + high) // 2 + 1
+        middle = None
+        while low < left or right < high:
+            if low < left and (right >= high or low + high - 2 * left <= 2 * right - low - high):
+                candidate = left; left -= 1
+            else:
+                candidate = right; right += 1
+            if candidate not in seen:
+                middle = candidate; break
+        if middle is None: break
         status = check(middle)
         if status == 'pass': low = middle
         elif status == 'fail': high = middle
