@@ -145,12 +145,12 @@ def lld_args(args, env, *, script_path=None, script_bytes=None, default_bytes=No
         arg = args[i]
         if arg.startswith('@'):
             raise ValueError('response-file linker input unsupported: ' + arg)
-        if arg in ('-T', '--script'):
+        if arg in ('-T', '-script', '--script'):
             if Path(args[i + 1]).read_text() != default:
                 raise ValueError('unexpected target link script ' + args[i + 1])
             out += [arg, script]; seen += 1; i += 2
             continue
-        if arg.startswith('--script=') or (arg.startswith('-T') and arg != '-T'):
+        if arg.startswith(('--script=', '-script=')) or (arg.startswith('-T') and arg != '-T'):
             raise ValueError('unsupported script argument ' + arg)
         out.append(arg); i += 1
     if seen != 1:
