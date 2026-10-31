@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Capture must refuse a symlinked output and retain prior evidence."""
 import base64
 import tempfile
