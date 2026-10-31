@@ -332,6 +332,9 @@ def main():
     ap.add_argument('--no-build', action='store_true')
     ap.add_argument('--timeout', type=float, help='compiler deadline in seconds')
     a = ap.parse_args()
+    # GNU patch in POSIX mode cannot locate a file that diff -N records as new,
+    # which would report every part adding a file as a content conflict.
+    os.environ.pop('POSIXLY_CORRECT', None)
     if a.timeout is not None:
         from build_process import validate_timeout
         try:
