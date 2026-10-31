@@ -173,5 +173,5 @@ def lld_main(argv, env):
         Path(env['PUMP_LINK_RECEIPT']).write_text(json.dumps({
             'script': env['PUMP_LINK_SCRIPT'], 'script_sha256': hashlib.sha256(raw).hexdigest(),
             'default_script_sha256': hashlib.sha256(default).hexdigest(), 'lld': lld, 'lld_sha256': sha(lld),
-            'forwarded': args}, indent=1) + '\n', encoding='utf-8')
+            'forwarded': args}, indent=1) + '\n', encoding='utf-8', newline='\n')
         return subprocess.run([lld, *args]).returncode
