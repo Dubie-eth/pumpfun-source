@@ -18,18 +18,19 @@ REVIEWED = {
 
 
 def load_sources(root):
-    modules, bindings = [], {}
+    modules, bindings, admitted = [], {}, {}
     # Admit every source before executing any of them.
     for name, expected in REVIEWED.items():
         raw = (root / name).read_bytes()
         if hashlib.sha256(raw.replace(b'\r\n', b'\n')).hexdigest() != expected:
             raise ValueError(f'unreviewed source: {name}')
         bindings[name] = hashlib.sha256(raw).hexdigest()
+        admitted[name] = raw
     sys.path.insert(0, str(root / 'scripts'))
     for index, name in enumerate(REVIEWED):
         module = types.ModuleType(f'reviewed_dynamic_calls_{index}')
         module.__file__ = str(root / name)
-        exec(compile((root / name).read_bytes(), module.__file__, 'exec'), module.__dict__)
+        exec(compile(admitted[name], module.__file__, 'exec'), module.__dict__)
         modules.append(module)
     return (*modules, bindings)
 
