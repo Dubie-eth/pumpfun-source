@@ -133,9 +133,12 @@ def stage(src: Path, ws: Path, expected_inputs=None):
     # selected input in the copy, including nested path-crate Cargo metadata.
     generated = {'Cargo.toml', 'Cargo.lock'}
     expected = {row['path']: row for row in expected_inputs['files'] if row['path'] not in generated}
-    actual = {row['path']: row for row in snapshot(crate)['files'] if row['path'] not in generated}
-    if actual != expected:
-        changed = sorted(name for name in actual.keys() | expected.keys() if actual.get(name) != expected.get(name))
+    staged_inputs = snapshot(crate)
+    actual = {row['path']: row for row in staged_inputs['files'] if row['path'] not in generated}
+    changed_dirs = set(staged_inputs['directories']) ^ set(expected_inputs['directories'])
+    if actual != expected or changed_dirs:
+        changed_files = {name for name in actual.keys() | expected.keys() if actual.get(name) != expected.get(name)}
+        changed = sorted(changed_files | changed_dirs)
         raise ValueError('staged source inputs differ from admitted inputs: ' + ', '.join(changed[:10]))
     def put(p, t):
         if not p.exists() or p.read_text(encoding='utf-8') != t:
