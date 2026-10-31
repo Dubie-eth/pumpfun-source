@@ -38,12 +38,13 @@ def main():
     parser.add_argument('--toolchain', type=pathlib.Path, required=True)
     parser.add_argument('--output', type=pathlib.Path, required=True)
     args = parser.parse_args()
-    args.output.mkdir(parents=True, exist_ok=False)
     original = pinned_original(ROOT)
     rustc = args.toolchain.resolve() / 'rust/bin/rustc'
     source = ROOT / 'programs/pump/recovered/constant_product.rs'
     source_bytes, compiler_bytes = source.read_bytes(), rustc.read_bytes()
     source_hash, compiler_hash = sha(source_bytes), sha(compiler_bytes)
+    # Claim the fresh output only after every input is readable and bound.
+    args.output.mkdir(parents=True, exist_ok=False)
     obj = args.output.resolve() / 'constant_product.o'
     with tempfile.TemporaryDirectory(prefix='.compile-inputs-', dir=args.output) as temporary:
         staging = pathlib.Path(temporary).resolve()
