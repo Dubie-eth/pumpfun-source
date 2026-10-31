@@ -916,8 +916,12 @@ class ParallelCaseCountTests(unittest.TestCase):
                 with self.subTest(suite=name, explicit_count=explicit_count):
                     artifact, report = self.report(count)
                     keys = pump_validate_parallel.base.CASE_COMPARE_KEYS[name]
-                    report['cases'] = [{'case': index, 'original': dict.fromkeys(keys),
-                                        'candidate': dict.fromkeys(keys), 'match': True}
+                    outcome = {**dict.fromkeys(keys), 'logs': [],
+                               'metadata': {'return_data': None, 'inner_instructions': []},
+                               'relevant_logs': ['Program log: panicked at fixture.rs:1:1\nfixture panic']}
+                    report['cases'] = [{'case': index, 'original': outcome.copy(),
+                                        'candidate': outcome.copy(), 'match': True,
+                                        'expected_message': 'fixture panic'}
                                        for index in range(count)]
                     if not explicit_count:
                         del report['case_count']
