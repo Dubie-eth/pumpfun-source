@@ -165,6 +165,33 @@ def normalized_tokens(rows):
     return tokens
 
 
+def rebase_candidate(rows, start, candidate, original):
+    """Spell candidate callees and relocated pointers at their original places.
+
+    A sell size change moves every later window and the data sections, which is
+    not an edit of this body. Callees pair by window order, as
+    lost_windows_normalized does; pointers keep their offset in the same section.
+    Unpaired addresses stay as they are, and a wrong callee or pointer still differs.
+    """
+    paired = {}
+    if len(candidate.entries) == len(original.entries):
+        paired = dict(zip(candidate.entries, original.entries))
+    moved = [(candidate.secs[name], original.secs[name]) for name in ('.rodata', '.data.rel.ro')
+             if name in candidate.secs and name in original.secs]
+    out = []
+    for row in rows:
+        if isinstance(row['target'], tuple):
+            row = {**row, 'target': ('call', paired.get(row['target'][1], row['target'][1]))}
+        elif row['fields'][0] == 'lddw' and start + row['off'] in candidate.relocations:
+            kind, register, value = row['fields']
+            for new, old in moved:
+                if new[3] <= value < new[3] + new[5]:
+                    row = {**row, 'fields': (kind, register, value - new[3] + old[3])}
+                    break
+        out.append(row)
+    return out
+
+
 def slot_differences(original, candidate):
     """Count 8-byte sell slots that differ; an absent candidate tail is not zero.
 
@@ -244,6 +271,8 @@ def score(out_dir, want_disasm=False):
     names = demangle_map(symbols) if want_disasm else None
     o_rows = listing(original, SELL_START, SELL_SIZE, names)
     c_rows = listing(candidate, sell['start'], sell['size'], names)
+    if (sell['start'], sell['size']) != (SELL_START, SELL_SIZE):
+        c_rows = rebase_candidate(c_rows, sell['start'], candidate, original)
     o_tok, c_tok = normalized_tokens(o_rows), normalized_tokens(c_rows)
     matcher = difflib.SequenceMatcher(None, o_tok, c_tok, autojunk=False)
     distance = alignment_distance(o_tok, c_tok)
