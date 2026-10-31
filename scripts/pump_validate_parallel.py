@@ -196,7 +196,7 @@ def main():
     assert all(sha(ROOT / k) == v for k, v in sources.items())
     bound_files = {str(p): sha(p) for p in [candidate, original, Path(__file__), Path(base.__file__), PROCESS_RUNNER, ROOT / 'scripts/pump_diagnostic_audit.py', args.build_comparison]}
     loader_wrapper = ROOT / 'scripts/pump_with_captured_loader.py'
-    loader_inputs = [loader_wrapper, loader_wrapper.with_name('pump_captured_loader.py'), ROOT / 'evidence/original/pump/capture.json', ROOT / 'evidence/original/pump/program-account.bin', ROOT / 'evidence/original/pump/programdata-account.bin', original]
+    loader_inputs = [loader_wrapper, loader_wrapper.with_name('pump_captured_loader.py'), loader_wrapper.with_name('probe_report.py'), ROOT / 'evidence/original/pump/capture.json', ROOT / 'evidence/original/pump/program-account.bin', ROOT / 'evidence/original/pump/programdata-account.bin', original]
     if args.captured_loader:
         bound_files.update({str(p): sha(p) for p in loader_inputs})
     bound_files.update({str(path): sha(path) for path in source_binding_inputs})
