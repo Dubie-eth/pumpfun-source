@@ -75,6 +75,7 @@ jobs:
               python -B reconstruction/harness/test_integrate_failures.py
               python -B reconstruction/harness/test_integrate_no_build_cli.py
               python -B reconstruction/harness/test_integrate_build_input_recheck.py
+              python -B reconstruction/harness/test_integrate_scoring_reference_recheck.py
               python -B reconstruction/harness/test_composition_boundaries.py
               python -B reconstruction/harness/test_build_pair_boundaries.py
               python -B reconstruction/harness/test_build_pair_source_overlap.py
@@ -83,6 +84,7 @@ jobs:
               python -B reconstruction/harness/test_integrate_empty_files.py
               python -B reconstruction/harness/test_integrate_binary_files.py
               python -B reconstruction/harness/test_integrate_file_directory.py
+              python -B reconstruction/harness/test_integrate_git_metadata.py
               python -B reconstruction/harness/test_integrate_source_links.py
               python -B reconstruction/harness/test_integrate_orig_sources.py
               python -I -B tests/test_integrate_patch_bytes.py
@@ -263,6 +265,8 @@ jobs:
               python -B tests/test_pump_compare_report_staging.py
               python -B tests/test_experiment_placeholder_expansion.py
               python -B scripts/test_sbpf_disassembly_roundtrip_build_log.py
+              python -B scripts/test_sbpf_disassembly_inventory_long_output.py
+              python -B scripts/test_sbpf_disassembly_roundtrip_long_output.py
               python -B scripts/test_supported_sbpf_package_paths.py
               python -B scripts/test_pump_quote_control_function_match_output.py
               python -B reconstruction/toolchain/test_dependency_cache.py
@@ -312,8 +316,11 @@ jobs:
               python -B reconstruction/harness/test_experiment_worktree_source.py
               python -B reconstruction/harness/test_experiment_matrix_overlap.py
               python -B reconstruction/harness/test_bisect_membership.py
+              python -B reconstruction/harness/test_bisect_git_context.py
               python -B reconstruction/harness/test_bisect_missing_source.py
               python -B reconstruction/harness/test_experiment_directory_identity.py
+              python -B reconstruction/harness/test_experiment_output_directories.py
+              python -B reconstruction/harness/test_experiment_output_walk_errors.py
               python -B reconstruction/harness/test_experiment_receipt_integrity.py
               python -B reconstruction/harness/test_minimize_initial_report.py
               python -B reconstruction/harness/test_minimize_oracle_encoding.py

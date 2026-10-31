@@ -8,6 +8,7 @@ from pathlib import Path
 import secrets
 import sys
 try:
+    import elf_symbols  # Admit lazy symbol-reader bytes before any build.
     import fastbuild
     import score
     from original_input import copy_original_inputs

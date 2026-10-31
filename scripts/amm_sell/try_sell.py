@@ -119,7 +119,7 @@ def main():
              'inputs': key_doc, 'out_dir': str(out), 'build_seconds': record.get('seconds')}
     if record['returncode'] != 0:
         log = (out / 'build.log').read_text(errors='replace').splitlines()
-        errors = [line for line in log if line.startswith('error')][:12]
+        errors = (record['stack_warnings'] + [line for line in log if line.startswith('error')])[:12]
         entry.update({'status': 'build_failed', 'errors': errors})
         code = 2
     else:
