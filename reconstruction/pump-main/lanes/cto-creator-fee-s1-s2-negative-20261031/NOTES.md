@@ -110,9 +110,15 @@ maintained target tokens. It never invokes the compiler, full scorer, IR tools,
 objdump or a VM. A packet PASS would authenticate the preserved counterexamples,
 not accept any candidate source.
 
-**Extended replay has not yet been executed.** Existing `verification.json`
-preserves the real earlier S1/S2 replay; it is not S3 verification. No extended
-verifier, target metric or test was executed while authoring this extension.
+**Extended replay passed once on input commit `649a241324a66768875229682e7487da7c5a4918`**
+(tree `60e317153e3233573ab73dae75b64a6128337f09`). Actual stdout is retained
+byte-for-byte as `verification-s3.json`; `replay-s3-receipt.json` records the
+3.5404 s replay, 9 verified captures and 228 passing tooling tests, with
+unchanged 314 local and 5 external inputs for each check. Existing
+`verification.json` remains the immutable earlier S1/S2-only replay. Later
+receipt/docs packaging changes no executable input and is not the executed
+Git SHA. This PASS authenticates the counterexamples; S3 remains source
+REJECTED and its standalone VM count remains 0.
 
 Separate diagnostic run 41173731317 uses the same frozen S3 source, with code
 identity to normal S3 admitted by 50 checks. Its three files are retained in

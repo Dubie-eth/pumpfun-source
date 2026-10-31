@@ -6,13 +6,13 @@
     "S2": "REJECTED/native no-loss FAIL",
     "S3": "REJECTED/target metric, native no-loss SUCCESS"
   },
-  "extendedReplay": "NOT_EXECUTED",
-  "verificationRecordScope": "verification.json currently preserves prior S1/S2 replay only; not S3 verification",
+  "extendedReplay": "PASS_ON_TESTED_INPUT_COMMIT_649a241324a66768875229682e7487da7c5a4918",
+  "verificationRecordScope": "verification.json: immutable prior S1/S2-only replay; verification-s3.json: actual extended normal-cohort replay",
   "files": [
     {
       "path": "NOTES.md",
-      "bytes": 9419,
-      "sha256": "cc205febdc2672806729b6a1aeea14b8b4d0254f12bd35cf9809b2f6c7e9f44d"
+      "bytes": 9842,
+      "sha256": "df973e19000959babc6c552651f3decb1817dee59dc2b61e46da4446f811cb02"
     },
     {
       "path": "captures.tar.xz",
@@ -73,6 +73,19 @@
       "path": "s3-metric.json",
       "bytes": 2313,
       "sha256": "97188b8b63d5c4c542ccaa91f956847af15efd2a8bf00e8ccd65a2162de086f3"
+    },
+    {
+      "path": "verification-s3.json",
+      "bytes": 3126,
+      "sha256": "fdc17c1f2c99ed0ef58142def9eb56e899280a78a39099371d8cf455cab24bb3"
+    },
+    {
+      "path": "replay-s3-receipt.json",
+      "bytes": 5728,
+      "sha256": "b4ac70d7628d5a289cb0b12025019945cd7850318f7aef70af3fdb168dc0b2ee"
     }
-  ]
+  ],
+  "testedInputCommit": "649a241324a66768875229682e7487da7c5a4918",
+  "testedInputTree": "60e317153e3233573ab73dae75b64a6128337f09",
+  "outputPackagingScope": "Generated outputs/receipt/docs only; executable inputs identical to tested commit; output packaging commit itself was not executed."
 }
