@@ -28,12 +28,22 @@ def demangle(s):
     if not m:
         return s
     rest, parts = m.group(1), []
-    while rest and rest[0].isdigit():
-        n = re.match(r'^(\d+)', rest).group(1); rest = rest[len(n):]
-        part = rest[:int(n)]
+    while rest:
+        length = re.match(r'^([1-9][0-9]*)', rest)
+        if length is None:
+            return s
+        n = length.group(1); rest = rest[len(n):]
+        # Bound before int(): arbitrary ELF names may contain thousands of
+        # digits, exceed Python's integer-string limit, or truncate a component.
+        if len(n) > len(str(len(rest))) or int(n) > len(rest):
+            return s
+        size = int(n)
+        part = rest[:size]
         parts.append(part[1:] if part.startswith('_$') else part)
-        rest = rest[int(n):]
-    if parts and re.fullmatch(r'h[0-9a-f]{16}', parts[-1]):
+        rest = rest[size:]
+    if not parts:
+        return s
+    if re.fullmatch(r'h[0-9a-f]{16}', parts[-1]):
         parts = parts[:-1]
     t = '::'.join(parts)
     for a, b in [('$LT$', '<'), ('$GT$', '>'), ('$RF$', '&'), ('$BP$', '*'), ('$C$', ','), ('$u20$', ' '),
