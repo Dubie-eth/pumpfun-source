@@ -81,6 +81,17 @@ class MayhemReportEncodingGuardTests(unittest.TestCase):
         self.assertFalse(result.wasSuccessful())
         self.assertIn('mayhem_case_11.py', str(result.failures))
 
+    def test_inherited_publisher_requires_a_local_publisher_import(self):
+        inherited = PUMP_REPORT.replace('from pump_differential_output import PumpReport',
+                                        'from mayhem_case_00 import *')
+        sources = [PUMP_REPORT] + [PINNED] * 5 + [inherited] * 6
+        accepted = self.run_guard(sources)
+        self.assertTrue(accepted.wasSuccessful(), str(accepted.failures))
+        unrelated = inherited.replace('mayhem_case_00', 'mayhem_case_01')
+        refused = self.run_guard(sources[:-1] + [unrelated])
+        self.assertFalse(refused.wasSuccessful())
+        self.assertIn('mayhem_case_11.py', str(refused.failures))
+
     def test_family_smaller_than_expected_fails(self):
         result = self.run_guard([PINNED] * 3 + [PUMP_REPORT] * 3)
         self.assertFalse(result.wasSuccessful())

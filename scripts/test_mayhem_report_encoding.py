@@ -31,7 +31,7 @@ def pinned_writes(tree):
             and node.func.attr == "write_text"]
 
 
-def publishes_through_pump_report(tree, source):
+def publishes_through_pump_report(tree, source, seen=()):
     """True when the receipt bytes go through the shared PumpReport publisher.
 
     Those bytes are composed by the caller and written with ``write``; the
@@ -43,6 +43,22 @@ def publishes_through_pump_report(tree, source):
         and any(alias.name == "PumpReport" for alias in node.names)
         for node in ast.walk(tree)
     )
+    # Validator subclasses inherit the publisher through their fixture modules.
+    # Follow only the local Mayhem family imports, with a cycle guard.
+    if not imported:
+        for node in ast.walk(tree):
+            if (not isinstance(node, ast.ImportFrom) or not node.module
+                    or not node.module.startswith("mayhem_") or node.module in seen
+                    or not any(alias.name in ("*", "PumpReport") for alias in node.names)):
+                continue
+            path = SCRIPTS / (node.module + ".py")
+            if path.is_file():
+                parent = path.read_text(encoding="utf-8")
+                # The imported module must itself publish through PumpReport;
+                # an unrelated local star import cannot satisfy the guard.
+                if publishes_through_pump_report(ast.parse(parent), parent, (*seen, node.module)):
+                    imported = True
+                    break
     writes = any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                  and node.func.attr == "write" for node in ast.walk(tree))
     return imported and writes and "PumpReport(" in source

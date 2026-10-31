@@ -110,6 +110,21 @@ class FeesDifferentialReportPublicationTests(unittest.TestCase):
             with self.subTest(runner=name):
                 self.assert_refused(name, self.root / "scripts" / f"{name}.py")
 
+    def test_receipt_cannot_replace_an_optional_external_baseline(self):
+        baseline = self.root / "baseline.so"
+        original = self.candidate.read_bytes()
+        baseline.write_bytes(original)
+        for name in ("fees_external_codec_differential", "fees_error_messages_differential"):
+            with self.subTest(runner=name):
+                completed = subprocess.run(
+                    [sys.executable, "-B", str(self.root / "scripts" / f"{name}.py"),
+                     "--candidate", str(self.candidate), "--baseline", str(baseline),
+                     "--output", str(baseline)],
+                    cwd=self.root, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn(ALIAS, completed.stderr)
+                self.assertEqual(baseline.read_bytes(), original)
+
     def test_fresh_nested_output_publishes_the_report(self):
         for name in RUNNERS:
             with self.subTest(runner=name):

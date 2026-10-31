@@ -424,6 +424,33 @@ class VerifyMayhemBurnSequenceBoundsTests(unittest.TestCase):
             self.assertEqual(len(verification["cases"]), 3)
             self.assertEqual(verification["case_count"], 6)
 
+    def test_explicit_external_candidate_input_stays_bound_to_its_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            fixtures, receipts, _, comparison = self.build_valid_bundle(root)
+            candidate = root / "candidate.so"
+            comparison["input_sha256"][candidate.as_posix()] = sha256_hex(candidate.read_bytes())
+            self.write_json(receipts / "comparison.json", comparison)
+            accepted = self.invoke(fixtures, receipts)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            (receipts / "verification.json").unlink()
+            candidate.write_bytes(b"changed candidate")
+            refused = self.invoke(fixtures, receipts)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertFalse((receipts / "verification.json").exists())
+
+    def test_unrelated_external_input_is_not_admitted_as_the_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            fixtures, receipts, _, comparison = self.build_valid_bundle(root)
+            unrelated = root / "unrelated.bin"
+            unrelated.write_bytes(b"unrelated input")
+            comparison["input_sha256"][unrelated.as_posix()] = sha256_hex(unrelated.read_bytes())
+            self.write_json(receipts / "comparison.json", comparison)
+            refused = self.invoke(fixtures, receipts)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertFalse((receipts / "verification.json").exists())
+
     def test_truncated_families_or_cases_are_rejected(self):
         for kind in ("empty_families", "single_family", "single_case"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:

@@ -39,6 +39,8 @@ def main():
     assert d.get('inputs_unchanged') is True
     assert isinstance(d.get('mismatches'), list)
     assert set(d['mismatches']) <= {0, 1, 2} if sequential else not d['mismatches']
+    candidate_sha = cases[0]['candidate']['binary_sha256']
+    assert isinstance(candidate_sha, str) and len(candidate_sha) == 64
     required_inputs = {'fixtures:fixture-manifest.json', 'evidence/original/mayhem/deployed.so'}
     for row in captured.values():
         if row['exists'] and 'data_file' in row:
@@ -47,13 +49,17 @@ def main():
     for path, digest in d['input_sha256'].items():
         target = ((ROOT / path.removeprefix('fixtures:')) if path.startswith('fixtures:') else (REPO / path)).resolve()
         base = ROOT if path.startswith('fixtures:') else REPO.resolve()
-        assert target.is_relative_to(base)
+        # The producer admits an explicit candidate outside the checkout. Its
+        # absolute key must identify the common candidate image, while fixture
+        # and repository-relative inputs remain confined to their roots.
+        if not path.startswith('fixtures:') and Path(path).is_absolute():
+            assert digest == candidate_sha
+        else:
+            assert target.is_relative_to(base)
         assert sha(target.read_bytes()) == digest
     assert sequential
     assert sha((REPO / 'scripts/mayhem_burn_sequence.py').read_bytes()) == d['runner_sha256']
     original_sha = sha((REPO / 'evidence/original/mayhem/deployed.so').read_bytes())
-    candidate_sha = cases[0]['candidate']['binary_sha256']
-    assert isinstance(candidate_sha, str) and len(candidate_sha) == 64
     results = []
     for i, (family, case) in enumerate(zip(families, cases, strict=True)):
         fields = family['accounts']
