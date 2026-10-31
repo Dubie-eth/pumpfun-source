@@ -739,7 +739,7 @@ class GeneratedPacketMembershipTests(unittest.TestCase):
                 finally:
                     artifact.write_bytes(raw)
 
-    def test_partial_signature_packet_keeps_its_generated_program_set(self):
+    def test_partial_signature_packet_refuses_missing_required_programs(self):
         view = self.root / 'partial-view'
         (view / 'scripts').mkdir(parents=True)
         capture = view / 'evidence/original/mayhem/deployed.so'
@@ -749,11 +749,9 @@ class GeneratedPacketMembershipTests(unittest.TestCase):
             shutil.copyfile(analyze.ROOT / 'scripts' / name, view / 'scripts' / name)
         output = view / 'packet'
         generated = self.run_python(view / 'scripts/bytecode_signatures.py', '--output', output)
-        self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
-        self.assertEqual(self.run_python(output / 'verify.py').returncode, 0)
-        manifest = json.loads((output / 'manifest.json').read_bytes())
-        self.assertIn('mayhem-signatures.json', manifest)
-        self.assertNotIn('pump-signatures.json', manifest)
+        self.assertNotEqual(generated.returncode, 0, generated.stdout + generated.stderr)
+        self.assertIn(b'missing captured program ELF', generated.stderr)
+        self.assertFalse(output.exists())
 
 
 class CorpusOptimizationTests(unittest.TestCase):

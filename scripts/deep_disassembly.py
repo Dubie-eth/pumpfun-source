@@ -37,7 +37,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 from window_elf_reader import Elf
-from analyze import capture_directory
+def capture_directory(root, program):
+    # Publication-only consumers do not need the analyzer dependency.
+    from analyze import capture_directory as resolve_capture
+    return resolve_capture(root, program)
+
 
 # BPF opcode mnemonics
 BPF_ALU64  = 0x07
