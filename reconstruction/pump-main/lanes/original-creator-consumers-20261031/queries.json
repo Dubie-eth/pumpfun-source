@@ -1825,7 +1825,8 @@
         {
           "writers": [
             240,
-            336
+            336,
+            1368
           ],
           "entry": false
         }
@@ -1968,6 +1969,82 @@
         {
           "writers": [
             320
+          ],
+          "entry": false
+        }
+      ]
+    },
+    {
+      "id": "helper-length-spill-before-restore",
+      "body": "helper",
+      "graph": "uncut",
+      "kind": "frame",
+      "pc": 1368,
+      "frame": -176,
+      "bytes": 8,
+      "expected": [
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        },
+        {
+          "writers": [
+            904
+          ],
+          "entry": false
+        }
+      ]
+    },
+    {
+      "id": "helper-length-source-before-spill",
+      "body": "helper",
+      "graph": "uncut",
+      "kind": "reg",
+      "pc": 904,
+      "reg": 9,
+      "expected": [
+        {
+          "writers": [
+            240,
+            336
           ],
           "entry": false
         }

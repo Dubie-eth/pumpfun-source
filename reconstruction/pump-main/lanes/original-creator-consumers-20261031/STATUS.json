@@ -1,12 +1,12 @@
 {
-  "status": "STATIC_GO_CODE_UNCHANGED_METADATA_REFERENCES_NOT_EXECUTED_AWAIT_ROOT_GIT",
+  "status": "CORRECTED_AFTER_ONE_RETAINED_REAL_FAILURE_NOT_REPLAYED",
   "verifierExecutions": 0,
   "testsOrCompileChecks": 0,
   "originalELFReadsThisStage": 0,
   "projectAnalysisCLI": 0,
   "compilerScorerMetricVM": 0,
   "GitPRRemoteWrites": 0,
-  "queryCount": 68,
+  "queryCount": 70,
   "expectedDomainFixedInCode": true,
   "next": "Metadata-only packaging review, genuine pretest Git commitment by root, then separately authorized ONE actual replay plus required checks. No ignored-stage run.",
   "externalScopeReview": {
@@ -26,5 +26,7 @@
   },
   "acceptedStaticReviewSHA256": "955753ccc026384c649df9a854ce4a73a06acc86448cfab6d989abe448b4a14f",
   "premiseReferences": "PREMISES.md",
-  "unchangedExecutableInputs": "UNCHANGED-EXECUTABLE-INPUTS.json"
+  "unchangedExecutableInputs": "UNCHANGED-EXECUTABLE-INPUTS.json",
+  "previousVersionVerifierExecutions": 1,
+  "requiredScriptsExecuted": 0
 }
