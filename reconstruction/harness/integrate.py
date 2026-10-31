@@ -387,12 +387,14 @@ def main():
             # Neither conflicts nor patch-tool errors may partly modify src.
             prospective = SC / 'integ' / '.tmp' / a.name / label / 'prospective'
             shutil.copytree(src, prospective)
+            # Both patch tools prune a directory when its last file goes.
+            kept = composition_directories(prospective) & composition_directories(Path(path))
             diagnostic = out / 'rejects' / f'{label}.txt'
             result = (apply_part(prospective, pf, text, patch_command, diagnostic)
                       if text.strip() else {'status': 'applied', 'files': []})
             if result['status'] == 'applied':
                 try:
-                    retained = apply_directory_delta(prospective, added, removed)
+                    retained = apply_directory_delta(prospective, sorted({*added, *kept}), removed)
                 except (FileExistsError, NotADirectoryError) as error:
                     detail = 'directory composition conflict: ' + str(error)
                     diagnostic.write_text(detail, encoding='utf-8')
