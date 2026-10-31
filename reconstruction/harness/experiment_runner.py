@@ -128,12 +128,20 @@ def atomic_json(path, value):
         if os.path.exists(temporary): os.unlink(temporary)
 
 
+def output_paths(root):
+    def traversal_error(error):
+        raise error
+    for directory, dirs, files in os.walk(root, onerror=traversal_error):
+        for name in dirs + files:
+            yield Path(directory) / name
+
+
 def artifacts(attempt):
     output = attempt / 'output'
     if output.is_symlink() or not output.is_dir():
         raise ValueError('retained output must be a real directory')
     result = {}
-    for path in [attempt / 'stdout.log', attempt / 'stderr.log', *sorted((attempt / 'output').rglob('*'))]:
+    for path in [attempt / 'stdout.log', attempt / 'stderr.log', *sorted(output_paths(output))]:
         if path.is_symlink(): raise ValueError('output symlinks are unsupported')
         if path.is_file():
             result[path.relative_to(attempt).as_posix()] = {
