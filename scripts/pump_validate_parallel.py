@@ -270,11 +270,15 @@ def main():
             except (ValueError, OSError, EOFError) as error:
                 retain_rejected(raw, repr(error))
                 raise
-        (retained / (name + '.json.gz')).write_bytes(gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
-        count = validate_result(name, result, candidate, original)
-        if args.captured_loader:
-            loader_receipts[name] = validate_loader_receipt(name, loader_receipt, script, candidate, original, loader_inputs)
-        check_bound_files()
+        try:
+            count = validate_result(name, result, candidate, original)
+            if args.captured_loader:
+                loader_receipts[name] = validate_loader_receipt(name, loader_receipt, script, candidate, original, loader_inputs)
+            check_bound_files()
+        except Exception as error:
+            # <name>.json.gz names admitted receipts only.
+            retain_rejected(raw, repr(error))
+            raise
         result['case_count'] = count
         (retained / (name + '.json.gz')).write_bytes(gzip.compress(json.dumps(result, separators=(',', ':')).encode(), mtime=0))
         return name, count, result
