@@ -434,7 +434,7 @@ def main():
             else:
                 exit_code = 1
         validate_inputs()
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         report['error'] = str(error)
         exit_code = 1
     (out / 'report.json').write_text(json.dumps(report, indent=1))
