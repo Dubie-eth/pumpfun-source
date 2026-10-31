@@ -393,6 +393,38 @@ class PumpAmmLiquidityCapturedTests(unittest.TestCase):
                   {'ub_data': delegated(BASE, OTHER, 400_000, amount=1)}]
         self.run_cases(cases)
 
+    def test_synthetic_destination_overflow_matches_captured_program(self):
+        # These deliberately inconsistent token totals describe a bounded
+        # model edge, not a reachable on-chain balance configuration.
+        cases = []
+        for kind in ('deposit', 'withdraw'):
+            for leg in ('base', 'quote'):
+                short = 'b' if leg == 'base' else 'q'
+                destination = ('v' if kind == 'deposit' else 'u') + short
+                source = ('u' if kind == 'deposit' else 'v') + short
+                if kind == 'deposit':
+                    threshold = U64_MAX * 1_000_000 // 1_000_001
+                else:
+                    threshold = U64_MAX - (400 if leg == 'base' else 200)
+                for program in (TOKEN, TOKEN22):
+                    # Credits end below max, exactly at max, and one past max.
+                    for offset in (-1, 0, 1):
+                        case = {'ix': kind, 'amount': 1, leg + '_owner': program,
+                                destination + '_amt': threshold + offset}
+                        if kind == 'deposit':
+                            case[source + '_amt'] = U64_MAX
+                        cases.append(case)
+        for program in (TOKEN, TOKEN22):
+            cases.append({'base_owner': program, 'vb_amt': U64_MAX,
+                          'ub_amt': U64_MAX, 'amount': 1})
+        cases += [
+            {'vb_amt': U64_MAX, 'ub_amt': U64_MAX, 'uq_amt': 0, 'amount': 1},
+            {'vb_amt': U64_MAX, 'ub_amt': U64_MAX, 'vq_amt': U64_MAX,
+             'uq_amt': U64_MAX, 'quote_owner': TOKEN22, 'amount': 1},
+            {'vb_amt': U64_MAX, 'ub_amt': U64_MAX, 'ul_amt': U64_MAX, 'amount': 1},
+        ]
+        self.run_cases(cases)
+
     def test_captured_image_identity_is_required(self):
         with tempfile.TemporaryDirectory() as temporary:
             wrong = Path(temporary) / 'wrong.so'
