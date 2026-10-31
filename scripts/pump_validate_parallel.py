@@ -249,7 +249,8 @@ def main():
                 if '--source-directory' not in command:
                     command += ['--source-directory', str(args.source_directory.resolve())]
             completed, timed_out = run_compiler(command, cwd=ROOT, timeout=args.suite_timeout)
-            (retained / (name + '.log')).write_text(completed.stdout, encoding='utf-8')
+            (retained / (name + '.log')).write_text(completed.stdout, encoding='utf-8',
+                                                    newline='\n')
 
             def retain_rejected(raw, reason):
                 rejected = retained / (name + '.failed-output')

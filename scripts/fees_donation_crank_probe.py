@@ -68,7 +68,7 @@ class CrankFixture:
   before=snapshot();r=self.vm.send_transaction(tx);failed=isinstance(r,FailedTransactionMetadata);meta=r.meta() if failed else r
   return {'case':c,'error':str(r.err()) if failed else None,'before':before,'after':snapshot(),'logs':meta.logs(),'inner':json.loads(meta.to_json())['inner_instructions'],'transaction_base64':base64.b64encode(bytes(tx)).decode()}
 def main():
- p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--candidate',type=pathlib.Path);a=p.parse_args();publisher=PumpReport(a.output,ROOT,a.candidate,__file__);f=CrankFixture(pin_program(ROOT/'evidence/original/pump_fees/deployed.so'))
+ p=argparse.ArgumentParser();p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--candidate',type=pathlib.Path);a=p.parse_args();publisher=PumpReport(a.output,ROOT,a.candidate,__file__,extra_inputs=[ROOT/'evidence/dependencies/donation_relay/deployed.so',ROOT/'research/imported-lab/analysis/pump_fun/amm-v2-trade-fixture.json']);f=CrankFixture(pin_program(ROOT/'evidence/original/pump_fees/deployed.so'))
  cases=[{'name':'base'},{'name':'zero','amount':0},{'name':'one','amount':1},{'name':'large','amount':10**9},{'name':'no-whitelist','whitelist':False}]
  cases += [{'name':'flags-'+str(n),'flags':n} for n in range(256)]
  cases += [{'name':'wrong-'+a['name'],'wrong_account':a['name']} for a in IX['accounts'] if a['name']!='payer']
