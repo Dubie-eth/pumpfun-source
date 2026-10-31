@@ -68,7 +68,10 @@ def sites(blob, secs, start, raw):
                         break  # Calls may overwrite caller-saved pointer registers.
                     if dst(r3) == ry and o3 == 0x18:
                         ptr = v3; break
-                    if dst(r3) == ry and o3 not in (0x7b, 0x7a, 0x62, 0x72, 0x6a, 0x63, 0x73, 0x6b):
+                    # Conditional jumps read their dst operand; they do not
+                    # overwrite it. Keep the caller-saved call barrier above.
+                    branch = o3 & 7 in (5, 6) and o3 & 0xf0 not in (0x80, 0x90)
+                    if dst(r3) == ry and not branch and o3 not in (0x7b, 0x7a, 0x62, 0x72, 0x6a, 0x63, 0x73, 0x6b):
                         break
                 if ptr is not None:
                     break
