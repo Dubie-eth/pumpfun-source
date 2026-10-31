@@ -1,7 +1,7 @@
 {
   "schema": "pump-completion-pass102-v1",
   "date": "2026-10-31",
-  "built_revision": "1d4865e5794a0929d67368043f03e6cff95f014d",
+  "built_revision": "a963ac205373d26f713e5b295b52711928587d35",
   "build_tool_revision": "a963ac205373d26f713e5b295b52711928587d35",
   "baseline_revision": "ebe5387e12e948c2534618adf7a3cf0f27d9de51",
   "source_pr": 3621,
@@ -70,5 +70,7 @@
     "Unlinked recovered models are separate bounded captured-program behavior evidence and do not increase compiled completion.",
     "Other four programs retain prior exact checkpoints; they were not rebuilt in this pass.",
     "Previous 408 swap fixtures are historical coverage and were not rerun on this candidate."
-  ]
+  ],
+  "validated_merged_revision": "1d4865e5794a0929d67368043f03e6cff95f014d",
+  "source_binding_note": "The exact build revision is recorded separately from the merged revision whose program inventory was verified identical."
 }
