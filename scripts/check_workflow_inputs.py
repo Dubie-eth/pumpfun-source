@@ -179,6 +179,22 @@ def python_option(option):
     return False, False
 
 
+def shell_option(option):
+    """Return (non-file input mode, separate value) for a shell option."""
+    if option.startswith('--'):
+        return False, option in ('--rcfile', '--init-file')
+    for consumed, flag in enumerate(option[1:], 2):
+        if flag in ('c', 's'):
+            # -c reads a command string; -s reads stdin. Remaining operands
+            # name positional parameters, not a script file.
+            return True, False
+        if flag in ('o', 'O'):
+            # Do not search through a value-taking option for incidental
+            # c/s letters. A separate option name is consumed by the caller.
+            return False, consumed == len(option)
+    return False, False
+
+
 def command_start(tokens):
     """Return the interpreter index after shell assignments and env options."""
     return command_context(tokens, '.')[0]
@@ -327,9 +343,7 @@ def references(name, source):
                         if python:
                             inline, takes_value = python_option(option)
                         else:
-                            inline = not option.startswith('--') and 'c' in option[1:]
-                            takes_value = (option in ('--rcfile', '--init-file') or
-                                           not option.startswith('--') and option[-1:] in ('o', 'O'))
+                            inline, takes_value = shell_option(option)
                         if inline:
                             index = len(tokens)
                             break
