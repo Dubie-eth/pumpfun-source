@@ -27,6 +27,20 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def require_signatures(receipt):
+    """Reject a retained receipt with no valid transaction signature.
+
+    verify_with_results() returns one result per signature, so an unsigned
+    transaction yields an empty list and all() accepts it. Require at least
+    one result before requiring all of them, as the sibling v3 verifiers do.
+    """
+    import base64
+    from solders.transaction import Transaction
+    tx = Transaction.from_bytes(base64.b64decode(receipt['transaction_base64'], validate=True))
+    results = tx.verify_with_results()
+    require(bool(results) and all(results), 'invalid retained transaction signature')
+
+
 def external_inputs(manifest):
     """Read external inputs from the replay revision, never the moving checkout."""
     revision = manifest['externalRevision']
@@ -177,12 +191,9 @@ def main():
         require(values[0] == values[1], f'{section} changed')
     runtime = read_json(HERE / 'runtime.json.gz')
     if '--signatures' in sys.argv:
-        import base64
-        from solders.transaction import Transaction
         for row in runtime['rows']:
             for receipt in row['receipts'].values():
-                tx = Transaction.from_bytes(base64.b64decode(receipt['transaction_base64'], validate=True))
-                require(all(tx.verify_with_results()), 'invalid retained transaction signature')
+                require_signatures(receipt)
     require(runtime['case_count'] == len(runtime['rows']) == 117, 'runtime case count')
     require(not runtime['differences'] and not runtime['regressions'], 'reported runtime difference')
     fields = ('error', 'accounts', 'inner_instructions', 'event_payloads', 'return_data')
