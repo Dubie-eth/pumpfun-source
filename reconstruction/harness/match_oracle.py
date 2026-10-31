@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import elf_symbols  # score imports this lazily; load it before a build can rewrite it
 import fastbuild
 import score
 from original_input import copy_original_inputs
