@@ -1,5 +1,8 @@
 # Resumable, bounded experiments
 
+Source/output separation checks existing filesystem identities as well as
+resolved paths, including alternate case spellings on case-insensitive volumes.
+
 `python reconstruction/harness/experiment_runner.py matrix.json --out /tmp/trials --max-trials 20`
 
 A matrix is a JSON array of objects with unique simple `name`, absolute `source` directory, `command` argv array, optional `inputs` file paths and `timeout` seconds (default 300, maximum 86400). Use `{source}`, `{work}` and `{out}` in arguments. Commands run sequentially in an isolated working directory, without a shell. Source is copied; `.git`, `__pycache__` and the source root's `target` directory are omitted. A regular file named `target` and nested `target` directories remain source inputs. Source symlinks and special files are refused. The output tree must be separate from the source.
