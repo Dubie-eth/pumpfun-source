@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 
@@ -14,6 +15,60 @@ import pump_validate_parallel as parallel
 KEYS = ['error', 'before_accounts', 'after_accounts', 'rollback', 'event_payloads',
         'inner_instructions', 'return_data', 'transaction_base64',
         'signature_verification', 'blockhash', 'sigverify_enabled', 'blockhash_check_enabled']
+
+
+class CapturedAdministrativeReceiptContract(unittest.TestCase):
+    """Exercise admission with the real producer and retained local program."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.temporary.cleanup)
+        root = Path(__file__).resolve().parents[1]
+        cls.artifact = root / 'evidence/original/pump/deployed.so'
+        output = Path(cls.temporary.name) / 'administration.json'
+        subprocess.run([sys.executable, '-B', str(root / 'scripts/pump_validate_admin.py'),
+                        '--candidate', str(cls.artifact), '--output', str(output)],
+                       cwd=root, capture_output=True, text=True, check=True, timeout=60)
+        cls.report = json.loads(output.read_bytes())
+
+    def validate(self, report):
+        base.validate_case_results(report, 'administration')
+        return parallel.validate_result('administration', report, self.artifact, self.artifact)
+
+    def test_producer_receipt_is_admitted(self):
+        self.assertEqual(self.report['case_count'], 93)
+        self.assertEqual(self.report['mismatches'], [])
+        self.assertEqual(self.validate(self.report), 93)
+
+    def test_retained_error_balance_and_bytes_must_match(self):
+        for field, changed in [('error', 'unexpected failure'), ('lamports', 1), ('data_hex', 'ff')]:
+            with self.subTest(field=field):
+                report = copy.deepcopy(self.report)
+                report['cases'][0]['candidate'][field] = changed
+                with self.assertRaisesRegex(AssertionError, 'retained comparison contradicts'):
+                    self.validate(report)
+
+    def test_removing_a_promised_field_cannot_preserve_success(self):
+        for field in ('error', 'lamports', 'data_hex'):
+            for sides in [('original',), ('candidate',), ('original', 'candidate')]:
+                with self.subTest(field=field, sides=sides):
+                    report = copy.deepcopy(self.report)
+                    for side in sides:
+                        del report['cases'][0][side][field]
+                    with self.assertRaisesRegex(AssertionError, 'compared field .* missing'):
+                        self.validate(report)
+
+    def test_incidental_diagnostics_are_not_promised_equal(self):
+        report = copy.deepcopy(self.report)
+        report['cases'][0]['candidate']['logs'].append('Program log: incidental diagnostic')
+        report['cases'][0]['original']['compute_units'] = 1
+        report['cases'][0]['candidate']['compute_units'] = 2
+        self.assertEqual(self.validate(report), 93)
+
+    def test_every_generic_suite_has_a_comparison_contract(self):
+        specialized = {'quote_control', 'multi_hop_curve_partial', 'tokenkeg_two_curve'}
+        self.assertEqual(set(base.CASE_COMPARE_KEYS), set(base.EXPECTED_CASES) - specialized)
 
 
 def quote_rows(count):

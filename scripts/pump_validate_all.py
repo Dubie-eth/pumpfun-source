@@ -115,8 +115,44 @@ QUOTE_CONTROL_COMPARE_KEYS = ('error', 'before_accounts', 'after_accounts', 'rol
 CASE_DIFFERENCE_FIELDS = ('different_fields', 'diff', 'differences', 'mismatched_fields')
 
 
-def validate_case_results(result):
-    """Reject explicit failed/incomplete pairs even if the summary says zero."""
+# These are the semantic fields compared by each maintained producer. Raw
+# logs, compute usage and other incidental metadata are deliberately excluded.
+# QuoteControl and the two specialized multi-hop receipts have separate gates.
+CASE_COMPARE_KEYS = {
+    'volume': ('error', 'account', 'payer_lamports', 'user_lamports', 'events', 'inner_instructions'),
+    'administration': ('error', 'data_hex', 'lamports'),
+    'creator_collection': ('transaction_base64', 'signature_verification', 'error', 'account',
+                           'creator', 'payer_lamports', 'events', 'inner_instructions'),
+    'quote': ('error', 'accounts', 'event_payloads', 'inner'),
+    'minimum_distribution': ('error', 'before', 'after', 'events'),
+    'fee_sweeps': ('error', 'before', 'after'),
+    'legacy_cashback': ('error', 'before', 'accounts', 'events', 'inner', 'return_data'),
+    'virtual_reserve_sync': ('error', 'before', 'after', 'events', 'inner', 'return_data'),
+    **dict.fromkeys(('authority', 'configuration'),
+                    ('error', 'data_hex', 'lamports', 'payer_lamports', 'authority_lamports',
+                     'event_payloads', 'inner_instructions')),
+    **dict.fromkeys(('buy', 'sell'), ('error', 'accounts', 'event_payloads', 'inner_instructions')),
+    **dict.fromkeys(('exact_quote_v3', 'v3_configured_fee'),
+                    ('error', 'accounts', 'inner_instructions', 'event_payloads', 'return_data')),
+    **dict.fromkeys(('creator_collection_v2', 'set_params'),
+                    ('error', 'before', 'after', 'events', 'inner', 'returns')),
+    **dict.fromkeys(('incentive_claim', 'claim_panic_diagnostics'),
+                    ('error', 'before', 'after', 'event_data_base64', 'inner')),
+    **dict.fromkeys(('legacy_sell', 'legacy_sell_configured_fee', 'sell_v2', 'legacy_buy',
+                     'buy_v2', 'cashback', 'global_init', 'earned_cashback'),
+                    ('error', 'accounts', 'events', 'inner', 'return_data')),
+    **dict.fromkeys(('creator_distribution', 'extension', 'volume_sync', 'creator_migration',
+                     'admin_cto', 'set_creator', 'idl_authority', 'legacy_create', 'create_v2',
+                     'create_control', 'migration', 'migrate_v2', 'holder_distribution',
+                     'nested_create', 'incentive_schedule'),
+                    ('error', 'before', 'after', 'events', 'inner', 'return')),
+}
+
+
+def validate_case_results(result, suite):
+    """Recompare promised fields as well as checking the retained success claims."""
+    assert suite in CASE_COMPARE_KEYS, f'unknown comparison contract: {suite}'
+    compared = CASE_COMPARE_KEYS[suite]
     assert isinstance(result['cases'], list), 'case results must be a list'
     for index, row in enumerate(result['cases']):
         assert isinstance(row, dict), f'case {index}: result must be an object'
@@ -128,6 +164,11 @@ def validate_case_results(result):
             assert row['match'] is True, f'case {index}: match is not true'
         for name in fields:
             assert row[name] == [], f'case {index}: {name} is not an empty difference list'
+        for field in compared:
+            assert field in row['original'] and field in row['candidate'], \
+                f'{suite} case {index}: compared field {field} missing'
+            assert row['original'][field] == row['candidate'][field], \
+                f'{suite} case {index}: retained comparison contradicts success for {field}'
 
 
 def publish_file(staged, output):
@@ -243,7 +284,7 @@ def main():
                     assert result.get('original_sha256', result.get('provenance', {}).get(str(original))) == original_sha
                     assert result.get('candidate_sha256', result.get('provenance', {}).get(str(candidate))) == candidate_sha
                     count = retained_case_count(result)
-                    validate_case_results(result)
+                    validate_case_results(result, name)
                 assert count == EXPECTED_CASES[name], (name, count, EXPECTED_CASES[name])
                 assert not result.get('mismatches', result.get('failures', [])), name
                 result['case_count'] = count

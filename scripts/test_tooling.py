@@ -219,7 +219,9 @@ class CaseComparisonReceiptTests(unittest.TestCase):
         for field in ('different_fields', 'diff', 'differences', 'mismatched_fields', 'match'):
             with self.subTest(field=field):
                 self.assertEqual(self.validate(self.report({
-                    'original': {}, 'candidate': {}, field: True if field == 'match' else [],
+                    'original': dict.fromkeys(corpus.CASE_COMPARE_KEYS['volume']),
+                    'candidate': dict.fromkeys(corpus.CASE_COMPARE_KEYS['volume']),
+                    field: True if field == 'match' else [],
                 })), corpus.EXPECTED_CASES['volume'])
 
 
@@ -912,7 +914,9 @@ class ParallelCaseCountTests(unittest.TestCase):
             for explicit_count in (True, False):
                 with self.subTest(suite=name, explicit_count=explicit_count):
                     artifact, report = self.report(count)
-                    report['cases'] = [{'case': index, 'original': {}, 'candidate': {}, 'match': True}
+                    keys = pump_validate_parallel.base.CASE_COMPARE_KEYS[name]
+                    report['cases'] = [{'case': index, 'original': dict.fromkeys(keys),
+                                        'candidate': dict.fromkeys(keys), 'match': True}
                                        for index in range(count)]
                     if not explicit_count:
                         del report['case_count']
