@@ -52,4 +52,4 @@ def run(c={},candidate=None):
  failed=isinstance(r,FailedTransactionMetadata);meta=r.meta() if failed else r
  return {'case':c,'signature_verification':True,'transaction_base64':base64.b64encode(bytes(tx)).decode(),'error':str(r.err()) if failed else None,'logs':meta.logs(),'inner':json.loads(meta.to_json())['inner_instructions'],'return':json.loads(meta.to_json()).get('return_data'),'before':before,'after':snap(),'names':{k:str(v) for k,v in names.items()},'account_keys':[str(k) for k in tx.message.account_keys]}
 if __name__=='__main__':
- rows=[run(c) for c in [{},{'complete':0},{'enable_migrate':0}]];write_json_report(R/'work/pump-migrate-recovery/prerequisites.json',rows);print(json.dumps([{'case':x['case'],'error':x['error'],'logs':x['logs'][-12:]} for x in rows],indent=2))
+ rows=[run(c) for c in [{'boost':True},{'boost':True,'complete':0},{'boost':True,'enable_migrate':0}]];write_json_report(R/'work/pump-migrate-recovery/prerequisites.json',rows);print(json.dumps([{'case':x['case'],'error':x['error'],'logs':x['logs'][-12:]} for x in rows],indent=2))
