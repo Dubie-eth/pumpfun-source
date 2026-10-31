@@ -81,6 +81,17 @@ class MayhemReportEncodingTests(unittest.TestCase):
                     self.assertEqual(keywords["encoding"].value, "utf-8")
                     self.assertIn("newline", keywords)
                     self.assertEqual(keywords["newline"].value, "\n")
+                # Byte publishers retain payload bytes; verify any explicit codec.
+                for node in ast.walk(tree):
+                    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                            and node.func.attr == "write" and node.args
+                            and isinstance(node.args[0], ast.Call)
+                            and isinstance(node.args[0].func, ast.Attribute)
+                            and node.args[0].func.attr == "encode"):
+                        encode = node.args[0]
+                        codec = encode.args or [k.value for k in encode.keywords if k.arg == "encoding"]
+                        if codec:
+                            self.assertEqual(codec[0].value, "utf-8", f"{path.name}:{node.lineno}")
                 checked += len(pinned)
                 if takes_output(tree):
                     with_output += 1

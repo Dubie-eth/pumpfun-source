@@ -343,7 +343,9 @@ def main():
             return 1
         print(f'hybrid144 assembled at {HYBRID}')
     sysroot = subprocess.check_output([str(HYBRID / 'rust/bin/rustc'), '--print', 'sysroot'], text=True).strip()
-    assert Path(sysroot).resolve() == (HYBRID / 'rust').resolve(), sysroot
+    if Path(sysroot).resolve() != (HYBRID / 'rust').resolve():
+        print(f'identity toolchain reports sysroot {sysroot}, expected {HYBRID / "rust"}', file=sys.stderr)
+        return 1
 
     (HOME_CACHE / 'locks').mkdir(parents=True, exist_ok=True)
 
