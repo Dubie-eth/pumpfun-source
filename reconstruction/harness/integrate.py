@@ -149,7 +149,7 @@ def make_patch(base: Path, part: Path, out: Path, tmp: Path):
                 mode = path.stat().st_mode
                 path.chmod(mode | 0o100 if executable else mode & ~0o100)
     git_diff = ['git', '-c', 'core.autocrlf=false', 'diff', '--no-index', '--binary',
-                '--no-ext-diff', '--no-textconv', '--no-renames', '--src-prefix=',
+                '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--src-prefix=',
                 '--dst-prefix=', '--', 'a/pump', 'b/pump']
 
     def run_diff(command):
