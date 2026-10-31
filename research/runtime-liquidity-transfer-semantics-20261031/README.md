@@ -27,3 +27,14 @@ implementation is under `src/instructions/liquidity/`. No fresh SBF build or
 window-score result is claimed for this host-only correction.
 
 Results: 6 captured-suite methods passed (124 existing fixed cases, 40 existing random cases and 24 new regression subcases); all 9 retained captures passed identity verification; all 242 tooling tests passed. These observations concern offline reconstruction behavior only. They do not establish byte identity or change a deployed program.
+
+An independent review passed 15 further delegate, owner-fallback, withdrawal,
+and second-transfer rollback cases. It also found a preexisting synthetic
+boundary outside this correction: with both source and destination balances at
+`u64::MAX`, an owner-authorized legacy SPL Token deposit succeeded in the
+captured program and wrapped the destination balance, while both the base and
+fixed hosts returned token error 14. The equivalent Token-2022 case returned
+14 and rolled back in the captured program and both hosts. These artificially
+inconsistent token totals do not establish a reachable on-chain state. The
+legacy-token boundary remains unmodelled; the delegated-transfer results are
+finite evidence and do not establish complete liquidity parity.
