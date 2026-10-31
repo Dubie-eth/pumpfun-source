@@ -151,11 +151,9 @@ class DependencyCache:
             or k.startswith("CARGO_PROFILE_")
         }
         ancestors = set()
+        # Cargo reads every parent of its working directory, including above the repository.
         for start in [crate, workspace]:
-            for directory in [start, *start.parents]:
-                ancestors.add(directory)
-                if directory == repository:
-                    break
+            ancestors.update([start, *start.parents])
         configs = {
             str(p): sha(p)
             for directory in ancestors
