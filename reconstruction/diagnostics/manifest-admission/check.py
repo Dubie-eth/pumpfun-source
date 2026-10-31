@@ -9,7 +9,8 @@ import stat
 def check_manifest(packet_dir):
     packet = Path(packet_dir)
     manifest_path = packet / 'manifest.json'
-    if not manifest_path.exists():
+    # exists() follows links, so a dangling manifest needs its own check.
+    if not manifest_path.exists() and not manifest_path.is_symlink():
         return {'status': 'no_manifest', 'errors': []}
     # The payload walk below lstats every entry under the packet root but
     # never the root itself, so a packet rooted in an external tree passed
