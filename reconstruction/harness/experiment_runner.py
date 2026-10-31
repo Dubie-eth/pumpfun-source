@@ -147,7 +147,9 @@ def artifacts(attempt):
             result[path.relative_to(attempt).as_posix()] = {
                 'sha256': digest(path.read_bytes()),
                 'executable': bool(path.stat().st_mode & 0o111)}
-        elif not path.is_dir(): raise ValueError('special output files are unsupported')
+        elif path.is_dir():
+            result[path.relative_to(attempt).as_posix() + '/'] = {'directory': True}
+        else: raise ValueError('special output files are unsupported')
     return result
 
 
