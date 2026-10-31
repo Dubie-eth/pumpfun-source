@@ -233,6 +233,8 @@ def ask_host(binary, rows):
 
 
 def mismatches(rows, answers):
+    if len(rows) != len(answers):
+        raise ValueError('one native answer is required per captured case')
     wrong = []
     for row, answer in zip(rows, answers):
         if answer == 'open':
@@ -273,6 +275,9 @@ class TrailingAccountsCapturedTests(unittest.TestCase):
         row = next(r for r, a in zip(self.rows, self.answers) if a == 'same' and r['base'] == 'ok')
         self.assertEqual(len(mismatches([row], ['6027'])), 1)
         self.assertEqual(len(mismatches([{**row, 'same': False}], ['same'])), 1)
+        for answers in ([], ['same', 'same']):
+            with self.assertRaisesRegex(ValueError, 'one native answer'):
+                mismatches([row], answers)
 
 
 if __name__ == '__main__':
