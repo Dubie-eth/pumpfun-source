@@ -137,6 +137,8 @@ def main(argv=None):
     try:
         blob = args.binary.read_bytes()
         secs = sections(blob)
+        if struct.unpack_from('<H', blob, 18)[0] not in (247, 263):
+            raise ValueError('control-flow decoding expects an EM_BPF or EM_SBPF image')
         version = struct.unpack_from('<I', blob, 0x30)[0]
         if version not in (0, 1):
             raise ValueError('control-flow decoding supports legacy SBPFv0/v1 ELF inputs only')
