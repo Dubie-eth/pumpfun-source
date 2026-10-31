@@ -878,7 +878,8 @@ def sha256_file(p):
 def main():
     if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
         print("FAIL: packet directory entry set mismatch"); return 1
-    m = json.load(open(os.path.join(PACKET, "manifest.json"), encoding="utf-8"))
+    with open(os.path.join(PACKET, "manifest.json"), encoding="utf-8") as stream:
+        m = json.load(stream)
     if not isinstance(m, dict) or set(m) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
     e = 0
@@ -912,10 +913,11 @@ if __name__ == "__main__": sys.exit(main())
             manifest[name] = sha256_file(str(path))
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
-    total_lines = sum(
-        sum(1 for _ in open(output_dir / name, encoding="utf-8"))
-        for name in os.listdir(output_dir) if (output_dir / name).is_file()
-    )
+    total_lines = 0
+    for name in os.listdir(output_dir):
+        if (output_dir / name).is_file():
+            with (output_dir / name).open(encoding="utf-8") as stream:
+                total_lines += sum(1 for _ in stream)
     print(f"[deep] wrote {len(manifest)+1} files, ~{total_lines:,} lines to {output_label}")
     return 0
 

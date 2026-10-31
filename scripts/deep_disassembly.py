@@ -954,7 +954,8 @@ def sha256_file(path):
 def main():
     if set(os.listdir(PACKET)) != EXPECTED_FILES | {"manifest.json"}:
         print("FAIL: packet directory entry set mismatch"); return 1
-    manifest = json.load(open(os.path.join(PACKET, "manifest.json")))
+    with open(os.path.join(PACKET, "manifest.json"), encoding="utf-8") as stream:
+        manifest = json.load(stream)
     if not isinstance(manifest, dict) or set(manifest) != EXPECTED_FILES:
         print("FAIL: manifest artifact set mismatch"); return 1
     errors = 0
@@ -967,8 +968,10 @@ def main():
             print(f"FAIL: {name} hash mismatch"); errors += 1
         else:
             print(f"  OK: {name}")
-    s = json.load(open(os.path.join(PACKET, "summary.json")))
-    w = json.load(open(os.path.join(PACKET, "windows-deep.json")))
+    with open(os.path.join(PACKET, "summary.json"), encoding="utf-8") as stream:
+        s = json.load(stream)
+    with open(os.path.join(PACKET, "windows-deep.json"), encoding="utf-8") as stream:
+        w = json.load(stream)
     if s["total_windows"] != len(w):
         print(f"FAIL: window count mismatch"); errors += 1
     else:
@@ -1001,11 +1004,11 @@ if __name__ == "__main__":
     (output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 
-    total_lines = sum(
-        sum(1 for _ in open(output_dir / name, encoding="utf-8"))
-        for name in os.listdir(output_dir)
-        if (output_dir / name).is_file() and not name.endswith(".gz")
-    )
+    total_lines = 0
+    for name in os.listdir(output_dir):
+        if (output_dir / name).is_file() and not name.endswith(".gz"):
+            with (output_dir / name).open(encoding="utf-8") as stream:
+                total_lines += sum(1 for _ in stream)
     print(f"[disasm] wrote {len(manifest) + 1} files, ~{total_lines:,} lines to {output_label}")
 
 
