@@ -681,8 +681,9 @@ def publish_certificate(path, cert):
     """Publish a complete certificate into a new path; never replace an output."""
     staged = None
     try:
+        # A valid output name can already fill the filesystem's component limit.
         with tempfile.NamedTemporaryFile(
-            "w", dir=path.parent, prefix="." + path.name + ".", delete=False
+            "w", dir=path.parent, prefix="." + path.name[:32] + ".", delete=False
         ) as stream:
             staged = Path(stream.name)
             stream.write(json.dumps(cert, indent=2) + "\n")
