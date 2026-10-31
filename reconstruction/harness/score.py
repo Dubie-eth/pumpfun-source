@@ -50,6 +50,11 @@ def body(image, secs, address, size):
     if any(type(value) is not int or value < 0 for value in
            (address, size, t['addr'], t['offset'], t['size'])):
         raise ValueError('function and .text bounds must be nonnegative integers')
+    # SBF instructions occupy 8-byte slots (LDDW two of them), so a range that
+    # does not start and end on a slot boundary cannot be normalized: the
+    # 8-byte decode would read a partial slot or run off the range.
+    if address % 8 or size % 8:
+        raise ValueError('function range must contain complete aligned instruction slots')
     if t['offset'] + t['size'] > len(image):
         raise ValueError('.text section extends beyond the ELF file')
     relative = address - t['addr']
