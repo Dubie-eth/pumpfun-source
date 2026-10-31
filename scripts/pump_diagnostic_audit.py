@@ -154,6 +154,9 @@ def main():
         raise ValueError('report has no paired logs to audit')
     result['source_report_sha256'] = hashlib.sha256(raw).hexdigest()
     result['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    # Stage beside the destination; a fresh destination root is the caller's to
+    # name, so its parent must exist before the staged file can be created.
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     # Audits are new evidence: never replace an input or a prior receipt.
     staged = None
     published = False
