@@ -79,8 +79,20 @@ def table_start(text, name):
     raise ValueError('missing literal manifest table: ' + name)
 
 
+def reject_cargo_configs(ws: Path):
+    """Refuse the unrecorded config files Cargo merges over the staged release recipe."""
+    # Cargo runs from ws: it reads every parent of ws and its CARGO_HOME, ~/.cargo.
+    directories = {directory / '.cargo' for directory in (ws.absolute(), *ws.absolute().parents)}
+    directories.add(Path.home() / '.cargo')
+    configs = [directory / name for directory in directories for name in ('config', 'config.toml')
+               if os.path.lexists(directory / name)]
+    if configs:
+        raise ValueError('unreviewed Cargo config: ' + ', '.join(map(str, sorted(configs))))
+
+
 def stage(src: Path, ws: Path, expected_inputs=None):
     expected_inputs = snapshot(src) if expected_inputs is None else expected_inputs
+    reject_cargo_configs(ws)
 
     def admitted_text(name):
         data = (src / name).read_bytes()
