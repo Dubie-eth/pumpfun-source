@@ -143,8 +143,9 @@ class Elf:
         raise ValueError(f'relocation extent is not in a file-backed section: {address:#x}+{size}')
 
     def pattern(self, start, size):
-        return [{'offset': at - start, **r} for at, r in sorted(self.relocations.items())
-                if start <= at < start + size]
+        selected = ((at, r) for at, r in self.relocations.items()
+                    if start <= at < start + size)
+        return [{'offset': at - start, **r} for at, r in sorted(selected)]
 
     def callsites(self, start, size):
         return [{'offset': at - start, 'target': target} for at, target in self.calls.items()
