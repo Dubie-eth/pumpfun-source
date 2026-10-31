@@ -106,6 +106,9 @@ jobs:
               python -B -m unittest discover -s scripts -p 'test_sbf_backend*.py'
               python -B scripts/test_pump_diagnostic_audit_coverage.py
               python -B scripts/test_pump_diagnostic_audit_publication.py
+              python -B scripts/test_report_stage_collision.py
+              python -B scripts/test_deep_analysis_capture_routes.py
+              python -B scripts/test_text_pointer_addresses.py
               python -B scripts/test_pump_diagnostic_audit_umask_mode.py
               python -B scripts/test_pump_fresh_output_optimized.py
               python -B scripts/test_amm_harness_content_cache.py
@@ -380,6 +383,7 @@ jobs:
           # by design when the bound tool changes, until the packet is re-reviewed and re-bound;
           # kept apart so a stale binding does not stop the rest of the evidence suite.
           - suite: archived-tool-bindings
+            commands: |
               python -B research/tooling-arithmetic-shift-counts-20261030/test_verify.py
               python -B research/tooling-revalidation-manifests-20261030/test_verify.py
               python -B research/tooling-revalidation-invocation-20261030/test_verify.py
@@ -399,6 +403,7 @@ jobs:
               python -B reconstruction/verification/mayhem-dispatch-boundaries/test_inventory.py
               python -B reconstruction/verification/mayhem-dispatch-boundaries/test_producer.py
           - suite: host-fragments
+            commands: |
               python -B -m unittest discover -s tests -p 'test_global_*_captured.py' -v
               python -B scripts/test_fee_host_validation.py
               python -B tests/test_recovered_curve_arithmetic.py
@@ -417,6 +422,7 @@ jobs:
         run: ${{ matrix.commands }}
       - uses: actions/upload-artifact@v4
         if: always()
+        with:
           name: validation-${{ matrix.suite }}
           path: |
             work/*.json

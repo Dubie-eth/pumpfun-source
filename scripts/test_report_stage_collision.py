@@ -31,7 +31,7 @@ class StageCollisionTests(unittest.TestCase):
                     'case_count': 1,
                     'suites': {'case': [{'original': {'logs': ['same']},
                                          'candidate': {'logs': ['same']}}]},
-                ).encode())
+                }).encode())
                 argv = ['audit', '--report', str(report), '--output', str(output)]
                 if module is strict:
                     argv += ['--candidate', str(candidate)]
