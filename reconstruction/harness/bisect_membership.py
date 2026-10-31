@@ -3,6 +3,7 @@
 import argparse
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -39,7 +40,16 @@ def narrow(revisions, evaluate, budget):
 
 
 def git(repo, *args):
-    return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.PIPE)
+    # Git's repository-local environment overrides -C, for example when this
+    # tool is launched by a hook or another Git command. The explicit --repo
+    # must select the history and archive, not that enclosing repository.
+    env = dict(os.environ)
+    local = subprocess.check_output(['git', 'rev-parse', '--local-env-vars'],
+                                    text=True, stderr=subprocess.PIPE).splitlines()
+    for name in local:
+        env.pop(name, None)
+    return subprocess.check_output(['git', '-C', str(repo), *args],
+                                   env=env, stderr=subprocess.PIPE)
 
 
 def revision_chain(repo, good, bad):
