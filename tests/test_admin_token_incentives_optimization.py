@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 EXPECTED_BASELINE = "4ffe8bd88761059693e481ae972443c10204f7af"
 MINT = b"\x07" * 32
+SOURCE = "programs/pump/src/incentives.rs"
 DISC = bytes([1, 2, 3, 4, 5, 6, 7, 8])
 FINANCIAL_ACCOUNTS = (
     "global", "global_volume_accumulator", "mint",
@@ -81,13 +82,12 @@ class AdminTokenIncentivesOptimizationTests(unittest.TestCase):
         build_dir = self.root / "build"
         build_dir.mkdir()
         (build_dir / "build.log.gz").write_bytes(gzip.compress(b"log"))
+        source = self.root / SOURCE
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"source-bytes")
+        self.source_sha256 = {SOURCE: file_sha(source)}
         self.build = build_dir / "build.json"
-        self.build.write_text(json.dumps({
-            "selected_toolchain": "v1.44",
-            "comparison": {"candidate_sha256": file_sha(self.candidate)},
-            "source_sha256": {},
-            "build_log_sha256": hashlib.sha256(b"log").hexdigest(),
-        }))
+        self.write_build(self.source_sha256)
         self.idl = self.root / "idl.json"
         self.idl.write_text(json.dumps({
             "instructions": [{"name": "admin_update_token_incentives"}],
@@ -98,6 +98,14 @@ class AdminTokenIncentivesOptimizationTests(unittest.TestCase):
         self.snapshot.write_text(json.dumps({
             "accounts": [{"program_name": "pump", "data_sha256": "snaphash"}]}))
         self.receipt_path = self.root / "receipt.json"
+
+    def write_build(self, source_sha256):
+        self.build.write_text(json.dumps({
+            "selected_toolchain": "v1.44",
+            "comparison": {"candidate_sha256": file_sha(self.candidate)},
+            "source_sha256": source_sha256,
+            "build_log_sha256": hashlib.sha256(b"log").hexdigest(),
+        }))
 
     def event_bytes(self, mint):
         return DISC + b"\x00" * 32 + mint + b"\x00" * 16
@@ -144,7 +152,8 @@ class AdminTokenIncentivesOptimizationTests(unittest.TestCase):
             "idl_sha256": file_sha(self.idl),
             "global_snapshot_sha256": file_sha(self.snapshot),
             "global_snapshot_account_data_sha256": "snaphash",
-            "source_sha256": {}, "dependency_sha256": {},
+            "source_sha256": {} if tamper == "receipt_sources" else self.source_sha256,
+            "dependency_sha256": {},
             "cases": cases,
             "summary": {"cases": 98, "target_successes": 43, "matched": 98},
         }
@@ -180,6 +189,27 @@ class AdminTokenIncentivesOptimizationTests(unittest.TestCase):
                 completed = self.run_driver(optimization)
                 self.assertNotEqual(completed.returncode, 0, completed.stdout)
                 self.assertNotIn("OK", completed.stdout)
+
+    def test_build_comparison_without_sources_rejected_in_all_modes(self):
+        # An empty map made the per-file source check vacuously true, so a
+        # build comparison that binds no source at all was printed as verified.
+        self.write_build({})
+        self.write_receipt("none")
+        for optimization in MODES:
+            with self.subTest(optimization=optimization or "normal"):
+                completed = self.run_driver(optimization)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                self.assertNotIn("OK", completed.stdout)
+                self.assertIn("build comparison binds no source", completed.stderr)
+
+    def test_receipt_without_sources_rejected_in_all_modes(self):
+        self.write_receipt("receipt_sources")
+        for optimization in MODES:
+            with self.subTest(optimization=optimization or "normal"):
+                completed = self.run_driver(optimization)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                self.assertNotIn("OK", completed.stdout)
+                self.assertIn("receipt binds no source", completed.stderr)
 
     def test_valid_receipt_accepted_in_all_modes(self):
         self.write_receipt("none")
