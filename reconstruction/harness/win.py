@@ -154,6 +154,8 @@ def best_candidates(w, cand, top=3):
     # scores all tie at zero, so an address-ordered shortlist can exclude even
     # an exact match. These small bodies are cheap to compare exhaustively.
     shortlist = scored[:max(8, top)] if og else scored
+    # Clones share a coarse score, so the cut must not choose among them by address.
+    shortlist = [row for row in scored if row[0] >= shortlist[-1][0]] if shortlist else []
     for j, s, n, name in shortlist:
         ct = cand.tokens(s, n)
         res.append((difflib.SequenceMatcher(None, orig_tok, ct, autojunk=False).ratio(), j, s, n, name))
@@ -238,6 +240,8 @@ def cmd_orig(a):
 
 def cmd_sym(a):
     cand = Cand(a.cand)
+    if not cand.funcs:
+        sys.exit('candidate has no function symbols; use an unstripped ELF')
     for s, n, nm in cand.funcs:
         d = demangle(nm)
         if re.search(a.regex, nm) or re.search(a.regex, d):

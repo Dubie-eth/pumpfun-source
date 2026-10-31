@@ -139,7 +139,12 @@ def main(argv=None):
         ap.error('unknown original windows: ' + ', '.join(missing))
     try:
         cand = Cand(a.candidate)
-        rows = [row for start in starts for row in measure_window(windows[start], cand, pattern, a.top, a.slots)]
+        rows = []
+        for start in starts:
+            measured = measure_window(windows[start], cand, pattern, a.top, a.slots)
+            if pattern is None and not measured:
+                ap.error(f'no candidate function for window {start:#x} in the ranked search scope')
+            rows.extend(measured)
     except (OSError, ValueError, KeyError, struct.error) as error:
         ap.error(f'cannot measure candidate: {error}')
     if pattern is not None and not rows:

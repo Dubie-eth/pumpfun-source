@@ -30,6 +30,19 @@ class MayhemReportEncodingTests(unittest.TestCase):
                         self.assertIn("newline", keywords)
                         self.assertEqual(keywords["newline"].value, "\n")
                         checked += 1
+                    elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                            and node.func.attr == "write" and node.args
+                            and isinstance(node.args[0], ast.Call)
+                            and isinstance(node.args[0].func, ast.Attribute)
+                            and node.args[0].func.attr == "encode"):
+                        # Byte publishers (PumpReport.write) store the payload
+                        # unchanged, so only the codec matters; str.encode
+                        # defaults to UTF-8.
+                        encode = node.args[0]
+                        codec = encode.args or [k.value for k in encode.keywords if k.arg == "encoding"]
+                        if codec:
+                            self.assertEqual(codec[0].value, "utf-8", f"{path.name}:{node.lineno}")
+                        checked += 1
         self.assertGreater(checked, 10)
 
 
