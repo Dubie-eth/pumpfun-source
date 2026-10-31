@@ -11,6 +11,9 @@ import unittest
 from unittest.mock import patch
 
 from solders.transaction import Transaction
+from solders.hash import Hash
+from solders.keypair import Keypair
+from solders.system_program import transfer, TransferParams
 
 import verify
 
@@ -74,6 +77,26 @@ class SignatureAdmissionTests(unittest.TestCase):
         self.assertEqual(len(receipts), 351)
         for receipt in receipts:
             verify.require_signatures(receipt)
+
+    def test_required_signature_cardinality_is_enforced(self):
+        # These signed message controls are not additional VM executions.
+        one = Keypair.from_seed(bytes([31]) * 32)
+        two = Keypair.from_seed(bytes([32]) * 32)
+        first = transfer(TransferParams(from_pubkey=one.pubkey(), to_pubkey=two.pubkey(), lamports=1))
+        second = transfer(TransferParams(from_pubkey=two.pubkey(), to_pubkey=one.pubkey(), lamports=1))
+        complete = Transaction.new_signed_with_payer([first, second], one.pubkey(), [one, two], Hash.default())
+        partial = Transaction.populate(complete.message, [complete.signatures[0]])
+        single = Transaction.new_signed_with_payer([first], one.pubkey(), [one], Hash.default())
+        self.assertEqual(single.message.account_keys[1], two.pubkey())
+        extra = Transaction.populate(single.message, [single.signatures[0], two.sign_message(bytes(single.message))])
+        for transaction in (complete, single):
+            verify.require_signatures({'transaction_base64': base64.b64encode(bytes(transaction)).decode()})
+        for transaction in (partial, extra):
+            # Both weaker all()/nonempty guards admit these valid signature
+            # vectors despite the missing or excessive declared signer count.
+            self.assertTrue(all(transaction.verify_with_results()))
+            with self.assertRaisesRegex(ValueError, 'invalid retained transaction signature'):
+                verify.require_signatures({'transaction_base64': base64.b64encode(bytes(transaction)).decode()})
 
 
 if __name__ == '__main__':

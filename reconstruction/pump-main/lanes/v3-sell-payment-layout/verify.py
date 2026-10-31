@@ -28,17 +28,20 @@ def digest(data):
 
 
 def require_signatures(receipt):
-    """Reject a retained receipt with no valid transaction signature.
+    """Require every signature declared by the retained transaction message.
 
     verify_with_results() returns one result per signature, so an unsigned
     transaction yields an empty list and all() accepts it. Require at least
-    one result before requiring all of them, as the sibling v3 verifiers do.
+    one result before requiring all of them. The vector must also cover exactly
+    the declared signers: a partial vector can contain only valid signatures.
     """
     import base64
     from solders.transaction import Transaction
     tx = Transaction.from_bytes(base64.b64decode(receipt['transaction_base64'], validate=True))
     results = tx.verify_with_results()
-    require(bool(results) and all(results), 'invalid retained transaction signature')
+    required = tx.message.header.num_required_signatures
+    require(required > 0 and len(tx.signatures) == len(results) == required and all(results),
+            'invalid retained transaction signature')
 
 
 def external_inputs(manifest):
