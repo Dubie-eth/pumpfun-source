@@ -45,7 +45,7 @@ def main():
  raw=a.report.read_bytes();report=json.loads(gzip.decompress(raw)if raw.startswith(b'\x1f\x8b')else raw);candidate=a.candidate.read_bytes();result=audit(report,hashlib.sha256(candidate).hexdigest(),a.expected_pairs);result['source_report_sha256']=hashlib.sha256(raw).hexdigest();result['checker_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest();require(not a.output.exists(),'Output already exists')
  a.output.parent.mkdir(parents=True,exist_ok=True);staged=None;published=False
  try:
-  with tempfile.NamedTemporaryFile('w',dir=a.output.parent,prefix='.'+a.output.name+'.',delete=False,encoding='utf-8',newline='\n')as stream:
+  with tempfile.NamedTemporaryFile('w',dir=a.output.parent,prefix='.strict-log-',delete=False,encoding='utf-8',newline='\n')as stream:
    staged=Path(stream.name);stream.write(json.dumps(result,indent=2)+'\n');stream.flush();os.fsync(stream.fileno())
   require(a.report.read_bytes()==raw and a.candidate.read_bytes()==candidate,'Input changed during audit')
   if publish_file(staged,a.output):staged=None
