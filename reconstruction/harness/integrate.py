@@ -37,14 +37,35 @@ def build_source(*args, **kwargs):
     return fastbuild.build(*args, **kwargs)
 
 
+def bound_capture(path):
+    """Return the ELF score.py scores against for this checkout's link form.
+
+    A native checkout stores base/original.so as a symlink, which read_bytes()
+    already follows; a core.symlinks=false checkout stores the link payload as
+    a regular file, and original_input resolves it to the real capture. A
+    synthetic harness may ship integrate.py alone, and then the path is bound
+    as given.
+    """
+    try:
+        from original_input import resolve_original
+    except ImportError:
+        return path
+    return resolve_original(path)
+
+
 def bound_scoring_inputs(src, baseline):
-    """Digest the composed source, scoring baseline and scorer tool.
+    """Digest the composed source, scoring baseline and the scorer's inputs.
 
     A crate build runs arbitrary build-script code, so the build may rewrite
     the composed tree it is scored from, the baseline it is scored against,
-    or the scorer itself; build_score_pair rechecks its bound inputs after
-    the paired build for the same reason. Content hashes (not mtimes) bind
-    the tree, so a build that only touches timestamps is not a change.
+    the scorer itself, or anything the scorer reads or imports;
+    build_score_pair rechecks its bound inputs after the paired build for the
+    same reason. Content hashes (not mtimes) bind the tree, so a build that
+    only touches timestamps is not a change.
+
+    score.py reads the reference ELF and the window inventory through BASE
+    (resolve_original(BASE/'original.so') and BASE/'functions.tsv') and loads
+    the modules beside it, so those are bound alongside the scorer.
     """
     def sha_file(path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -57,10 +78,24 @@ def bound_scoring_inputs(src, baseline):
         elif path.is_file():
             tree[relative] = sha_file(path)
     scorer = H / 'score.py'
+    support = {path.name: sha_file(path) for path in sorted(H.glob('*.py'))}
+    base = SC / 'base'
+    reference = {}
+    for name in ('original.so', 'functions.tsv'):
+        path = base / name
+        try:
+            if name == 'original.so':
+                # score.py scores against the resolved capture, not the link.
+                path = bound_capture(path)
+            reference[name] = sha_file(path) if path.is_file() else None
+        except OSError:
+            # A synthetic harness may omit the capture; binding absence still
+            # detects a reference file created during the build.
+            reference[name] = None
     # Synthetic/minimal harnesses may omit the scorer and stub its invocation.
     # Binding absence still detects a scorer created during the build.
-    return {'source': tree, 'baseline': sha_file(baseline),
-            'scorer': sha_file(scorer) if scorer.is_file() else None}
+    return {'source': tree, 'baseline': sha_file(baseline), 'reference': reference,
+            'support': support, 'scorer': support.get(scorer.name)}
 
 
 def crate_ignore(root: Path, *patterns):
