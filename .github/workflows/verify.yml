@@ -379,6 +379,7 @@ jobs:
               python -I -B scripts/test_verify_evidence_paths.py
               python research/tooling-disassembly-reproducibility-20261030/test_verify.py
               python -B tests/test_dependency_cache_manifest_state.py
+              python -B scripts/test_pump_dependency_cache_cargo_log.py
               python -B research/tooling-indirect-call-decoding-20261030/test_verify.py
               python -B tests/test_checkpoint_manifest_paths.py
           - suite: runtime-input-regressions
