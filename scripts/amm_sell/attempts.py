@@ -100,7 +100,8 @@ def main():
                   f'n={len(v):4} best_dist={min(dist) if dist else None}')
     elif a.cmd == 'seen':
         h = hashlib.sha256(Path(a.file).read_bytes()).hexdigest()
-        hits = [e for e in builds if e['inputs']['sell'] == h]
+        # A --patch attempt's input hash names its baseline, not what it compiled.
+        hits = [e for e in builds if e.get('output_sha256', {}).get('sell.rs', e['inputs']['sell']) == h]
         print(json.dumps([{'lane': e['lane'], 'approach': e['approach'], 'patch': e['inputs']['patch'],
                            'flags': e['inputs']['flags'], 'metrics': e.get('metrics'), 'status': e.get('status')}
                           for e in hits], indent=1) if hits else 'unseen')
