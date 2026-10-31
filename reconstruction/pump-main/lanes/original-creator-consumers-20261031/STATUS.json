@@ -1,6 +1,6 @@
 {
-  "status": "CORRECTED_AFTER_ONE_RETAINED_REAL_FAILURE_NOT_REPLAYED",
-  "verifierExecutions": 0,
+  "status": "VALIDATED_BOUNDED_REPLAY_AND_REQUIRED_CHECKS",
+  "verifierExecutions": 1,
   "testsOrCompileChecks": 0,
   "originalELFReadsThisStage": 0,
   "projectAnalysisCLI": 0,
@@ -28,5 +28,8 @@
   "premiseReferences": "PREMISES.md",
   "unchangedExecutableInputs": "UNCHANGED-EXECUTABLE-INPUTS.json",
   "previousVersionVerifierExecutions": 1,
-  "requiredScriptsExecuted": 0
+  "requiredScriptsExecuted": 2,
+  "toolingTests": 228,
+  "captures": 9,
+  "testedCommit": "07f2430f112c3ed97bb44cc92fb591cc6f953f48"
 }

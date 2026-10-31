@@ -1,13 +1,17 @@
 {
-  "status": "CORRECTIVE_PRETEST_REPLAY_PENDING",
+  "status": "VALIDATED_PUBLICATION_PACKET",
   "files": {
     "Ebe-to-S4.patch": {
       "bytes": 4735,
       "sha256": "7831968f34790f0f37b6e0ec35bb62967585ca93f5170440bff29a6921f74ca3"
     },
     "NOTES.md": {
-      "bytes": 8720,
-      "sha256": "43eb6f445ddab6d540dfac23d427ecb182097e34517891338e89d96808d6bab2"
+      "bytes": 9166,
+      "sha256": "38b45731463bcc0712fc7d7cf291b4819ac5a74934795faf18dd0b3d741033c7"
+    },
+    "PACKAGING-ONLY.json": {
+      "bytes": 847,
+      "sha256": "5bddce1e11adec62857446d6bb46c91bdcefffea0f0f38da2aa89f9ef489a396"
     },
     "PREMISES.md": {
       "bytes": 3947,
@@ -26,8 +30,8 @@
       "sha256": "60310aee374d9be0e339231e36aa4115cb9f38ec450b73cca8e70082ee8fdcaf"
     },
     "STATUS.json": {
-      "bytes": 1412,
-      "sha256": "f36e3f4311fb4d33e82c37824a6b0b35e23a4b6e8f42cdd169e2fec803281b31"
+      "bytes": 1504,
+      "sha256": "15abf1b84a13ae99d5a75ff9d221469568a31657a7c7842b151075c0463f254d"
     },
     "TECHNICAL-REVIEW.md": {
       "bytes": 5999,
@@ -40,6 +44,10 @@
     "UPSTREAM3524.json": {
       "bytes": 25795,
       "sha256": "d3cb9c257006a6834921bcd7b82a2e03135d19f95a76a371bc695c36bfa0afca"
+    },
+    "VALIDATION.json": {
+      "bytes": 2836,
+      "sha256": "34890b4972670e4571d7f6e39434bbf908fd37859ee5455429a12070da915300"
     },
     "inputs.json": {
       "bytes": 3929,
@@ -225,13 +233,28 @@
       "bytes": 52917,
       "sha256": "527bd086508ea5fda0a595c1014f1bea836db712427adb10de6f1acc8bbb186e"
     },
+    "validation-captures.tar.xz": {
+      "bytes": 39880,
+      "sha256": "a8906c89f072992a7c16e7bf649b6aff238a1bb66af2f86e88f954c441db569a"
+    },
+    "verification-receipt.json": {
+      "bytes": 1227,
+      "sha256": "638eb3444104e9904977a3ff9a13a473860ff69997b17726cc46704d516b9c08"
+    },
+    "verification.json": {
+      "bytes": 36301,
+      "sha256": "bffbfeb9a2fe59395f788fa89dedb2ff734f6a4c01d7a08f9ed4f3e96932f208"
+    },
     "verify.py": {
       "bytes": 21861,
       "sha256": "72205e242e9ea28d48ca7f6da6b2efb052e50390cb8d830da6168ab15da30a11"
     }
   },
-  "previousFailedVersion": "858cd6d63a0a300c96d37844f2ee4eca88b5268f",
+  "testedCommit": "07f2430f112c3ed97bb44cc92fb591cc6f953f48",
   "previousFailedReplays": 1,
-  "currentReplays": 0,
-  "originalInputsAndGraphUnchanged": true
+  "currentSuccessfulReplays": 1,
+  "requiredChecks": {
+    "captures": 9,
+    "toolingTests": 228
+  }
 }
