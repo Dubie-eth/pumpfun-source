@@ -267,6 +267,12 @@ def _build_locked(src: Path, work: Path, out: Path, quiet=False, recipe=None, ti
     )
     env['CARGO_TARGET_' + triple.upper().replace('-', '_') + '_RUSTFLAGS'] = '-Zremap-cwd-prefix='
     env.pop('RUSTFLAGS', None); env.pop('CARGO_ENCODED_RUSTFLAGS', None)
+    # These outrank the staged [profile.release] or wrap only the local crates.
+    for name in list(env):
+        if name.startswith('CARGO_PROFILE_') or name in (
+                'CARGO_INCREMENTAL', 'CARGO_BUILD_INCREMENTAL',
+                'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER'):
+            del env[name]
     receipt = work / 'link-receipt.json'
     link_env, link_record = link_order.configure(crate, R['rustc'], receipt)
     env.update(link_env)
