@@ -199,7 +199,7 @@ do not treat that historical package path as an installed entrypoint.
 | `pump_trade_fixture.py` |  | Local captured-dependency sell-v3 fixture; initialization performs no RPC. |
 | `pump_v3_configured_fee_differential.py` | ✓ | Configured creator-fee correction across three partial v3 handlers (SOL and synthetic USDC). |
 | `pump_validate_admin.py` | ✓ | Offline original-vs-recovered Pump administrative instruction differential tests. |
-| `pump_validate_all.py` |  | Run the published 38-suite bounded Pump corpus against one compiled ELF. |
+| `pump_validate_all.py` |  | Run the published 44-suite bounded Pump corpus against one compiled ELF. |
 | `pump_validate_authority.py` | ✓ | Offline original-vs-recovered Pump administrative instruction differential tests. |
 | `pump_validate_buy.py` | ✓ | Compare the partial regular-SOL buy-v3 SBF path with the captured original. |
 | `pump_validate_config_admin.py` | ✓ | Offline original-vs-recovered Pump administrative instruction differential tests. |
