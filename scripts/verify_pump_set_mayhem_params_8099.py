@@ -88,9 +88,12 @@ def main():
         assert json.loads(gzip.decompress(output.read_bytes())) == receipt
 
     assert len(receipt["cases"]) == len(receipt["candidate_cases"]) == 25
+    assert len(receipt["comparison"]) == 25, "comparison must cover every case"
     assert sum(case["error"] is None for case in receipt["cases"]) == 13
     for original, current, comparison in zip(
             receipt["cases"], receipt["candidate_cases"], receipt["comparison"]):
+        assert set(comparison["equal"]) == {"error", "before", "after", "events", "inner", "return_data"}, \
+            "comparison must check every field"
         assert all(comparison["equal"].values())
         for case in (original, current):
             tx = VersionedTransaction.from_bytes(
