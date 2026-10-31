@@ -25,8 +25,8 @@ All five passed with the first pin and failed with a second byte-identical pin.
 The fixed producers were rerun with the same inputs. All 1,127 case records
 are identical to the base records, and every receipt now admits both pin paths.
 Different-candidate and different-original controls reject in all five suites.
-`results.json` records receipt/case hashes and the two base dependency-role
-control failures, without publishing machine-specific provenance paths.
+`results.json` records receipt/case hashes and the base dependency-role
+control failures in two suites, without publishing machine-specific provenance paths.
 
 The new regression executes all five real producers, then checks both image
 roles and the new-pin acceptance. Both test methods pass. Eight affected
