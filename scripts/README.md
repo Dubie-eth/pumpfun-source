@@ -9,6 +9,11 @@ directly (others run as libraries of those steps or by hand). The non-Python fil
 
 ## Conventions
 
+The workflow input checker, `python scripts/check_workflow_inputs.py`, also needs
+the pinned packages in `requirements.txt`: PyYAML supplies its `yaml` import.
+Install those requirements in the selected Python environment before running it
+or the workflow input regression suites.
+
 For saved AMM verification on Windows or POSIX, run
 `python -B scripts/verify_pump_amm_checkpoint.py` with the pinned packages in
 `requirements.txt`. The current gate uses `amm_checkpoint_modules.py` to read the
