@@ -50,7 +50,9 @@ def locked_append(entry):
         fcntl.flock(lock, fcntl.LOCK_EX)
         with LOG.open('a') as log:
             log.write(json.dumps(entry, sort_keys=True) + '\n')
-        r = sell_score.rank(entry)
+        # Historical distances remain loggable, but cannot update the current scale's best.
+        current = (entry.get('metrics') or {}).get('score_version') == sell_score.SCORE_VERSION
+        r = sell_score.rank(entry) if current else None
         if r is not None:
             best = json.loads(BEST.read_text()) if BEST.exists() else None
             if best is None or r < tuple(best['rank']):

@@ -42,6 +42,8 @@ def lengthened(original):
         normalized=original.normalized[:END] + INSERTED + original.normalized[END:],
         entries=[at + SHIFT if at >= END else at for at in original.entries],
         hi=original.hi + SHIFT, secs=secs, relocations=dict(original.relocations),
+        calls={at + SHIFT if at >= END else at: target + SHIFT if target >= END else target
+               for at, target in original.calls.items()},
         funcs=[{'name': 'x4sell8cashback', 'start': START, 'size': SIZE + SHIFT}])
 
 
@@ -74,6 +76,8 @@ class ShiftedCandidateTests(unittest.TestCase):
         self.assertEqual(report['sell_size'], SIZE + SHIFT)
         self.assertEqual(report['lost_windows_normalized'], [])
         self.assertEqual(report['align_distance'], 1)
+        for name in ('sell_raw_equal', 'whole_elf_equal', 'allocation_image_equal', 'unstripped_elf_equal'):
+            self.assertFalse(report[name], name)
 
     def test_equal_size_capture_stays_at_zero(self):
         candidate = SimpleNamespace(**vars(self.original))
@@ -102,14 +106,69 @@ class ShiftedCandidateTests(unittest.TestCase):
         candidate.b = bytes(image)
         self.assertEqual(self.measure(candidate)['align_distance'], 2)
 
-    def test_unpaired_windows_keep_their_addresses(self):
+    def test_unpaired_windows_cannot_collide_with_original_call_addresses(self):
         candidate = lengthened(self.original)
         candidate.entries = candidate.entries[:-1]
         report = self.measure(candidate)
         self.assertIsNone(report['lost_windows_normalized'])
         calls = [row for row in score.listing(self.original, START, SIZE)
-                 if isinstance(row['target'], tuple) and row['target'][1] >= END]
+                 if isinstance(row['target'], tuple)]
         self.assertEqual(report['align_distance'], 1 + len(calls))
+
+
+    def test_external_or_unadmitted_call_is_not_rebased(self):
+        for relocation in (None, 10):
+            candidate = lengthened(self.original)
+            at = sell_slots(self.original, 'call')
+            candidate.calls.pop(at)
+            if relocation is not None:
+                candidate.relocations[at] = {'type': relocation, 'symbol': 'external'}
+            self.assertEqual(self.measure(candidate)['align_distance'], 2)
+
+    def test_unrelocated_or_other_relocation_pointer_is_not_rebased(self):
+        for relocation in (None, 42):
+            candidate = lengthened(self.original)
+            at = sell_slots(self.original, 'lddw')
+            if relocation is None:
+                candidate.relocations.pop(at)
+            else:
+                candidate.relocations[at] = {'type': relocation, 'symbol': ''}
+            self.assertEqual(self.measure(candidate)['align_distance'], 2)
+
+    def test_unpaired_old_call_address_cannot_match_original_token(self):
+        raw = struct.pack('<BBhi', 0x85, 0x10, 0, (0x200 - 8) // 8)
+        rows = score.listing(SimpleNamespace(b=raw), 0, 8)
+        candidate = SimpleNamespace(entries=[0x208], calls={0: 0x200},
+                                    relocations={}, secs={})
+        original = SimpleNamespace(entries=[0x200], secs={})
+        rebased = score.rebase_candidate(rows, 0, candidate, original)
+        self.assertNotEqual(score.normalized_tokens(rows), score.normalized_tokens(rebased))
+        self.assertEqual(rebased[0]['fields'], ('unpaired_call', 0x200))
+
+    def pointer_row(self, value):
+        raw = struct.pack('<BBhi', 0x18, 0, 0, value) + bytes(8)
+        return score.listing(SimpleNamespace(b=raw), 0, 16)
+
+    def test_unpaired_old_pointer_address_cannot_match_original_token(self):
+        rows = self.pointer_row(0x1000)
+        original = SimpleNamespace(entries=[], secs={'.rodata': (0, 1, 2, 0x1000, 0, 16)}, b=bytes(16))
+        candidate = SimpleNamespace(entries=[], calls={}, relocations={0: {'type': 8}},
+                                    secs={'.rodata': (0, 1, 2, 0x1008, 0, 16)}, b=bytes(16))
+        rebased = score.rebase_candidate(rows, 0, candidate, original)
+        self.assertNotEqual(score.normalized_tokens(rows), score.normalized_tokens(rebased))
+        self.assertEqual(rebased[0]['fields'][0], 'unpaired_lddw')
+
+    def test_pointer_offsets_must_fit_both_file_backed_sections(self):
+        for kind, old_size, new_size, blob_size in ((1, 8, 16, 16), (8, 16, 16, 16),
+                                                   (1, 16, 16, 8)):
+            rows = self.pointer_row(0x2008)
+            original = SimpleNamespace(entries=[], secs={'.rodata': (0, kind, 2, 0x1000, 0, old_size)},
+                                       b=bytes(16))
+            candidate = SimpleNamespace(entries=[], calls={}, relocations={0: {'type': 8}},
+                                        secs={'.rodata': (0, 1, 2, 0x2000, 0, new_size)},
+                                        b=bytes(blob_size))
+            rebased = score.rebase_candidate(rows, 0, candidate, original)
+            self.assertEqual(rebased[0]['fields'][0], 'unpaired_lddw')
 
 
 if __name__ == '__main__':
