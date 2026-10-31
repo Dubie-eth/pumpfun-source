@@ -143,6 +143,9 @@ def ensure_lane(lane, source_root):
             staged.rename(baseline)
     if not baseline.is_dir() or baseline.is_symlink():
         raise ValueError('lane baseline must be an ordinary workspace directory')
+    if source_root is not None:
+        # A lane keeps one baseline; another source root needs a new lane.
+        recipe.verify_workspace(Path(source_root), baseline)
     if not ws.exists():
         shutil.copytree(baseline, ws, symlinks=True)
     harness.mkdir(parents=True, exist_ok=True)
