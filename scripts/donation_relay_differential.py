@@ -154,7 +154,7 @@ def prepare(case):
             put(k, lamports=0)
         put(whitelist, disc('MintWhitelistV1') + bytes([wb]) + bytes(4) + bytes(1024), RELAY)
         if native:
-            cap = json.loads(AMM_FIXTURE.read_text())['accounts']['quote_mint']
+            cap = json.loads(AMM_FIXTURE.read_text(encoding='utf-8'))['accounts']['quote_mint']
             put(mint, base64.b64decode(cap['data_base64']), TOKEN, cap['lamports'])
             put(source, lamports=0)
             proof['source_capture'] = {'path': str(AMM_FIXTURE.relative_to(ROOT)), 'sha256': H(AMM_FIXTURE.read_bytes())}
@@ -165,7 +165,7 @@ def prepare(case):
                  'from_token_account': source, 'temp_wsol_token_account': source, 'from': owner.pubkey(),
                  'payer': other.pubkey(), 'mint_whitelist': whitelist, 'associated_token_program': ATA,
                  'token_program': TOKEN, 'system_program': SYSTEM, 'event_authority': event, 'program': RELAY}
-        ix = next(i for i in json.loads(IDL.read_text())['instructions'] if i['name'] == name)
+        ix = next(i for i in json.loads(IDL.read_text(encoding='utf-8'))['instructions'] if i['name'] == name)
         metas = [AccountMeta(names[a['name']], a.get('signer', False), a.get('writable', False)) for a in ix['accounts']]
         message = case.get('message', 'ordinary donation').encode()
         data = (bytes(ix['discriminator']) + (1_000_000).to_bytes(8, 'little') + config
