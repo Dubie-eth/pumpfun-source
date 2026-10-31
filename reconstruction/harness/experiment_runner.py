@@ -215,7 +215,8 @@ def run_trial(source, command, destination, inputs=(), timeout=300):
                     reason = 'timeout'
                 finally:
                     try: os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError: pass
+                    # As in build_process: the session may already be gone.
+                    except (ProcessLookupError, PermissionError): pass
                     process.wait()
         retained = {}
         try:
