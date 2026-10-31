@@ -95,6 +95,9 @@ def identity(source, command, inputs, timeout, *, environment=None):
     command = list(command)
     if not command or not all(isinstance(x, str) and x for x in command):
         raise ValueError('command must be a nonempty argv array')
+    # exec cannot carry these, and fsencode refuses the rest; find out before any trial runs.
+    if any(b'\0' in os.fsencode(x) for x in command):
+        raise ValueError('command arguments must not contain NUL')
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 86400:
         raise ValueError('timeout must be positive and at most one day')
     environment = dict(os.environ if environment is None else environment)
