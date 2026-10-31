@@ -12,6 +12,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = 'scripts/reconstruction_roadmap.py'
 REVIEWED = 'a5174827043a35b76916afef10acb4ab25294bbec15eb55ae67a158ede521f85'
+READER = 'scripts/window_elf_reader.py'
+REVIEWED_READER = 'df1c2b1369e996146f05bd9f9714b112a013550fa25d1206f6b29e3ef079dd74'
 
 
 def trace_handler_attribution(elf, entries, forward, reverse):
@@ -50,14 +52,28 @@ def generate(root, output):
     raw = (root / SOURCE).read_bytes()
     if hashlib.sha256(raw.replace(b'\r\n', b'\n')).hexdigest() != REVIEWED:
         raise ValueError('unreviewed roadmap source')
+    reader_raw = (root / READER).read_bytes()
+    if hashlib.sha256(reader_raw.replace(b'\r\n', b'\n')).hexdigest() != REVIEWED_READER:
+        raise ValueError('unreviewed roadmap ELF reader')
     if output.exists() or output.is_symlink():
         raise ValueError('output already exists; retain prior packets')
-    sys.path.insert(0, str(root / 'scripts'))
+    reader = types.ModuleType('reviewed_attribution_reader')
+    reader.__file__ = str(root / READER)
+    exec(compile(reader_raw, reader.__file__, 'exec'), reader.__dict__)
     module = types.ModuleType('reviewed_roadmap')
     module.__file__ = str(root / SOURCE)
-    exec(compile(raw, module.__file__, 'exec'), module.__dict__)
+    previous_reader = sys.modules.get('window_elf_reader')
+    sys.modules['window_elf_reader'] = reader
+    try:
+        exec(compile(raw, module.__file__, 'exec'), module.__dict__)
+    finally:
+        if previous_reader is None:
+            sys.modules.pop('window_elf_reader', None)
+        else:
+            sys.modules['window_elf_reader'] = previous_reader
     module.trace_handler_attribution = trace_handler_attribution
     bindings = {SOURCE: hashlib.sha256(raw).hexdigest(),
+                READER: hashlib.sha256(reader_raw).hexdigest(),
                 'adapter_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     for info in module.PROGRAMS.values():
         path = info['deployed']
