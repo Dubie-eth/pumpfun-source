@@ -122,12 +122,18 @@ def main(argv=None):
     except re.error as error:
         ap.error(f'invalid symbol regex: {error}')
     starts = list(dict.fromkeys(a.start))
-    windows = {w['start']: w for w in original_windows()}
+    try:
+        windows = {w['start']: w for w in original_windows()}
+    except (OSError, ValueError, KeyError, struct.error) as error:
+        ap.error(f'cannot load original windows: {error}')
     missing = [hex(start) for start in starts if start not in windows]
     if missing:
         ap.error('unknown original windows: ' + ', '.join(missing))
-    cand = Cand(a.candidate)
-    rows = [row for start in starts for row in measure_window(windows[start], cand, pattern, a.top, a.slots)]
+    try:
+        cand = Cand(a.candidate)
+        rows = [row for start in starts for row in measure_window(windows[start], cand, pattern, a.top, a.slots)]
+    except (OSError, ValueError, KeyError, struct.error) as error:
+        ap.error(f'cannot measure candidate: {error}')
     if pattern is not None and not rows:
         ap.error('explicit --sym did not select any candidate function')
     if a.json:
