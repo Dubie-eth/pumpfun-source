@@ -245,6 +245,11 @@ jobs:
               python -B scripts/test_disassemble_staging_uniqueness.py
               python -B scripts/test_analyze_publication.py
               python -B scripts/test_verify_imported_lab_publication.py
+              python -B scripts/test_deep_disassembly_publication.py
+              python -B scripts/test_pump_macos_frontier_archive_publication.py
+              python -B scripts/test_sbpf_disassembly_inventory_publication.py
+              python -B scripts/test_sbpf_disassembly_roundtrip_publication.py
+              python -B scripts/test_pump_strict_ordered_logs_publication.py
               python -B scripts/test_verify_recovered_builds_receipts.py
               python -B scripts/test_pump_compare_function_bytes_report.py
               python -B tests/test_pump_compare_report_staging.py
