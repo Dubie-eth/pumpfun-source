@@ -12,8 +12,12 @@ def fresh_staging(parent, name):
     qualify the pid with a random token (probe_report.py, score.py); do
     the same here and retry on the rare collision instead of failing.
     """
+    # Leave room for the pid and token under a near-limit output basename.
+    prefix = name[:64]
+    while len(os.fsencode(prefix)) > 64:
+        prefix = prefix[:-1]
     for _ in range(100):
-        staging = parent / f'.{name}.{os.getpid()}-{secrets.token_hex(8)}'
+        staging = parent / f'.{prefix}.{os.getpid()}-{secrets.token_hex(8)}'
         try:
             staging.mkdir()
             return staging
