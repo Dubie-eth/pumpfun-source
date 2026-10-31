@@ -84,6 +84,12 @@ def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def text_address_range(elf):
+    """Text pointers use virtual addresses; legacy partial views use identity mapping."""
+    text = elf.secs.get('.text')
+    return (text[3], text[3] + text[5]) if text else (elf.lo, elf.hi)
+
+
 # ──────────────────────────────────────────────────────────────
 # Layer 1: Data Layout Analysis
 # ──────────────────────────────────────────────────────────────
@@ -91,6 +97,7 @@ def sha256_bytes(data):
 def analyze_data_layout(elf):
     """Analyze .rodata and .data.rel.ro sections in detail."""
     results = {}
+    text_start, text_end = text_address_range(elf)
     # SBPF V0-V2 use the lenient loader's legacy data relocations. V3+
     # uses a strict loader without relocation; unknown flags stay untouched.
     legacy_relocations = (len(elf.b) >= 52
@@ -168,7 +175,7 @@ def analyze_data_layout(elf):
                 # captured bytes. This is pointer attribution, not execution.
                 provenance = {"raw_value": hex(val), "relocation_type": 8}
                 val >>= 32
-            if elf.lo <= val < elf.hi and val % 8 == 0:
+            if text_start <= val < text_end and val % 8 == 0:
                 pointers.append({
                     "offset": i,
                     "address": hex(address_start + i),
@@ -324,6 +331,7 @@ def analyze_cross_section(elf):
     """Map which .text windows reference which data regions."""
     entries = elf.entries
     boundaries = entries + [elf.hi]
+    text_start, text_end = text_address_range(elf)
 
     # Build window index
     window_names = {}
@@ -360,7 +368,7 @@ def analyze_cross_section(elf):
                     refs["rodata"].append(hex(val))
                 elif data_rel_ro_range and data_rel_ro_range[0] <= val < data_rel_ro_range[1]:
                     refs["data_rel_ro"].append(hex(val))
-                elif elf.lo <= val < elf.hi:
+                elif text_start <= val < text_end:
                     refs["text"].append(hex(val))
                 elif val > 0:
                     refs["other"].append(hex(val))
