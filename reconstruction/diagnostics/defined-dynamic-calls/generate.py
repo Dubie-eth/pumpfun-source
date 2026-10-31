@@ -101,10 +101,12 @@ def generate(root, output):
         roadmap, elf, start, end, classify)
     roadmap.generate_roadmap(output)
     bindings['adapter_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    (output / 'dynamic-call-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n', encoding='utf-8')
+    (output / 'dynamic-call-inputs.json').write_text(json.dumps(bindings, indent=2) + '\n',
+                                                               encoding='utf-8', newline='\n')
     manifest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(output.iterdir())
                 if p.is_file() and p.name != 'manifest.json'}
-    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+    (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n',
+                                               encoding='utf-8', newline='\n')
 
 
 if __name__ == '__main__':
