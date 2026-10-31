@@ -10,6 +10,7 @@ For each candidate function (those whose symbol matches --sym, else the closest 
   higher `ratio` mean closer; only score.py decides acceptance.
 """
 import argparse
+import copy
 import difflib
 import json
 import re
@@ -85,7 +86,13 @@ def measure_window(w, cand, pattern=None, top=3, slots=12):
     otok = [x[2] for x in insns(w['raw'], start, ORIG_SECS)]
     ocalls = call_counts(w['raw'])
     rows = []
+    measured = {}
     for s, n, nm in picks:
+        if (s, n) in measured:
+            row = copy.deepcopy(measured[s, n])
+            row['symbol'] = demangle(nm)
+            rows.append(row)
+            continue
         raw = cand.fn(s, n)
         ccalls = call_counts(raw)
         norm = normalize(raw, s, cand.secs)
@@ -101,6 +108,7 @@ def measure_window(w, cand, pattern=None, top=3, slots=12):
             diff = [i for i in range(0, n, 8) if norm[i:i + 8] != w['norm'][i:i + 8]]
             row['slots_diff'] = len(diff)
             row['first_diff_offsets'] = [hex(i) for i in diff[:slots]]
+        measured[s, n] = row
         rows.append(row)
     rows.sort(key=lambda r: (-r['normalized_equal'], r.get('slots_diff', 1 << 30), -r['ratio']))
     return rows[:top] if pattern is None else rows
