@@ -110,7 +110,8 @@ def _run_pair(base, candidate, out, sdk, hybrid, timeout):
     receipt = {'sources': before, 'recipe': 'identity', 'cold_targets': True,
                **binding, 'builds': {}}
     def save():
-        (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n',
+                                         encoding='utf-8', newline='\n')
     save()
     reports = {}
     try:
@@ -126,7 +127,9 @@ def _run_pair(base, candidate, out, sdk, hybrid, timeout):
                 raise ValueError('source changed during build')
             windows = score.score(out / name / 'unstripped.so')
             reports[name] = windows
-            (out / (name + '-score.json')).write_text(json.dumps({'windows': windows}, indent=2) + '\n')
+            (out / (name + '-score.json')).write_text(
+                json.dumps({'windows': windows}, indent=2) + '\n',
+                encoding='utf-8', newline='\n')
         # The candidate build may have changed the base tree or any previously bound tool.
         if any(source_receipt(repo) != before[name]
                for name, repo in [('base', base), ('candidate', candidate)]):
