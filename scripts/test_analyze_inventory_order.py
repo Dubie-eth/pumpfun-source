@@ -11,11 +11,13 @@ import contextlib
 import io
 import json
 import pathlib
+import shutil
 import sys
 import tempfile
 import unittest
 from unittest import mock
 
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import analyze  # noqa: E402
 
@@ -41,8 +43,14 @@ def run_with_glob_order(reverse):
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         write_idls(root)
+        # analyze refuses to publish an empty binary report, so analyze one
+        # real capture alongside the synthetic IDLs.
+        capture = root / 'evidence' / 'original' / 'pump'
+        capture.mkdir(parents=True)
+        for name in ('deployed.so', 'capture.json'):
+            shutil.copyfile(ROOT / 'evidence' / 'original' / 'pump' / name, capture / name)
         with mock.patch.object(analyze, 'ROOT', root), \
-                mock.patch.object(analyze, 'program_names', return_value=[]), \
+                mock.patch.object(analyze, 'program_names', return_value=['pump']), \
                 mock.patch.object(pathlib.Path, 'glob', ordered_glob), \
                 contextlib.redirect_stdout(io.StringIO()):
             analyze.analyze()
