@@ -1,0 +1,47 @@
+{
+  "schema": "bounded-S1-S2-negative-package-manifest-v1",
+  "historicalOnly": true,
+  "candidateSourceAcceptance": "FAIL for S1 and S2",
+  "files": [
+    {
+      "path": "NOTES.md",
+      "bytes": 5919,
+      "sha256": "f6934155a89e50f2fa9fd42b2998d5521f092a1f903606354408f01ec61f3eb4"
+    },
+    {
+      "path": "captures.tar.xz",
+      "bytes": 5608232,
+      "sha256": "75026c3193be4c899a8b0323481fb78f6b4829aadf2ce57b9ec6b8885a9f3f46"
+    },
+    {
+      "path": "ECEA-to-S1.patch",
+      "bytes": 4386,
+      "sha256": "dd2dc153867bfe98e314ea02f9fc83c3447df292a42667a649e46a8630adf291"
+    },
+    {
+      "path": "S1-to-S2.patch",
+      "bytes": 3823,
+      "sha256": "a13a76df7de78e8a74e952b6ef08b83c393a5eebcaa084106514b4a1a78ceb5b"
+    },
+    {
+      "path": "inputs.json",
+      "bytes": 61672,
+      "sha256": "52080b8c42bf868b12e12558d1d119233a94455ebf4ce17cb1a0bec3b7568b38"
+    },
+    {
+      "path": "witnesses.json",
+      "bytes": 30594,
+      "sha256": "908596793fc31c9b88108c513f19a15a6bffd9556f9cd2d6425e65e2a09d97d4"
+    },
+    {
+      "path": "verify.py",
+      "bytes": 21350,
+      "sha256": "d5807580c1002da95e12d1b73e94bb849f2dd9884a8619e249953d04834696d9"
+    },
+    {
+      "path": "verification.json",
+      "bytes": 1628,
+      "sha256": "460f167f834ca665e7b92c6bdfab21d7501c489b10c382134f1684d55e96f087"
+    }
+  ]
+}
