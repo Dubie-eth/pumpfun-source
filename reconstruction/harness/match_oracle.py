@@ -7,10 +7,15 @@ import os
 from pathlib import Path
 import secrets
 import sys
-import fastbuild
-import score
-from original_input import copy_original_inputs
-from compare_scores import load_report, compare
+try:
+    import fastbuild
+    import score
+    from original_input import copy_original_inputs
+    from compare_scores import load_report, compare
+except Exception as exc:
+    # An uncaught exception exits 1, which the command contract reads as a valid non-match.
+    print(f'match oracle error: {exc}', file=sys.stderr)
+    raise SystemExit(2)
 
 
 def bound_scoring_inputs(directory):
