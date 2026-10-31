@@ -1,12 +1,18 @@
 {
-  "schema": "bounded-S1-S2-negative-package-manifest-v1",
+  "schema": "bounded-S1-S3-causal-evidence-package-manifest-v2",
   "historicalOnly": true,
-  "candidateSourceAcceptance": "FAIL for S1 and S2",
+  "candidateSourceAcceptance": {
+    "S1": "REJECTED/native no-loss FAIL",
+    "S2": "REJECTED/native no-loss FAIL",
+    "S3": "REJECTED/target metric, native no-loss SUCCESS"
+  },
+  "extendedReplay": "NOT_EXECUTED",
+  "verificationRecordScope": "verification.json currently preserves prior S1/S2 replay only; not S3 verification",
   "files": [
     {
       "path": "NOTES.md",
-      "bytes": 5919,
-      "sha256": "f6934155a89e50f2fa9fd42b2998d5521f092a1f903606354408f01ec61f3eb4"
+      "bytes": 9419,
+      "sha256": "cc205febdc2672806729b6a1aeea14b8b4d0254f12bd35cf9809b2f6c7e9f44d"
     },
     {
       "path": "captures.tar.xz",
@@ -35,13 +41,38 @@
     },
     {
       "path": "verify.py",
-      "bytes": 21350,
-      "sha256": "d5807580c1002da95e12d1b73e94bb849f2dd9884a8619e249953d04834696d9"
+      "bytes": 36488,
+      "sha256": "ae7bdbf942bacc853c829e87d6ae92a72cc424f20fa48125c9f642d155253b23"
     },
     {
       "path": "verification.json",
       "bytes": 1628,
       "sha256": "460f167f834ca665e7b92c6bdfab21d7501c489b10c382134f1684d55e96f087"
+    },
+    {
+      "path": "S3-captures.tar.xz",
+      "bytes": 3622996,
+      "sha256": "db16e7cd7ea44c94512e328feb2402b3992306991c7d4ba3ecab2acaedca291a"
+    },
+    {
+      "path": "13fe-to-S3.patch",
+      "bytes": 4391,
+      "sha256": "4b87cfde9987ba57724e14b740b9fd1dd67d1a39d78ada32ef6746c34f1e8ae1"
+    },
+    {
+      "path": "s3-inputs.json",
+      "bytes": 4192,
+      "sha256": "f5e01fa2c59126c58e61bf5843e1995075955f2876142fe38f6da7a67b426f18"
+    },
+    {
+      "path": "s3-witnesses.json",
+      "bytes": 11478,
+      "sha256": "eeb1fc289ddbbd9f8a3a1416bd3957bd9d906180ba1f9a069f653d626b8fe1bb"
+    },
+    {
+      "path": "s3-metric.json",
+      "bytes": 2313,
+      "sha256": "97188b8b63d5c4c542ccaa91f956847af15efd2a8bf00e8ccd65a2162de086f3"
     }
   ]
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Verify archived S1/S2 negative provenance and bounded raw joins; stdlib only."""
+"""Verify historical S1-S3 causal measurements and bounded raw joins; stdlib only."""
 import argparse,difflib,hashlib,io,json,re,struct,tarfile,zipfile
 from pathlib import Path,PurePosixPath
+from collections import Counter
 SYMBOL='_ZN14pump_recovered9admin_cto7execute17h3bd6d7f34f2e30d7E'
 ORIGINAL='7a19affaa2c6187e04a5fe0ea298cee81fa5eb8c24cfcc30d85f615e89f7b02d'
 COMMITS={'ECEA':'ecea7021fcb6a09959901522c6a4edca150a1a1b','S1':'66caa3e2de152190bab3d998e7f6df18243b8e1e','S2':'5cfe37b14b5486b802782651fde4a39985141494'}
@@ -173,6 +174,87 @@ def machine(images,w,original):
     outputs['S1']['projectionBeforeFee']=True;outputs['S2'].update(preselectionBeforeFee=True,validationFeeTagReads=1,targetDirectStores=6,curveAndPoolConsumerJoins=True)
     return outputs
 
+def token_metric(image,start,size):
+    """Literal score.normalize/win.insns method, using this file's ELF reader."""
+    ss,_=elf(image);h,text=ss['.text'];off=start-h[3];need(0<=off and off+size<=len(text),'metric body extent');raw=text[off:off+size];masked=bytearray(raw)
+    for p in logical(raw):
+        op,regs,disp,imm=struct.unpack_from('<BBhi',raw,p)
+        if op==0x18:
+            value=struct.unpack_from('<I',raw,p+4)[0]|struct.unpack_from('<I',raw,p+12)[0]<<32
+            if any(h[3]>0 and h[3]<=value<h[3]+h[5]for h,data in ss.values()):masked[p+4:p+8]=bytes(4);masked[p+12:p+16]=bytes(4)
+        elif op==0x85 and regs>>4==1 and imm!=-1:masked[p+4:p+8]=bytes(4)
+    return raw,tuple(bytes(masked[p:p+(16 if raw[p]==0x18 else 8)])for p in logical(raw))
+
+def mapped(instructions):
+    return[{'offset':int(p,0),'raw':raw}for p,raw in instructions.items()]
+
+def s3_native(image,w,original):
+    ss,sy,sym,raw=target(image);need(sym[3:]==(141840,27400)and len(list(logical(raw)))==3337 and sha(raw)==w['bodySha256'],'S3 exact body');exact(raw,mapped(w['instructions']));r,succ,pred,blocks=graph(raw)
+    need(r[8]==(0x7b,0x4a,-2296,0),'S3 incoming R4 fee tag spill')
+    bound=w['prepareCall'];reads=[p for p,v in r.items()if p<bound and v[0]==0x79 and v[1]>>4==10 and v[2]==w['feeSlot']];need(reads==w['feeReads']==[0x9f8,0x1480,0x14d8],'S3 three bounded fee-tag reads')
+    need(all(len(w[k])==3 for k in('feeReads','feeTests','feeNoneEntries','feeSomeEntries','preFeeStoreGroups')),'S3 complete three-arm fee/store metadata')
+    writes=[p for p,v in r.items()if p<bound and(ab:=fpwrite(v))is not None and ab[0]<-2288 and -2296<ab[1]];need(writes==[8],'S3 direct fee-slot reaching store')
+    for read,test,no,some in zip(reads,w['feeTests'],w['feeNoneEntries'],w['feeSomeEntries']):
+        op,reg,disp,imm=r[test];need(test==read+8 and op==0x15 and reg&15==r[read][1]&15 and imm==0 and succ[test]=={no,some}and some==test+8,'S3 exact fee split')
+    head=w['privateHead'];actual=blocks[head['start']];need(actual['end']==head['end']and set(actual['predecessors'])==set(head['predecessors'])=={0x1608}and set(actual['successors'])==set(head['successors']),'S3 private successful-fee block')
+    no=w['noFeeHead'];actual=blocks[no['start']];need(actual['end']==no['end']and set(actual['predecessors'])==set(no['predecessors'])and set(actual['successors'])==set(no['successors']),'S3 representative fee-None shared block')
+    need([p for p in r if head['start']<=p<head['end']]==[0x17c0,0x17c8,0x17d0,0x17d8]and r[0x17d0]==(0x79,0xa2,-2304,0),'S3 four-row private shared head')
+    need(all(head['start']not in reachable(succ,p)for p in w['feeNoneEntries'])and all(head['start']in reachable(succ,p)for p in w['feeSomeEntries']),'S3 Some reaches private head; None cannot')
+    need([p for p,v in r.items()if p<0x3c8 and defines(v,7)]==[0x100,0x190,0x198]and r[0x3c8]==(0x7b,0x7a,-2304,0),'S3 shared R7 provenance and delayed spill')
+    owner=lambda p:next(start for start,b in blocks.items()if start<=p<b['end'])
+    for group,read in zip(w['preFeeStoreGroups'],reads):need(len(group)==4 and all(p<read and owner(p)==owner(read)and r[p][0]==0x7b and r[p][1]&15==10 for p in group),'S3 target store arm precedes fee test in same block')
+    scoped=lambda name:'pump_recovered9admin_cto8validate'in name or'pump_recovered9admin_cto7execute5sweep'in name
+    need(not[s for s in sy if s[1]&15==2 and s[4]>0 and scoped(s[0])],'S3 no nonzero scoped validate/sweep symbols')
+    names={}
+    for name,info,sec,addr,size in sy:names.setdefault(addr,[]).append(name)
+    need(not[p for p,v in r.items()if v[0]==0x8d]and not[p for p,v in r.items()if v[0]==0x85 and v[1]>>4==1 and any(scoped(n)for n in names.get(141840+p+8+v[3]*8,[]))],'S3 no scoped outline or CALLX witness')
+    c=w['consumerWitnesses'];exact(raw,mapped(c['targetWrites']));exact(raw,mapped(c['curvePairs']));exact(raw,mapped(c['pool']['caller']));exact(raw,mapped(c['sharingAssembly']));exact(raw,mapped(c['sharing']['caller']))
+    lo,hi=c['targetFrame'];stores=[p for p,v in r.items()if(ab:=fpwrite(v))is not None and ab[0]<hi and lo<ab[1]];need(stores==sorted(int(p,0)for p in c['targetWrites']),'S3 selected target direct-store census')
+    need(c['targetFrame']==[-1376,-1344]and c['sharingFrame']==[-1588,-1555],'S3 distinct outgoing argument buffers')
+    for label,callpc,argpc,argprev in [('pool',0x51f8,0x51e0,0x51d8),('sharing',0x4e38,0x4e30,0x4e28)]:
+        item=c[label];addr=int(item['address'],0)if isinstance(item['address'],str)else item['address'];needle='cpi14admin_cto_pool17h'if label=='pool'else'cpi24admin_cto_sharing_config17h';found=[s for s in sy if s[1]&15==2 and needle in s[0]];need(len(found)==1 and found[0][3:]==(addr,item['bytes'])and r[callpc][0]==0x85 and r[callpc][1]>>4==1 and 141840+callpc+8+r[callpc][3]*8==addr,'S3 actual consumer call '+label)
+        need(pred[argpc]=={argprev}and reachdefs(r,pred,3,callpc)=={argpc},'S3 outgoing argument register bridge '+label);h,text=ss['.text'];a=addr-h[3];helper=text[a:a+item['bytes']];need(sha(helper)==item['sha256'],'S3 helper body '+label);exact(helper,mapped(item['serializer']))
+    os,_=elf(original);h,text=os['.text'];old=text[141840-h[3]:169240-h[3]]
+    families=w['originalFamilyCorrection']['families'];need([x['name']for x in families]==['Validated nonholder target reconstruction','Post-fee shared-nonholder input payload transport','Post-flags selected target outer pack and true use']and all(x['instructions']for x in families),'S3 complete distinct original copy-family witnesses')
+    for family in families:exact(old,mapped(family['instructions']))
+    return{'CTOBytes':27400,'logicalInstructions':3337,'validationFeeTagReads':3,'privateFeeSomeSharedHead':True,'noScopedOutlineOrCALLXWitness':True,'preFeeTargetStoreArms':3,'distinctTargetAndSharingArgumentBuffers':True,'consumerScope':'Selected raw points/direct target-store census/outgoing register bridges and serializer bytes; not full bytewise or opaque-callee alias analysis.','originalFamilies':'Selected-target transport and separate late entry-new/sharing transport remain distinct; no Result/Try type inference.'}
+
+def s3_extension(here,repo,olddata,oldprov,original):
+    m=js((here/'s3-inputs.json').read_bytes());commits={'13fe':'13fe4536be64d8c5c10f8905e9d2236f423ac4f4','S3':'65f0162a3dcd381df0f831082dd6732c9af4ab78'};need(m['commits']==commits,'S3 source cohorts')
+    pins={'13fe':'875edcd6e9ebb7e5b8fb2495d0008e723762b1f0251a02e038881fb56749fa92','S3':'0f1a82695dd41525fffbebe667c3067062a9a1fd1fd3fb4b70cbdb054965bdda'};elfpins={'13fe':'cec841bd60cc002213829e3149e7c170dbb7f5bbc47a9887cef1ab7e0193319e','S3':'100d222047a2281a4409d8f732266955368504479d3d4076b4f6e3af08ef37e4'}
+    archive=(here/m['archive']['path']).read_bytes();need(sha(archive)==m['archive']['sha256']and len(archive)==m['archive']['bytes'],'S3 normal archive');packed=tarbytes(archive);need(set(packed)==set(m['archive']['members'])and set(packed).isdisjoint(olddata),'S3 normal member domain');data={n:b for n,(b,e)in packed.items()}
+    for n,b in data.items():need(m['archive']['members'][n]=={'bytes':len(b),'sha256':sha(b)},'S3 archive member '+n)
+    z={};prov={};images={};scores={};sources={}
+    for key,commit in commits.items():
+        raw=data['raw/'+key+'.zip'];count=43 if key=='13fe'else 45;need(sha(raw)==pins[key]and m['rawArchives'][key]=={'member':'raw/'+key+'.zip','sha256':sha(raw),'members':count},'S3 exact raw ZIP '+key);z[key]=zipfile.ZipFile(io.BytesIO(raw));need(len(z[key].namelist())==count,'S3 raw ZIP count')
+        prov[key]=provenance(z[key],commit,olddata,repo);need(prov[key][1]['files']==oldprov['ECEA'][1]['files'],'S3 same recorded CORE236 bytes/modes');images[key]=z[key].read('unstripped.so');need(sha(images[key])==elfpins[key],'S3 exact ELF '+key);scores[key]=js(z[key].read('score.json'));sources[key]=prov[key][3][LEAF][0]
+        c=data['git/'+key+'.commit'];need(hashlib.sha1(b'commit '+str(len(c)).encode()+b'\0'+c).hexdigest()==commit,'S3 commit object');parents=[x[7:]for x in c.decode().splitlines()if x.startswith('parent ')];need(parents==(['963d1eefbed3a81a51d2d52f80026c5434a7a423']if key=='13fe'else[commits['13fe']]),'S3 exact source parent')
+        modes={'source':dict(Counter(x['mode']for x in prov[key][0]['files'])),'CORE':dict(Counter(x['mode']for x in prov[key][1]['files']))};need(modes==m['recordedModes'][key],'S3 recorded source/CORE modes')
+        root=js(data['receipts/'+key+'-root-admission.json']);need(root['base']==commit and root['images']['unstripped.so']==elfpins[key]and root['sourceSha256']==prov[key][5]['source_sha256']and root['sourceAndArchiveAdmission']==root['independentOfficialScorer']=='PASS','S3 retained root admission')
+        result=js(z[key].read('RESULT.json'));need('FAILURE.json'not in z[key].namelist()and result['base']==commit and result['sourceUnchanged']and result['registrySourceUnchanged']and result['toolInputsUnchanged']and result['coldTarget']and result['unstrippedSha256']==elfpins[key],'S3 native RESULT success retained')
+        ww=scores[key]['windows'];summary=scores[key]['summary'];need(len(ww)==1035 and summary['candidate_sha256']==elfpins[key]and summary['total']==1035 and(sum(x['normalized']for x in ww.values()),sum(x['raw']for x in ww.values()))==(1034,1034),'S3 saved membership totals')
+    ref=js(z['S3'].read('reference-admission.json'));need(ref['base']==commits['13fe']and ref['run']==41170683278 and ref['artifactId']==13031166975 and ref['originalZipSha256']==pins['13fe']and ref['coreEqual']and set(ref['files'])==set(z['13fe'].namelist()),'S3 exact control reference')
+    for n,e in ref['files'].items():
+        b=z['13fe'].read(n);need(e=={'bytes':len(b),'sha256':sha(b)},'S3 reference member '+n)
+    need(scores['13fe']['windows']==scores['S3']['windows'],'S3 all saved membership rows unchanged');comparison=js(z['S3'].read('CANDIDATE-COMPARISON.json'));need(comparison['changedRows']=={}and comparison['allRowsEqual']and comparison['fullRowsCompared']==1035 and comparison['noRawLosses']and comparison['noNormalizedLosses'],'S3 saved no-loss success comparison')
+    need([sha(sources[k])for k in commits]==['50ce2f82dacecc11ccc4b67409c21a5325cfdc3fc48a6e28cc322e06473ca715','32d4d71065f96e0d24f65ead880974a4e4cc95919ec2ef0bc113a0d536e3d7b9']and m['sourceSHA256']=={k:sha(v)for k,v in sources.items()},'S3 exact source leaves');a,b=(sources[k].decode().splitlines(True)for k in commits);need(len(a)==len(b)==772 and[i+1 for i,(x,y)in enumerate(zip(a,b))if x!=y]==[283,312,339],'S3 three-line source delta')
+    patch=''.join(difflib.unified_diff(a,b,fromfile='a/'+LEAF,tofile='b/'+LEAF)).encode();need(patch==(here/m['patch']['path']).read_bytes()and m['patch']=={'path':'13fe-to-S3.patch','bytes':len(patch),'sha256':sha(patch)},'S3 exact source patch');need(a[333]==b[333]and a[337]==b[337]and a[339:]==b[339:]and'(false,Some(new),true)'in b[338]and'Ok((holder,cashback,target,sharing_update,collect_old,skip))'in b[338],'S3 two volatile sites/downstream tail/original new settings payload')
+    need(set(prov['13fe'][2])==set(prov['S3'][2])and[n for n in prov['13fe'][2]if prov['13fe'][2][n]!=prov['S3'][2][n]]==[LEAF],'S3 sole staged source delta')
+    for field in('witnesses','metric'):
+        item=m[field];raw=(here/item['path']).read_bytes();need(len(raw)==item['bytes']and sha(raw)==item['sha256'],'S3 declaration '+field)
+    w=js((here/m['witnesses']['path']).read_bytes());metric=js((here/m['metric']['path']).read_bytes());need(w['ELFSha256']==elfpins['S3']and sha(olddata[w['originalFamilyCorrection']['sourceReceiptInOldArchive']])==w['originalFamilyCorrection']['sourceReceiptSha256'],'S3 witness/original family source binding')
+    cached=data[metric['cachedReceiptMember']];need(sha(cached)==metric['cachedReceiptSha256']=='2ab39d249030560c5a2dc9bcc98d47c3f463ea3ed69e81b507394af73783c045','S3 cached metric receipt')
+    expected={'win.py':'658cd1b0b7d8fa615e8e986843d1bb597a48d3626e05e0508fba7e651eb50c71','score.py':'5640d87864c6bc57005b8ada86f82dd1c944c92f5edf5181de4bb5e7568063f5','score_admission.py':'2d79d738d3a5ec17b3affe1f3e49aa077752f45260dc8b758c915cae1c96d088','instruction_stream.py':'288c9ceb3f0f177688501922ce56e6a72fe9c3fedcddf9ad1de474412f61ef9d','elf_symbols.py':'7bae771bbc9039a595e84c956500268b2601d2f97a93b3edcc83fbc348a9a74c'};need(metric['methodFiles']==expected,'S3 pinned metric algorithm versions')
+    for name,digest in expected.items():need(sha(olddata['core-source/reconstruction/harness/'+name])==digest,'S3 archived method '+name)
+    need(metric['original']['elfSha256']==ORIGINAL and all(metric['candidates'][k]['elfSha256']==elfpins[k]for k in commits)and metric['nativeNoLoss']=='SUCCESS'and metric['VMExecutions']==0,'S3 metric source/outcome declarations')
+    oraw,ot=token_metric(original,141840,27400);need(sha(oraw)==metric['original']['bodySha256']and len(ot)==3339,'S3 metric original body/tokens');results={}
+    for key in commits:
+        spec=metric['candidates'][key];_,_,sym,_=target(images[key]);raw,tokens=token_metric(images[key],sym[3],sym[4]);need(sym[3:]==(141840,27400)and sha(raw)==spec['bodySha256']and len(tokens)==spec['logicalInstructions']==3337,'S3 metric candidate body/tokens');matching=sum(x.size for x in difflib.SequenceMatcher(None,ot,tokens,autojunk=False).get_matching_blocks());ratio=2*matching/(len(ot)+len(tokens));need(matching==spec['normalizedMatchingLogicalInstructionsM']and ratio==spec['maintainedWinNormalizedRatio'],'S3 exact maintained target metric');results[key]={'normalizedM':matching,'ratio':ratio}
+    need(results['13fe']['normalizedM']==2245 and results['S3']['normalizedM']==1279 and results['S3']['normalizedM']-results['13fe']['normalizedM']==metric['deltaNormalizedM']==-966 and metric['sourceDecision']=='REJECTED_TARGET_METRIC','S3 target regression/source rejection')
+    held=data[m['held']['member']];need(sha(held)==m['held']['sha256'],'S3 held receipt');held=js(held);need(held['source']==commits['S3']and held['VM_executions']==0 and not held['private_snapshot_created']and not held['runner_started']and held['root_hold_honored'],'S3 VM held before launch')
+    need(not m['diagnostic']['publicTraceIncluded']and not m['diagnostic']['publicReplayClaim']and m['diagnostic']['controlELFSha256']==elfpins['13fe']and m['diagnostic']['S3ELFSha256']==elfpins['S3'],'S3 omitted private diagnostic is not replayed')
+    return{'cohorts':commits,'nativeNoLoss':'SUCCESS','savedMembershipRowsUnchanged':1035,'normalizedAndRawMembershipMatches':1034,'sourceDecision':'REJECTED_TARGET_METRIC','targetMetric':results,'deltaNormalizedM':-966,'recordedVMExecutions':0,'native':s3_native(images['S3'],w,original),'diagnostic':'PRIVATE_PENDING_NOT_INCLUDED_OR_REPLAYED','limits':'Different controls from S1/S2. Target-token similarity is not matched-window membership. No Rust tuple/Result niche, current-main gain, runtime, generic alias analysis or omitted diagnostic replay claim.'}
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--repo',type=Path);args=ap.parse_args();here=Path(__file__).resolve().parent
     repo=args.repo.resolve()if args.repo else next((q for q in here.parents if(q/'evidence/original/pump/deployed.so').is_file()),None);need(repo is not None,'provide --repo with checked-in original and pinned binary CORE inputs')
@@ -226,6 +308,7 @@ def main():
         b=data['prior/'+x['retained_text']];need(len(b)==x['bytes']and sha(b)==x['sha256']and gitblob(b)==x['git_blob'],'retained prior script/text')
     need(data['analysis/unqualified/S1-ABI.json']==b''and all(n in data for n in m['unqualified']),'empty/failed ABI evidence retained and unqualified')
     result={'status':'PASS_HISTORICAL_S1_S2_NEGATIVES_PRESERVED','commits':COMMITS,'sourceFiles':141,'stageFiles':142,'COREFiles':236,'negativeMeasurements':negatives,'machine':machine(images,w,original),'prior3384':'Exact execute-side fee-helper negative credited; reported old-base result, not replayed.','limits':'Recorded score arithmetic and selected actual raw/CFG/direct-frame/register/consumer joins only. Normally returning calls and private-buffer nonalias assumption. No compile, IR, VM, official scorer, Rust lifetime/type/whole-ABI equivalence, exterior-address-only theorem, latest-main executable qualification, source gain or followup source authorization.'}
+    result['S3Extension']=s3_extension(here,repo,data,prov,original);result['status']='PASS_HISTORICAL_S1_S2_S3_CAUSAL_EVIDENCE_PRESERVED'
     print(json.dumps(result,indent=2))
 if __name__=='__main__':main()
 
