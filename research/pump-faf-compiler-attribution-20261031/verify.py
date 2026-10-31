@@ -189,8 +189,15 @@ def verify(reference, actual, manifest):
     require(not re.search(rb'(?m)^\*\*\* IR Dump ', raw), 'original parser miss is not reproduced')
     headings = list(re.finditer(rb'(?m)^# \*\*\* IR Dump (Before|After) [^\r\n]+', raw))
     require(len(headings) == len(STAGES), 'actual LLVM stage census differs')
+    metadata = manifest.get('machineFunctions')
+    require(isinstance(metadata, list) and len(metadata) == len(STAGES),
+            'complete five-stage metadata required')
     derived, dump_rows = {}, []
-    for index, (heading, (timing, stage), expected) in enumerate(zip(headings, STAGES, manifest['machineFunctions'])):
+    for index, (heading, (timing, stage), expected) in enumerate(zip(headings, STAGES, metadata)):
+        filename = f'{index + 1:02d}-{timing.lower()}-{stage}.txt'
+        require(isinstance(expected, dict)
+                and (expected.get('timing'), expected.get('pass'), expected.get('file')) ==
+                (timing, stage, filename), 'stage metadata timing/pass/file differs')
         end = headings[index + 1].start() if index + 1 < len(headings) else len(raw)
         blob = raw[heading.start():end]
         require(('IR Dump ' + timing + ' ').encode() in heading.group()
@@ -222,9 +229,14 @@ def verify(reference, actual, manifest):
     require(target_ir == actual.packet.read('derived/admin-cto.ll'),
             'retained optimized target is not the exact full module slice')
     derived['admin-cto.ll'] = target_ir
-    for witness in manifest['witnesses']:
+    witnesses = manifest['witnesses']
+    require(isinstance(witnesses, list) and len(witnesses) == 50,
+            'complete fifty-witness metadata required')
+    for witness in witnesses:
         lines = derived[witness['file']].decode('utf-8').splitlines()
-        require(lines[witness['line'] - 1] == witness['text'], 'compiler witness differs: ' + witness['claim'])
+        line = witness['line']
+        require(type(line) is int and 1 <= line <= len(lines), 'compiler witness line out of bounds')
+        require(lines[line - 1] == witness['text'], 'compiler witness differs: ' + witness['claim'])
     return {'scope': 'Frozen FAF artifact evidence only; original strict native FAILURE preserved.',
         'sourceBase': BASE, 'sourceFiles': 141, 'coreFiles': 236, 'stagedFiles': 142,
         'sourceSha256': SOURCE, 'completeStrippedElfEqual': True, 'strippedSha256': sha(stripped),

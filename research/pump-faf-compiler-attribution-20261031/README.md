@@ -109,6 +109,14 @@ The saved official census is compared rather than independently recomputed.
 Root's retained `CODE-IR-ADMISSION.json` records the separate prior independent
 full-census recomputation.
 
+The manifest must contain all five stage records in the observed order. Each
+record's timing, canonical LLVM pass ID and canonical filename must agree with
+the corresponding actual log heading before its slice is joined. The verifier
+also requires all 50 witness checks and rejects lines that are not positive
+integers within their selected compiler output. Checks may share a file/line
+when one frame row supports several object joins. These metadata checks preserve
+the recorded pass IDs and all retained input bytes.
+
 ## Prior work and scope
 
 Post-optimization IR capture and stripped equality already appear in
