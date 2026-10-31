@@ -57,6 +57,7 @@ from window_elf_reader import Elf
 from amm_sell.test_best_version import BestScoreVersionTests
 from amm_sell.test_sell_distance import AlignmentDistanceTests
 from test_amm_sell_shifted_candidate import ShiftedCandidateTests
+from test_amm_sell_closure_symbol import SellSymbolTests
 
 
 from amm_sell.test_cached_status import CachedAttemptStatusTests
