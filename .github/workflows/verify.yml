@@ -251,6 +251,8 @@ jobs:
               python -B tests/test_pump_compare_report_staging.py
               python -B tests/test_experiment_placeholder_expansion.py
               python -B scripts/test_sbpf_disassembly_roundtrip_build_log.py
+              python -B scripts/test_sbpf_disassembly_inventory_long_output.py
+              python -B scripts/test_sbpf_disassembly_roundtrip_long_output.py
               python -B scripts/test_supported_sbpf_package_paths.py
               python -B scripts/test_pump_quote_control_function_match_output.py
               python -B reconstruction/toolchain/test_dependency_cache.py

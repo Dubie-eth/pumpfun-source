@@ -120,8 +120,10 @@ def main():
         raise FileExistsError(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     # Publish only a finished run: a raising program must not leave a partial
-    # directory without report.json that blocks the next run.
-    staging = Path(tempfile.mkdtemp(prefix='.' + output.name + '.', dir=output.parent))
+    # directory without report.json that blocks the next run. A valid output
+    # basename can sit at the filesystem's component limit; only the published
+    # name has to fit there, so keep the staging prefix short.
+    staging = Path(tempfile.mkdtemp(prefix='.' + output.name[:32] + '.', dir=output.parent))
     try:
         with tool_snapshot(tool, manifest['tool_sha256']) as (executable, _):
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
