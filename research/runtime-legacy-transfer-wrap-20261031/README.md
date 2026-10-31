@@ -53,3 +53,26 @@ The base probe reports `mismatches: 6`; the corrected host reports zero.
 The affected test is also invoked by the existing `host-fragments` CI job.
 The capture hashes are checked before execution. All transactions use only
 synthetic local LiteSVM accounts; no RPC or live action is involved.
+
+## Integration review
+
+Review used official Rust 1.94.0 (`-O -D warnings`) and solders 0.27.1.
+The same 29 captured cases independently reproduced six old-host discrepancies
+and zero fixed-host discrepancies. A further 49-case before/after probe includes
+34 joint delegated-overflow and late-failure cases (now a permanent regression
+method), plus the 15 normal delegate/owner-fallback/rollback holdouts from the
+earlier independent review. That probe improves from 14 discrepancies to zero.
+The prior source/destination `u64::MAX` example at its original LP amount of
+1,000 matches for both owner and delegate authority; Token-2022 still rejects
+and rolls back those destination overflows.
+
+The expanded suite passes eight methods: 124 fixed, 40 seeded, 24 original
+delegate, 29 overflow and 34 joint regression subcases, plus identity/tamper
+checks. The 34 joint cases overlap the separate 49-case probe and must not be
+counted again as additional VM coverage. Successful results compare complete
+account bytes, events and CPI payloads. For failed results, the host error
+protocol exposes the outcome rather than intermediate account bodies; the
+checker verifies the captured error, absence of an event and full captured
+account rollback. The synthetic-total, finite-case and unlinked-model limits
+remain in force. `review-validation.json` binds the current sources and images
+to this review; the earlier `results.json` retains the author's historical run.
