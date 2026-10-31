@@ -168,12 +168,22 @@ def write_report(path, text):
         break
     else:
         raise FileExistsError('could not create a unique score report staging file')
+    metadata = os.fstat(stream.fileno())
+    identity = metadata.st_dev, metadata.st_ino
     try:
         with stream:
             stream.write(text)
         temporary.replace(path)
+        temporary = None
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            try:
+                metadata = temporary.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                if (metadata.st_dev, metadata.st_ino) == identity:
+                    temporary.unlink()
 
 
 def main():
