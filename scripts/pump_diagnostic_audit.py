@@ -15,8 +15,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import re
-import tempfile
 
 
 def bound_input_key(path, root):
@@ -158,15 +158,11 @@ def main():
     staged = None
     published = False
     try:
-        with tempfile.NamedTemporaryFile(
-            'w',
-            dir=args.output.parent,
-            prefix='.' + args.output.name + '.',
-            delete=False,
-            encoding='utf-8',
-            newline='\n',
-        ) as stream:
-            staged = Path(stream.name)
+        # A plain exclusive open keeps the umask mode of the published audit.
+        # The hidden staged name is unique and links into an absent output
+        # only, preserving the no-replace and no-aliasing guarantees.
+        staged = args.output.with_name('.' + args.output.name[:32] + '.' + secrets.token_hex(8) + '.tmp')
+        with open(staged, 'x', encoding='utf-8', newline='\n') as stream:
             stream.write(json.dumps(result, indent=2) + '\n')
             stream.flush()
             os.fsync(stream.fileno())
