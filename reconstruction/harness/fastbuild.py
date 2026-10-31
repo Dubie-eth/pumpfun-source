@@ -144,9 +144,13 @@ def local_packages(crate: Path):
     return names
 
 
-def acquire_slot():
+def validate_slots():
     if SLOTS <= 0:
         raise ValueError('PUMP_BUILD_SLOTS must be a positive integer')
+
+
+def acquire_slot():
+    validate_slots()
     LOCKDIR.mkdir(parents=True, exist_ok=True)
     while True:
         for i in range(SLOTS):
@@ -210,6 +214,7 @@ def archive_previous_outputs(out: Path):
 
 def build(src: Path, work: Path, out: Path, quiet=False, recipe=None, timeout=None):
     validate_timeout(timeout)
+    validate_slots()
     src = src.resolve(); work = work.resolve(); out = out.resolve()
     # Reject overlap before workspace_lock can create a directory or lock in
     # the source tree (and thereby change its source-input receipt). The
