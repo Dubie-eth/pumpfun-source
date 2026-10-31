@@ -54,6 +54,8 @@ jobs:
           - suite: fastbuild-staging
             commands: |
               python -I -B tests/test_fastbuild_stage.py
+              python -B reconstruction/harness/test_fastbuild_ambient_linkers.py
+              python -B reconstruction/harness/test_fastbuild_ambient_overrides.py
               python -B reconstruction/harness/test_fastbuild_output_race.py
               python -B reconstruction/harness/test_build_publication_boundaries.py
               python -B reconstruction/harness/test_fastbuild_library_name.py
