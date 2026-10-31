@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -95,11 +96,11 @@ def publish_report(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = gzip.compress(payload, mtime=0) if path.suffix == '.gz' else payload
     temporary = None
+    # A plain exclusive open keeps the umask mode of the published report.
+    staged = path.with_name('.' + path.name[:32] + '.' + secrets.token_hex(8) + '.tmp')
     try:
-        with tempfile.NamedTemporaryFile(
-                dir=path.parent, prefix='.' + path.name + '.',
-                suffix='.tmp', delete=False) as stream:
-            temporary = Path(stream.name)
+        with open(staged, 'xb') as stream:
+            temporary = staged
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
