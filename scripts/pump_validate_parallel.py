@@ -175,7 +175,8 @@ def main():
         validate_timeout(args.suite_timeout)
     except ValueError:
         parser.error('--suite-timeout must be a positive finite number of seconds')
-    assert 1 <= args.shard <= args.shards
+    if not 1 <= args.shard <= args.shards:
+        parser.error(f'--shard must be between 1 and --shards ({args.shards})')
     buckets = [[] for _ in range(args.shards)]
     loads = [0] * args.shards
     for entry in sorted(base.SUITES, key=lambda row: (-base.EXPECTED_CASES[row[0]], row[0])):
