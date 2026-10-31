@@ -309,7 +309,7 @@ def apply_part(src, pf, text, patch_command, diagnostic):
             result = subprocess.run(argv, cwd=root, capture_output=True, text=True)
             if result.returncode:
                 detail = result.stdout + result.stderr
-                diagnostic.write_text(detail, encoding='utf-8')
+                diagnostic.write_text(detail, encoding='utf-8', newline='\n')
                 return {'status': 'conflict' if phase == 'check' and result.returncode == 1 else 'error',
                         'phase': phase, 'returncode': result.returncode, 'detail': detail[-1500:]}
         files = git_patched_files(command, root, directory, pf) if git_format else patched_files(text)
@@ -319,7 +319,7 @@ def apply_part(src, pf, text, patch_command, diagnostic):
         for value in (getattr(error, 'stdout', None), getattr(error, 'stderr', None)):
             if value:
                 detail += '\n' + (value.decode('utf-8', errors='replace') if isinstance(value, bytes) else value)
-        diagnostic.write_text(detail, encoding='utf-8')
+        diagnostic.write_text(detail, encoding='utf-8', newline='\n')
         return {'status': 'error', 'detail': detail[-1500:]}
 
 
@@ -397,7 +397,7 @@ def main():
                     retained = apply_directory_delta(prospective, sorted({*added, *kept}), removed)
                 except (FileExistsError, NotADirectoryError) as error:
                     detail = 'directory composition conflict: ' + str(error)
-                    diagnostic.write_text(detail, encoding='utf-8')
+                    diagnostic.write_text(detail, encoding='utf-8', newline='\n')
                     result = {'status': 'conflict', 'detail': detail}
                 else:
                     if added or removed:
@@ -439,7 +439,8 @@ def main():
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         report['error'] = str(error)
         exit_code = 1
-    (out / 'report.json').write_text(json.dumps(report, indent=1))
+    (out / 'report.json').write_text(json.dumps(report, indent=1),
+                                     encoding='utf-8', newline='\n')
     print(json.dumps({k: v for k, v in report.items() if k != 'parts'} | {'parts': [{k: p[k] for k in ('label', 'status')} for p in report['parts']]}, indent=1))
     return exit_code
 

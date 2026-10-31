@@ -127,7 +127,7 @@ def stage(src: Path, ws: Path, expected_inputs=None):
         raise ValueError('staged source inputs differ from admitted inputs: ' + ', '.join(changed[:10]))
     def put(p, t):
         if not p.exists() or p.read_text(encoding='utf-8') != t:
-            p.write_text(t, encoding='utf-8')
+            p.write_text(t, encoding='utf-8', newline='\n')
     put(crate / 'Cargo.toml', crate_text)
     put(ws / 'Cargo.toml', '[workspace]\nmembers = ["programs/pump"]\nresolver = "2"\n\n' + profile)
     put(ws / 'Cargo.lock', lock)
@@ -289,7 +289,8 @@ def _build_locked(src: Path, work: Path, out: Path, quiet=False, recipe=None, ti
     # before clearing the transient linker paths for the next compiler run.
     receipt.unlink(missing_ok=True)
     receipt.with_name('link.map').unlink(missing_ok=True)
-    (out / 'source-inputs.json').write_text(json.dumps(source_inputs, indent=2) + '\n', encoding='utf-8')
+    (out / 'source-inputs.json').write_text(json.dumps(source_inputs, indent=2) + '\n',
+                                            encoding='utf-8', newline='\n')
     # Never trust mtime freshness for local crates (rsync -a keeps source mtimes, so cargo could
     # otherwise reuse a stale pump artifact): drop their fingerprints (and the main output) so they
     # always recompile. This includes path crates nested in the staged crate, such as pump-token-ext;
@@ -307,7 +308,7 @@ def _build_locked(src: Path, work: Path, out: Path, quiet=False, recipe=None, ti
     finally:
         slot.close()
     dt = time.time() - t0
-    (out / 'build.log').write_text(r.stdout, encoding='utf-8')
+    (out / 'build.log').write_text(r.stdout, encoding='utf-8', newline='\n')
     if timed_out or r.returncode != 0:
         if not quiet:
             echo_diagnostics(r.stdout[-6000:])
