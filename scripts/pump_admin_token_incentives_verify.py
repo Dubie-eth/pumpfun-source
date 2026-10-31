@@ -85,6 +85,8 @@ def main(receipt_path=diff.OUTPUT, candidate_path=diff.CANDIDATE,
         check(regression["quote_control"]["receipt_sha256"] == diff.sha(quote_file), "quote regression receipt hash differs")
         check(regression["multi_hop_curve"]["receipt_sha256"] == diff.sha(curve_file), "curve regression receipt hash differs")
         check(quote["cases"] == 507 and quote["mismatches"] == 0, "quote regression cases/mismatches differ")
+        check(isinstance(quote.get("bound_inputs_sha256"), dict) and quote["bound_inputs_sha256"],
+              "quote regression binds no input")
         check(all(checksum == diff.sha(diff.ROOT / path)
                    for path, checksum in quote["bound_inputs_sha256"].items()), "quote bound input hash differs")
         check(curve["case_count"] == curve["passed"] == 56, "curve regression case count differs")
